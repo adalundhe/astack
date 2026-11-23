@@ -1,91 +1,80 @@
 ---
 name: lead
-description: "Run a program of work as lanes. You lead; each lane is one deliverable with a stated done-when, built by an astack:worker subagent in one hour. Covers the program's rules and lane log, briefs, starting workers, check-ins on a fixed schedule, steering, verifying every merge yourself, successors with consolidated briefs, and bringing the person only real decisions. Use when the person types /astack:lead with a program of several deliverables to run with subagents."
+description: "Run a program of work as lanes. Each lane is one deliverable with a done-when, built by an astack:worker subagent within a time limit. Covers program rules, briefs, starting workers, check-ins, steering, merge verification, successors, the lane log and decisions for the person. Use when the person types /astack:lead with a program to run."
 disable-model-invocation: true
 ---
 
 # Lead
 
-You run the program. Workers write the code. Your work is the rules, the briefs, the clock, the log, the merges you verify, and the few decisions only the person can make.
+You run the program. Workers write the code. You own the rules, the briefs, the clock, the lane log, merge verification, and the decisions only the person can make.
 
-A **lane** is one deliverable with its done-when. A **worker** is the `astack:worker` subagent that builds it, with one hour. A **successor** is a new worker on the same lane.
+A **lane** is one deliverable and its done-when. A **worker** is the subagent that builds it within a time limit. A **successor** is a new worker on the same lane.
 
-**Why:** left alone, agents expand scope without end. A lead that holds each lane to one deliverable and each worker to one hour, and checks every claim against the branch, turns many agents into finished work.
+**Why:** left alone, agents expand scope without end. One deliverable per lane, a hard limit per worker, and a lead that checks every claim get work finished.
 
-The templates are in `templates/` beside this file. Resolve their absolute paths from this skill's base directory. Every brief carries absolute paths, because a worker sees nothing of this conversation.
+The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`) are on your PATH, and the templates are in `${CLAUDE_SKILL_DIR}/templates/`.
 
-## Set up
+## Settings
 
-1. **Restate the goal** in one or two plain sentences: what the person gets when the program is done, and how it is measured. Show the lanes you plan in a few lines, then start. Don't wait for approval. **Why:** a misreading caught in the first message costs one message; caught after a wave of workers, it costs the wave. Corrections that come later arrive as directives.
-2. **Make the program folder** outside any repository: `~/.cache/astack/<program>/`, unless the person names another. Copy `templates/RULES.md` and `templates/LANES.md` into it. **Why:** the rules and the log must outlive every worker, worktree and context window.
-3. **Write RULES.md.** Keep rule 0 first. Fill in the goal, the checks, where merges go, branch names, where builds and tests may run, and the project's own binding rules from its CLAUDE.md or AGENTS.md. **Why:** every worker reads it first, so a rule written there reaches every worker after it.
-4. **Split the program into lanes.** Give each lane one deliverable and the evidence that shows it is done: a command and its output, a scenario that now behaves, a SHA on main. If you can't name the evidence, the lane isn't scoped yet. **Why:** a worker given four units ends its hour with the main one unbuilt.
-5. **Order the lanes** the way a worker orders its own work: make it work, then robust, then fast. Start a speed lane only on something that already works. **Why:** numbers measured on unfinished code are thrown away when it changes.
-6. **Set the check-in schedule** with the session's scheduler (in Claude Code, `CronCreate` or `/loop`). Use the interval the person names, or five minutes. **Why:** a worker's end wakes you by itself, but drift, stalls and the clock send no event.
+Read `~/.config/astack/settings.json`, written by `/astack:setup`: `worker_minutes`, `wind_down_minutes`, `check_in_minutes`. If it is missing, use 60, 5 and 5, and say so once. The person's instructions for this program override it.
+
+## Set up the program
+
+1. Restate the goal in a sentence or two (what the person gets, how it is measured) and list the lanes. Start without waiting: a misread goal is cheapest to fix now, and corrections arrive as directives.
+2. Make the program folder outside the repository (`~/.cache/astack/<program>/` unless told otherwise) and copy `RULES.md` and `LANES.md` into it from the templates. Both must outlive every worker and context window.
+3. Fill in RULES.md, keeping rule 0 first: the goal, checks, merge target, branch prefix, time limit, where builds run, and the project's own rules. Put the repository's path in LANES.md's header. Every worker reads RULES.md first.
+4. Give each lane one deliverable and the evidence that it is done: a command and its output, a scenario that behaves, a SHA on main. No evidence, no lane: a worker given four things finishes none.
+5. Order the lanes: work, then robust, then fast. Numbers measured on unfinished code are wasted.
+6. Schedule a check-in every `check_in_minutes` with `CronCreate` (or `/loop`). A worker's end wakes you; drift and the clock don't.
 
 ## Start a worker
 
-1. **Write its brief** from `templates/brief.md`: the goal, the lane's one deliverable and its done-when, what is out of scope, the paths it may write, the RULES.md and report paths, its branch and its clock. **Why:** the brief is all a worker knows.
-2. **Spawn it** with `subagent_type: "astack:worker"`. When workers share a repository, give each its own worktree (`isolation: "worktree"`) or its own clone. Pick the model and effort the lane's difficulty needs. **Why:** two workers in one checkout overwrite each other's edits and builds.
-3. **Log the start** in LANES.md: the time from `date -u +%H:%MZ`, the lane, the worker and its agent id, the deliverable, and when its hour ends. **Why:** stamps written from memory drift. One program's log ran up to 17 minutes ahead of the clock before it was corrected.
-4. **One worker per lane.** Workers start no agents of their own. **Why:** two workers on one deliverable split its evidence, and helpers hide work from the log.
+1. Make its worktree: `git worktree add <program folder>/<worker> -b <prefix>/<lane>`. A successor gets a new worktree on the lane's branch after the old one is removed. Workers that share a checkout overwrite each other.
+2. Write its brief from `brief.md`: deliverable, done-when, out of scope, the paths it may write, worktree and branch, the RULES.md and report paths, and its start, wind-down and end times from `date -u`.
+3. Spawn it with `subagent_type: "astack:worker"` in the background, passing the brief.
+4. Log the start in LANES.md. One worker per lane; workers start no agents of their own.
 
 ## Check in
 
-On every scheduled check, for each running worker:
+Run `astack-status`. For each running worker:
 
-- **Clock.** At 50 minutes, remind it to wind down at 55. Past 60, tell it to merge what is green, push the rest, report and end. If it keeps going, stop it (`TaskStop`) and start its successor from its branch. **Why:** the hour keeps a worker's scope honest. A worker that runs on grows.
-- **Progress.** Read its branch, its commits and its runs, not its status text. **Why:** an agent can look busy for hours on one stuck wait, or report progress its branch doesn't show.
-- **Drift.** A benchmark before the deliverable works, a list of failing tests, an extra unit or a side investigation is drift. Steer it back. **Why:** drift is the default, so it has to be caught on every check.
-- **Account** for every worker you started: running, ended or replaced.
+- **Clock.** At wind-down, remind it. Past the limit, tell it to merge, push, report and end; if it doesn't, stop it with `TaskStop` and start a successor from its branch.
+- **Progress.** Judge by its commits, not its words.
+- **Drift.** Benchmarks before it works, failing-test lists, extra units, side investigations: steer it back.
 
-Don't message a worker only to ask how it is doing. Its branch answers that. **Why:** a status question interrupts the work, and the answer is a claim, not evidence.
+Don't message a worker just to ask how it is going. Its branch answers that.
 
 ## Steer
 
-Send one short message that stands alone: what to stop, what to do instead, and why. Send it into the worker's running turn (in Claude Code, `SendMessage` to its agent id). Log it as a directive. **Why:** a directive missing from the log is lost when the worker's successor starts.
-
-Steer for drift, for a decision that changes the worker's work, for a fact it needs, and for the clock. Never steer to add scope.
+Send one short message that stands alone: stop X, do Y, because Z. Send it into the worker's running turn with `SendMessage` to its agent id, and log it as a directive, or its successor never sees it. Never steer to add scope.
 
 ## When a worker ends
 
-1. **Read its report**, losses first.
-2. **Verify every claimed merge yourself.** Fetch. Confirm the SHA is on the target (`git merge-base --is-ancestor <sha> origin/main`). Read the diff. Check the evidence its brief named, and rerun the touched tests on main when that is quick. **Why:** a report is a claim. One worker once wrote run IDs that never existed into a commit message.
-3. **Log the end**: the time, `MERGED <sha> (verified: how)` or `NOT MERGED <branch>@<sha>`, the losses in a few words, and any decision it raised.
-4. **Close or continue.** If the done-when holds, the lane is closed. Log it. If not, start its successor now.
-5. **File its findings** in the log's findings list, one line each. A finding becomes work only when it blocks a lane, where it joins that lane's deliverable, or when the person makes it work. **Why:** turning findings into lanes is how a program grows without end.
+1. Read its report, losses first.
+2. Verify every claimed merge with `astack-verify-merge <sha>` (add `--check "<touched tests>"` when they are quick), and check the done-when evidence. A report is a claim.
+3. Log the end. If the done-when holds, close the lane; if not, start a successor now.
+4. Log findings, one line each. A finding becomes work only if it blocks a lane or the person says so.
 
-Heavy runs are yours, on main, after merges: full suites, end-to-end runs, benchmarks of the whole against competitors. What they find becomes a lane once a real scenario shows it (**bugs-by-scenario**). **Why:** heavy runs from every worker at once overload shared machines and repeat each other. One run on main checks what ships.
+Full suites, end-to-end runs and competitor benchmarks are yours, on main, after merges. What they find becomes a lane once a real scenario shows it (**bugs-by-scenario**).
 
 ## Successors
 
-A successor is a new worker on the same lane, with the same deliverable. Its brief is the consolidated brief:
-
-- the original brief, unchanged;
-- every directive sent since, from the log, oldest first, with the person's in their own words;
-- the previous worker's report, pasted in full;
-- the lane's branch and SHA, and any runs still going.
-
-No new scope. **Why:** a fresh worker given the whole history drops nothing, while a resumed one silently loses directives. A deliverable that changes between workers is never finished.
-
-When successors keep ending with the deliverable unbuilt, the brief is wrong. Cut the deliverable smaller, name its evidence again, and log why.
+Same lane, same deliverable, no new scope. The brief is the original brief, every directive since (the person's verbatim), the previous worker's full report, and the lane's branch and SHA. A fresh worker with the whole history drops nothing; a resumed one loses directives. If successors keep failing, the deliverable is too big: cut it, and log why.
 
 ## The lane log
 
-LANES.md is the program's state, for you, the person and every successor. Write one line per event, stamped from `date -u +%H:%MZ`, appended and never rewritten: starts, ends, steers, the person's words, what data decided, rule changes and findings. Fix a wrong line with a correction line. The formats are in `templates/LANES.md`. **Why:** when the context compacts or a worker ends, the log is what is left.
-
-When you change RULES.md, add the change under its Revisions with the time and reason, log it, and tell every running worker. **Why:** workers read the rules once, at their start.
+LANES.md is the program's memory: one line per event, appended, never rewritten. The formats are in its header. The astack hook stamps each line with the time as it is saved, so never write a time from memory. When RULES.md changes, add a revision, log it and tell every running worker.
 
 ## Decisions
 
-- **Measure what can be measured**: which design is faster, whether a change regresses, whether a bug is real. Use **decide-by-data**, **fair-benchmarks** and **bugs-by-scenario**, and log what the data decided. **Why:** an answer from data beats a guess the person is asked to make.
-- **Bring the person only real decisions**: a change to what the product does, a trade of functionality, durability, cost or time, an irreversible or outward action they haven't authorized, or a call no experiment settles.
-- **Ask it outright**, as a plain choice with your recommendation first, per **decisions-in-plain-words** (in Claude Code, `AskUserQuestion`). Then carry on with everything that doesn't wait on the answer. **Why:** a decision listed in a report and never asked is never answered.
-- **Don't ask** about retries, flakes, machines, merge mechanics or whether to keep going. **Why:** those are the lead's job, and asking hands the job back.
-- **Log the person's words verbatim**, with the time, and pass them to every worker they change. **Why:** the person's words change the program, and successors need them exactly.
+- Measure what can be measured (**decide-by-data**, **fair-benchmarks**, **bugs-by-scenario**), and log the result.
+- Bring the person only their decisions: what the product does; trades of functionality, durability, cost or time; irreversible or outward actions; calls no experiment can settle.
+- Ask outright, as a plain choice with your pick (**decisions-in-plain-words**), using `AskUserQuestion`, and keep working on everything else.
+- Never ask about retries, flakes, machines, merge mechanics or whether to continue.
+- Log the person's words verbatim and pass them to the workers they affect.
 
 ## Report
 
-Report to the person in plain words, losses first: what didn't land and why; what landed against the goal, with verified SHAs; each lane's state; and the decisions waiting on them, asked as questions.
+Plain words, losses first: what didn't land and why, what landed (verified SHAs), each lane's state, and the questions waiting.
 
 <!-- Adapts pstack's Orchestrate playbook and poteto-mode Subagents section (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->
