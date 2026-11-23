@@ -1,4 +1,4 @@
-# <program>: rules every lane reads first
+# <program>: rules every worker reads first
 
 Goal: <what the person gets when the program is done, and how it is measured>.
 Lead: <the lead's session>. Lane log: <absolute path to LANES.md>. Report format: <absolute path to report.md>.
@@ -16,23 +16,24 @@ Lead: <the lead's session>. Lane log: <absolute path to LANES.md>. Report format
    Why: left alone, agents expand scope without end. A complete implementation comes first, a robust one
    second, a fast one third.
 
-1. ONE HOUR, HARD. At 55 minutes, merge what is green, push the rest to your branch, write your report and
-   end. The lead starts your successor from your report.
-   Why: the hour keeps each lane on its deliverable, and the report is how the work outlives the lane.
+1. ONE HOUR, HARD. At 55 minutes, merge what is green, push the rest to your lane's branch, write your report
+   and end. The lead starts your successor from your report.
+   Why: the hour keeps each worker on its deliverable, and the report is how the work outlives the worker.
 
 2. MERGE GATE. Lint what you touched: `<lint command>`. Test what you touched: `<test command>`. When both
    pass, merge to <target>: `<merge and push steps>`. If the push is refused because <target> moved, fetch,
    merge, re-test the touched parts and push again. Never force-push. Commit per step, with the evidence in
    the message. Full suites, end-to-end runs and benchmarks of the whole run on <target> after the merge;
    they are the lead's.
-   Why: green work merged at once outlives the lane, and heavy runs from every lane overload shared machines.
+   Why: green work merged at once outlives the worker, and heavy runs from every worker overload shared
+   machines.
 
-3. WHERE YOU WORK. Your own clone or worktree at <path pattern>, on branch <prefix>/<area>. Write only the
+3. WHERE YOU WORK. Your own clone or worktree at <path pattern>, on branch <prefix>/<lane>. Write only the
    paths your brief names. Builds and tests run <where, and with the resources a run may take>.
-   Why: lanes that share a checkout or a build folder overwrite each other's work.
+   Why: workers that share a checkout or a build folder overwrite each other's work.
 
 4. THIS PROJECT'S RULES. <Its CLAUDE.md or AGENTS.md rules that bind every change, or their paths.>
-   Why: a program's lanes are held to the same bar as any other change to the project.
+   Why: the program's work is held to the same bar as any other change to the project.
 
 5. STANDING RULES. Each has an astack skill. Invoke it when its trigger fires.
    a. Decide by data. Build both designs, A/B them at the extremes, force their failure modes, and let the
@@ -46,7 +47,7 @@ Lead: <the lead's session>. Lane log: <absolute path to LANES.md>. Report format
    f. Tests assert behaviour, never elapsed time. (tests-assert-behaviour)
    g. Plain words to the person. Decisions go in your report as plain choices with a recommendation.
       (decisions-in-plain-words)
-   Why: each rule is in its skill, beside the rule.
+   Why: each skill gives the reason beside its rule.
 
 6. NEVER restart or touch other people's processes, runs or machines. Stop only runs you started. Never
    print or commit a secret. <This machine's rules: where big files go, what must not run here.>
@@ -58,6 +59,6 @@ Lead: <the lead's session>. Lane log: <absolute path to LANES.md>. Report format
 ## Revisions
 
 The lead appends each change here, with its time from `date -u +%H:%MZ` and its reason, and tells every
-running lane.
+running worker.
 
 <HH:MMZ> <what changed, and why>

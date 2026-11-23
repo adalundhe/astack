@@ -1,7 +1,7 @@
 # Lane report
 
-A lane's final message, in this format. Losses come first. A heading with nothing under it says "none".
-The lane agent (`agents/lane.md`) carries the same format, so change both together.
+A worker's final message on its lane, in this format. Losses come first. A heading with nothing under it
+says "none". The worker agent (`agents/worker.md`) carries the same format, so change both together.
 
 ```
 RESULT: DONE | NOT DONE: <what of the deliverable is missing, in one line>

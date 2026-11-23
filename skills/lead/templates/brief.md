@@ -1,7 +1,7 @@
-# Lane <name>: <the deliverable in a few words>
+# Lane <lane>: <the deliverable in a few words>
 
 Program goal: <one line, the same in every brief>.
-You are lane <name>, an astack:lane. Started <HH:MMZ>. Wind down at <HH:MMZ>. End by <HH:MMZ>.
+You are worker <worker> on lane <lane>. Started <HH:MMZ>. Wind down at <HH:MMZ>. End by <HH:MMZ>.
 
 Read first, in full: <absolute path to RULES.md>. Rule 0 outranks everything, this brief included.
 
@@ -21,11 +21,11 @@ Read first, in full: <absolute path to RULES.md>. Rule 0 outranks everything, th
 
 ## Out of scope
 
-<What this lane must not do, by name. Anything else you find goes in your report, one line each.>
+<What this worker must not do, by name. Anything else you find goes in your report, one line each.>
 
 ## Where
 
-Repository: <url or path>. Your worktree or clone: <path>. Branch: <prefix>/<area>.
+Repository: <url or path>. Your worktree or clone: <path>. Branch: <prefix>/<lane>.
 You may write: <paths>. Don't touch: <paths>.
 Checks: `<lint command>` and `<test command for what you touch>`. Merge: RULES.md rule 2.
 
@@ -36,8 +36,8 @@ person's in their own words.>
 
 ## Previous report
 
-<Successors only. The previous lane's report, pasted in full, with its branch and SHA and any runs still
-going.>
+<Successors only. The previous worker's report, pasted in full, with the lane's branch and SHA and any runs
+still going.>
 
 ## Report
 
