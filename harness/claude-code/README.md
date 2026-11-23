@@ -73,6 +73,7 @@ The lead restates the goal, lists the lanes, writes the program's rules and lane
 | `lead` skill | Runs the program: rules, briefs, workers, check-ins, steering, merge verification, successors, the lane log, decisions. |
 | `worker` agent | Builds one lane: rules first, one deliverable, work then robust then fast, its own design choices settled by A/B, merge after lint and the tests it touched, wind down on time, report losses first. |
 | `ab-test` skill | Settles a choice by measuring: quantifiable metrics, the best-suited environment set up without asking, baseline noise, a meaningful-improvement bar, a worktree per variant and combination, production builds, anomalies recorded, a plain write-up, then the decision. |
+| `create-adc` skill | Works out an architecture decision with you, one evidenced decision at a time, and writes it up as the project's next architecture decision document of record (AD-N). |
 | `setup` skill | Sets the worker time limit, the wind-down point and the check-in interval. |
 | `status` skill | Shows running workers, their clocks and last commits, lanes, and questions waiting on you. |
 | Eight rule skills | `decide-by-data`, `fair-benchmarks`, `bugs-by-scenario`, `no-picked-constants`, `event-driven`, `never-trade-functionality`, `tests-assert-behaviour`, `decisions-in-plain-words`. |
