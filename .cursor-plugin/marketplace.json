@@ -1,0 +1,16 @@
+{
+  "name": "astack",
+  "owner": {
+    "name": "Ada Lündhé"
+  },
+  "metadata": {
+    "description": "astack: run a program of work as lanes with a lead agent."
+  },
+  "plugins": [
+    {
+      "name": "astack",
+      "source": "harness/cursor",
+      "description": "Run a program of work as lanes: one deliverable per lane, a time limit per worker, work then robust then fast, merges verified by the lead, decisions in plain words."
+    }
+  ]
+}

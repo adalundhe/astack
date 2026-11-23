@@ -1,0 +1,4 @@
+---
+type: regex
+pattern: 'LOSSES[\s\S]*MERGED[\s\S]*PUSHED, NOT MERGED[\s\S]*EVIDENCE[\s\S]*SIDE FINDINGS[\s\S]*DECISIONS FOR THE PERSON[\s\S]*NEXT'
+---

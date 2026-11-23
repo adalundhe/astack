@@ -1,0 +1,52 @@
+{
+  "replace": [
+    [
+      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`) are on your PATH, and the templates are in `${CLAUDE_SKILL_DIR}/templates/`.",
+      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`) are in this package's `bin/` folder, two folders up from this file; run them by that path. The templates are in `templates/`, beside this file."
+    ],
+    [
+      "6. Schedule a check-in every `check_in_minutes` with `CronCreate` (or `/loop`). A worker's end wakes you; drift and the clock don't.",
+      "6. Schedule a check-in every `check_in_minutes` with `/loop`. Drift and the clock send no event, so the schedule catches them."
+    ],
+    [
+      "3. Spawn it with `subagent_type: \"astack:worker\"` in the background, passing the brief.",
+      "3. Spawn it as the `astack-worker` subagent in the background, passing the brief."
+    ],
+    [
+      "if it doesn't, stop it with `TaskStop` and start a successor from its branch.",
+      "if it doesn't, stop it and start a successor from its branch."
+    ],
+    [
+      "Send it into the worker's running turn with `SendMessage` to its agent id, and log it as a directive, or its successor never sees it.",
+      "Cursor documents no way to message a running worker, so stop it and start its successor with the message in its brief. Log it as a directive, or later successors never see it."
+    ],
+    [
+      "- Ask outright, as a plain choice with your pick (**decisions-in-plain-words**), using `AskUserQuestion`, and keep working on everything else.",
+      "- Ask outright, as a plain choice with your pick (**decisions-in-plain-words**), with Cursor's question tool, and keep working on everything else."
+    ],
+    [
+      "2. **Ask**, showing the current value first, using `AskUserQuestion`:",
+      "2. **Ask**, showing the current value first, with Cursor's question tool:"
+    ],
+    [
+      "5. **Install what this tool needs.** Nothing in Claude Code: the plugin ships the worker agent and the hook.",
+      "5. **Install what this tool needs.** Nothing in Cursor: the plugin ships the worker agent and the hook."
+    ],
+    [
+      "Run `astack-status`. It reads the newest lane log under `~/.cache/astack/`; pass a program folder to read another.",
+      "Run `astack-status` from this package's `bin/` folder, two folders up from this file. It reads the newest lane log under `~/.cache/astack/`; pass a program folder to read another."
+    ]
+  ],
+  "forbid": [
+    "astack:",
+    "SendMessage",
+    "TaskStop",
+    "CronCreate",
+    "AskUserQuestion",
+    "subagent_type",
+    "${CLAUDE_",
+    "disallowedTools",
+    "Claude Code",
+    "on your PATH"
+  ]
+}

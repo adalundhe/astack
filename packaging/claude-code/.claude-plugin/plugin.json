@@ -1,8 +1,8 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "astack",
-  "version": "0.1.0",
-  "description": "Run a program of work as lanes. A lead gives each lane one deliverable and a worker subagent one hour to build it, holds workers to work, then robust, then fast, verifies every merge itself, and brings the person only real decisions, in plain words.",
+  "version": "0.2.0",
+  "description": "Run a program of work as lanes. A lead gives each lane one deliverable and a worker subagent a hard time limit to build it, holds workers to work, then robust, then fast, verifies every merge itself, and brings the person only real decisions, in plain words.",
   "author": {
     "name": "Ada Lündhé"
   },

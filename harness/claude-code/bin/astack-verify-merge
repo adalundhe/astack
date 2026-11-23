@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""Verify a worker's claimed merge in one step.
+
+Usage: astack-verify-merge SHA [--target origin/main] [--repo DIR] [--check CMD]
+
+Fetches the target, confirms SHA is on it, and lists what the commit changed.
+With --check, runs CMD in a clean worktree of the target's tip.
+The first line is the verdict. Exit 0: verified. 1: not verified. 2: could not check.
+"""
+import argparse
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def git(repo, *args, stdin=None):
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, input=stdin)
+
+
+def cache_dir():
+    base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    path = Path(base) / "astack" / "verify"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def fetch_target(repo, target):
+    remote, _, branch = target.partition("/")
+    if not branch or remote not in git(repo, "remote").stdout.split():
+        return None
+    result = git(repo, "fetch", "--quiet", remote)
+    return None if result.returncode == 0 else result.stderr.strip() or f"git fetch {remote} failed"
+
+
+def resolve(repo, ref):
+    result = git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def changes(repo, sha):
+    parents = git(repo, "rev-list", "--parents", "-n", "1", sha).stdout.split()[1:]
+    base = parents[0] if parents else git(repo, "hash-object", "-t", "tree", "--stdin", stdin="").stdout.strip()
+    return git(repo, "diff", "--stat", base, sha).stdout.rstrip()
+
+
+def run_check(repo, tip, command):
+    tree = Path(tempfile.mkdtemp(prefix=f"{tip[:12]}-", dir=cache_dir()))
+    log = tree.with_suffix(".log")
+    added = git(repo, "worktree", "add", "--detach", str(tree), tip)
+    if added.returncode != 0:
+        return None, f"could not make a worktree: {added.stderr.strip()}"
+    try:
+        with log.open("w") as out:
+            code = subprocess.run(["bash", "-c", command], cwd=tree, stdout=out, stderr=subprocess.STDOUT).returncode
+    finally:
+        git(repo, "worktree", "remove", "--force", str(tree))
+    return code, str(log)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Verify that a claimed merge is on the target branch.")
+    parser.add_argument("sha")
+    parser.add_argument("--target", default="origin/main")
+    parser.add_argument("--repo", default=".")
+    parser.add_argument("--check", help="command to run in a clean worktree of the target's tip")
+    args = parser.parse_args()
+
+    repo = Path(args.repo).resolve()
+    if git(repo, "rev-parse", "--git-dir").returncode != 0:
+        print(f"NOT CHECKED: {repo} is not a git repository")
+        return 2
+    error = fetch_target(repo, args.target)
+    if error:
+        print(f"NOT CHECKED: {error}")
+        return 2
+    tip = resolve(repo, args.target)
+    if not tip:
+        print(f"NOT CHECKED: no target {args.target} in {repo}")
+        return 2
+    sha = resolve(repo, args.sha)
+    if not sha:
+        print(f"NOT VERIFIED: {args.sha} is not a commit in {repo}")
+        return 1
+    on_target = git(repo, "merge-base", "--is-ancestor", sha, tip)
+    if on_target.returncode == 1:
+        print(f"NOT VERIFIED: {sha[:12]} is not on {args.target} (tip {tip[:12]})")
+        return 1
+    if on_target.returncode != 0:
+        print(f"NOT CHECKED: {on_target.stderr.strip()}")
+        return 2
+
+    code = 0
+    if args.check:
+        code, detail = run_check(repo, tip, args.check)
+        if code is None:
+            print(f"NOT CHECKED: {detail}")
+            return 2
+        verdict = "VERIFIED" if code == 0 else "NOT VERIFIED"
+        print(f"{verdict}: {sha[:12]} is on {args.target} (tip {tip[:12]}); check {'passed' if code == 0 else f'failed, exit {code}'}")
+        print(f"check: `{args.check}` in a clean worktree of {tip[:12]}; output in {detail}")
+    else:
+        print(f"VERIFIED: {sha[:12]} is on {args.target} (tip {tip[:12]})")
+    print("commit: " + git(repo, "show", "-s", "--format=%h %s (%an, %cI)", sha).stdout.strip())
+    print("changed, against its first parent:")
+    print(changes(repo, sha))
+    return 0 if code == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

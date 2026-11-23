@@ -1,0 +1,17 @@
+{
+  "description": "Stamp each astack lane log line with the UTC time as it is saved.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/astack-stamp-hook",
+            "args": []
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": "./bin/astack-stamp-hook"
+      }
+    ],
+    "afterShellExecution": [
+      {
+        "command": "./bin/astack-stamp-hook"
+      }
+    ]
+  }
+}

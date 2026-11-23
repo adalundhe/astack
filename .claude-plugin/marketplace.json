@@ -8,8 +8,8 @@
   "plugins": [
     {
       "name": "astack",
-      "source": "./",
-      "description": "Run a program of work as lanes: one deliverable per lane, one hour per worker subagent, work then robust then fast, merges verified by the lead, decisions in plain words."
+      "source": "./harness/claude-code",
+      "description": "Run a program of work as lanes: one deliverable per lane, a time limit per worker, work then robust then fast, merges verified by the lead, decisions in plain words."
     }
   ]
 }
