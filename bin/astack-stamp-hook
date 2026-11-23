@@ -1,0 +1,7 @@
+#!/bin/sh
+# Hook entry point. Most tool calls never touch a lane log, so they cost one shell, not a Python start.
+event=$(cat)
+case $event in
+  *LANES.md*) printf '%s' "$event" | exec "$(dirname "$0")/astack-stamp" --hook ;;
+esac
+exit 0
