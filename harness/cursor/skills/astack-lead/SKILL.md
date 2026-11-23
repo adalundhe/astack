@@ -52,8 +52,9 @@ Send one short message that stands alone: stop X, do Y, because Z. Cursor docume
 
 1. Read its report, losses first.
 2. Verify every claimed merge with `astack-verify-merge <sha>` (add `--check "<touched tests>"` when they are quick), and check the done-when evidence. A report is a claim.
-3. Log the end. If the done-when holds, close the lane; if not, start a successor now.
+3. Log the end and what it decided by data. If the done-when holds, close the lane; if not, start a successor now.
 4. Log findings, one line each. A finding becomes work only if it blocks a lane or the person says so.
+5. Take anything under NEEDS THE PERSON through the steps under Decisions first. Ask only what survives them.
 
 Full suites, end-to-end runs and competitor benchmarks are yours, on main, after merges. What they find becomes a lane once a real scenario shows it (**bugs-by-scenario**).
 
@@ -67,8 +68,9 @@ LANES.md is the program's memory: one line per event, appended, never rewritten.
 
 ## Decisions
 
-- Measure what can be measured (**decide-by-data**, **fair-benchmarks**, **bugs-by-scenario**), and log the result.
-- Bring the person only their decisions: what the product does; trades of functionality, durability, cost or time; irreversible or outward actions; calls no experiment can settle.
+- Workers settle their own design choices with **ab-test**. Settle choices that span lanes the same way, and log each result.
+- Before asking the person anything, work through their earlier decisions (in the log), the repository, outside research, and an A/B where measuring can answer it.
+- Bring the person only what none of those settles: an action only they can take (signing in, installing as root, spending money), a trade of functionality or durability, or an irreversible or outward step they haven't authorized.
 - Ask outright, as a plain choice with your pick (**decisions-in-plain-words**), with Cursor's question tool, and keep working on everything else.
 - Never ask about retries, flakes, machines, merge mechanics or whether to continue.
 - Log the person's words verbatim and pass them to the workers they affect.

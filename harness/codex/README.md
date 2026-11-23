@@ -12,9 +12,9 @@ It works in Claude Code, Cursor and Codex. It is modeled on Cursor's [pstack](ht
 - **A hard time limit.** At the wind-down point, a worker merges what is green, pushes the rest to its branch, reports losses first, and ends.
 - **Successors.** A new worker on the same lane, briefed with the original brief, every later directive, and the previous worker's report.
 - **The lead.** It checks in on a fixed schedule, verifies every merge itself, steers workers with short messages, and keeps the lane log.
-- **Decisions.** Anything that can be measured is measured. Only real decisions reach the person, as plain choices.
+- **Decisions.** Workers decide for themselves: from the person's earlier decisions, the repository, outside research, then an A/B. Only what none of those settles reaches the person, such as a sign-in or an install as root, asked as a plain choice.
 - **Bugs.** A bug is real when a real scenario shows it: the query, the workload, the benchmark against competitors.
-- **Standing rules.** Decide by data. Benchmarks are fair. No picked constants. Event-driven, not timers. Never trade functionality for speed. Tests assert behaviour. Plain words to the person.
+- **Standing rules.** Decide by data, with a controlled A/B. Benchmarks are fair. No picked constants. Event-driven, not timers. Never trade functionality for speed. Tests assert behaviour. Plain words to the person.
 
 ## Install
 
@@ -71,7 +71,8 @@ The lead restates the goal, lists the lanes, writes the program's rules and lane
 | Part | What it does |
 |---|---|
 | `lead` skill | Runs the program: rules, briefs, workers, check-ins, steering, merge verification, successors, the lane log, decisions. |
-| `worker` agent | Builds one lane: rules first, one deliverable, work then robust then fast, merge after lint and the tests it touched, wind down on time, report losses first. |
+| `worker` agent | Builds one lane: rules first, one deliverable, work then robust then fast, its own design choices settled by A/B, merge after lint and the tests it touched, wind down on time, report losses first. |
+| `ab-test` skill | Settles a choice by measuring: quantifiable metrics, the best-suited environment set up without asking, baseline noise, a meaningful-improvement bar, a worktree per variant and combination, production builds, anomalies recorded, a plain write-up, then the decision. |
 | `setup` skill | Sets the worker time limit, the wind-down point and the check-in interval. |
 | `status` skill | Shows running workers, their clocks and last commits, lanes, and questions waiting on you. |
 | Eight rule skills | `decide-by-data`, `fair-benchmarks`, `bugs-by-scenario`, `no-picked-constants`, `event-driven`, `never-trade-functionality`, `tests-assert-behaviour`, `decisions-in-plain-words`. |

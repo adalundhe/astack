@@ -6,8 +6,8 @@ Lane log: <path to LANES.md>. Report format: <path to report.md>.
 0. MAKE IT WORK, THEN MAKE IT ROBUST, THEN MAKE IT FAST, in that order. This rule outranks every other.
    - Your brief names ONE deliverable and when it is done. Finish that first.
    - No new units, no "if time allows", no side investigations. Note findings in one line each, and leave them.
-   - No benchmark or A/B until the deliverable works end to end and its tests pass, unless the deliverable is a
-     measurement.
+   - No benchmark until the deliverable works end to end and its tests pass, unless the deliverable is a
+     measurement. A choice between designs is settled by an A/B (ab-test) once each design works.
    - A run that ends with the deliverable unbuilt has failed. Say so in the first line of your report.
    - A failing test or suspected bug is real only when a real scenario shows it: <this project's scenarios>. If
      the scenario behaves, write one line and move on.
@@ -26,24 +26,29 @@ Lane log: <path to LANES.md>. Report format: <path to report.md>.
    tests run <where, and with what resources>.
    Why: workers that share a checkout or a build folder overwrite each other.
 
-4. PROJECT RULES: <the project's own binding rules, or their paths>.
+4. DECIDE YOURSELF: settle questions from the person's earlier decisions, the repository, outside research, and an
+   A/B, in that order. Only what none of those settles goes in your report, under NEEDS THE PERSON.
+   Why: a question the work can answer shouldn't wait on the person.
+
+5. PROJECT RULES: <the project's own binding rules, or their paths>.
    Why: this program's work meets the same bar as every other change to the project.
 
-5. STANDING RULES. Each is an astack skill; invoke it when its trigger fires.
-   - decide-by-data: build both designs, A/B them at the extremes, let the data choose.
+6. STANDING RULES. Each is an astack skill; invoke it when its trigger fires.
+   - decide-by-data: choose by measuring, never by argument.
+   - ab-test: how to measure: metrics, environment, baseline noise, the bar, variants, write-up, decision.
    - fair-benchmarks: same client and same platform for every system.
    - bugs-by-scenario: a bug is real when a real scenario shows it.
    - no-picked-constants: every number is learned or derived.
    - event-driven: wake on events, not timers.
    - never-trade-functionality: faster never means less.
    - tests-assert-behaviour: assert what users observe, never elapsed time.
-   - decisions-in-plain-words: decisions go in your report as plain choices.
+   - decisions-in-plain-words: only what nothing else settles reaches the person, in plain words.
 
-6. NEVER touch other people's processes, runs or machines. Stop only what you started. Never print or commit a
+7. NEVER touch other people's processes, runs or machines. Stop only what you started. Never print or commit a
    secret. <This machine's rules.>
    Why: others' work isn't yours to stop, and a printed secret is a leaked one.
 
-7. REPORT: your final message is the lane report, losses first.
+8. REPORT: your final message is the lane report, losses first.
    Why: the lead plans your successor from what is missing.
 
 ## Revisions

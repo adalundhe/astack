@@ -33,7 +33,7 @@ The adapted files, and what each adapts from pstack 0.15.36:
 | astack file | adapts |
 |---|---|
 | `skills/lead/SKILL.md` | `skills/poteto-mode/playbooks/orchestrate.md` (supervision: read the branch, not the summary; ask the person only for real decisions) and the Subagents section of `skills/poteto-mode/SKILL.md` (a fresh agent with consolidated scope). |
-| `skills/decide-by-data/SKILL.md` | `skills/principle-explain-the-number/SKILL.md` (write the decision before you run) and `skills/benchmark-checklist/SKILL.md` (alternate the arms; a gap inside the noise is no difference). |
+| `skills/ab-test/SKILL.md` | `skills/benchmark-checklist/SKILL.md` (alternate at least five runs; profile apart from timed runs; count errors), `skills/principle-explain-the-number/SKILL.md` (set the bar before you run) and `skills/poteto-mode/playbooks/hillclimb.md` (accept only past noise). |
 | `skills/fair-benchmarks/SKILL.md` | `skills/benchmark-checklist/SKILL.md` (each side tuned as it ships; count errors; alternate and repeat). |
 | `skills/decisions-in-plain-words/SKILL.md` | `skills/poteto-mode/SKILL.md` (a fact a run can show is not the person's to answer; label each claim measured, inferred or guessed). |
 

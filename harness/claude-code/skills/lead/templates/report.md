@@ -18,11 +18,14 @@ PUSHED, NOT MERGED
 EVIDENCE
 - <the done-when check>: `<command>` -> <result>
 
+DECIDED BY DATA
+- <the question> -> <the choice>: <the deciding numbers>; write-up at <path>
+
 SIDE FINDINGS (left alone)
 - <one line each>
 
-DECISIONS FOR THE PERSON
-- <Today X happens. Option A gains ..., costs .... Option B .... I recommend A because ....>
+NEEDS THE PERSON
+- <what only they can do or decide, why, and what you tried first>
 
 NEXT
 - <the first thing a successor does>
@@ -32,4 +35,5 @@ NEXT
 - LOSSES come before wins: the lead plans the successor from what is missing.
 - MERGED carries its checks: the lead verifies every claimed merge, and the SHA and commands make that quick.
 - SIDE FINDINGS stand apart: they are logged, not worked.
-- DECISIONS are plain choices: the lead asks the person these outright.
+- DECIDED BY DATA is logged by the lead, with the write-up's path.
+- NEEDS THE PERSON holds only what nothing else could settle; the lead tries again before asking.
