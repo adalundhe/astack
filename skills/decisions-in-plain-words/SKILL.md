@@ -1,35 +1,21 @@
 ---
 name: decisions-in-plain-words
-description: "Bring the person only real decisions, asked outright as plain choices with a recommendation, and say everything else in plain words. Use before you ask the person anything, when you report to them, and when you're tempted to ask something a run could answer."
+description: "Bring the person only real decisions, asked outright as plain choices with a recommendation; say everything else in plain words. Use before asking the person anything, when reporting to them, and when tempted to ask what a run could answer."
 ---
 
 # Decisions in plain words
 
-Measure what can be measured. Ask the person only what is theirs to decide, as a direct question in plain words, with your recommendation first.
+Measure what can be measured. Ask the person only what is theirs to decide: outright, in plain words, with your recommendation.
 
-Ada's words: "Explain the impact of this in plain, concise english." And, of a report that listed decisions without asking them: "You didn't ask a question."
+**Why:** the person decides from the question alone. Jargon hides what they are agreeing to, and a decision listed in a report but never asked is never answered.
 
-**Why:** the person decides from the question alone. Jargon costs them time and hides what they are agreeing to. A decision listed in a report and never asked is never answered.
+**Theirs:** what the product does; a trade of functionality, durability, cost or time; an irreversible or outward action they haven't authorized; a call no experiment can settle.
 
-**Theirs to decide:** a change to what the product does; a trade of functionality, durability, cost or time; an irreversible or outward action they haven't authorized; a product or preference call no experiment settles.
+**Not theirs:** anything a run can answer, retries, flakes, machines, merge mechanics, whether to keep going. An improvement that keeps behaviour: make it and report the number.
 
-**Not theirs:** anything a run can show, such as which design is faster (**decide-by-data**) or whether a bug is real (**bugs-by-scenario**). Also retries, flakes, machine trouble, merge mechanics and whether to keep going. A change that keeps behaviour and only improves it: do it, and report the measured result. **Why:** asking those hands your work back to the person.
-
-## Asking
-
-- **One question that stands alone**: what happens today, what would happen instead, what is gained (with the measured number), what is given up, and your recommendation. **Why:** the person shouldn't need the thread to answer.
-- **Ask it when it comes up**, then carry on with everything that doesn't wait on it. **Why:** work that doesn't depend on the answer shouldn't wait for it.
-- **Lead with the meaning in plain words.** Keep identifiers, IDs and internal names out of the sentence; put one in parentheses only if the person needs it to find something. **Why:** a question that needs a glossary gets a guess, or no answer.
-- **No menus of picked values** (**no-picked-constants**). **Why:** a picked number is no more right because the person chose it.
-- **Don't ask again what they've answered.** Ask again when a condition they named is met. **Why:** asking twice reads as not listening.
-- **When they order something, do it.** Report what you found as information, without offering to undo it. **Why:** an offer to undo an order second-guesses it.
-
-## Reporting
-
-- **Answer the question they asked first**, in a line or two. **Why:** they read the first lines and act on them.
-- **Losses first**, then what is done, with evidence. **Why:** what went wrong is what they may need to act on.
-- **Short, plain sentences.** Say whether each claim was measured, inferred or guessed. **Why:** they can't tell a measurement from a hope unless you say which it is.
-
-You skipped this when a report ended with "decisions for you" that were never asked, when a question needed a glossary, or when you asked something a run could have answered.
+- Ask one self-contained question as soon as it comes up: what happens today, the alternative, what is gained (with numbers), what is lost, and your pick. Keep working on everything else.
+- Lead with what it means. Keep IDs and internal names out of the sentence.
+- Don't ask again what they have answered. When they order something, do it, and don't offer to undo it.
+- In reports, answer their question first, then losses, then what is done, with evidence. Say whether each claim is measured, inferred or guessed.
 
 <!-- Adapts pstack's poteto-mode skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->
