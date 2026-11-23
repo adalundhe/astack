@@ -1,5 +1,4 @@
 schema_version: "1.1"
 name: losses-first-without-a-done-when
 context:
-  add_dirs:
-    - program
+  scaffold_script: setup.sh

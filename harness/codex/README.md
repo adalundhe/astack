@@ -86,7 +86,7 @@ The lead restates the goal, lists the lanes, writes the program's rules and lane
 
 The source is at the repository root: `skills/`, `agents/`, `bin/`, `evals/`, and each tool's manifest, hook and wording in `packaging/`. `python3 scripts/build.py` writes the three packages under `harness/`; commit them with the source. `python3 -m unittest discover -s tests` runs the tests, which fail if `harness/` is out of date.
 
-To run the evals, which need a Claude Code login and use your plan: `claude plugin eval harness/claude-code --trust-plugin`.
+To run the evals, which need a Claude Code login and use your plan: `claude plugin eval harness/claude-code --trust-plugin --scaffold --ablation none`. `--scaffold` lets each case put its `RULES.md` where the worker's brief points.
 
 ## Credits and license
 

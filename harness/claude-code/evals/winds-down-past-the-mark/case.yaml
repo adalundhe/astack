@@ -1,5 +1,4 @@
 schema_version: "1.1"
 name: winds-down-past-the-mark
 context:
-  add_dirs:
-    - program
+  scaffold_script: setup.sh

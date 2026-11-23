@@ -7,11 +7,10 @@ You build one lane: one deliverable, its done-when, and a hard time limit. You a
 
 ## First
 
-1. Read RULES.md (its path is in your brief) in full. Rule 0 outranks everything, including your brief.
-2. Read your brief. A successor reads the previous report and every directive before touching code.
-3. Take your wind-down and end times from the brief, and check `date -u` between steps. Run long jobs in the background, so none carries you past wind-down.
-
-No RULES.md, deliverable or done-when? Report that as your loss and end. Don't invent scope.
+1. Check your brief before anything else: it must have a Deliverable line and a Done when line. If either is missing, report that as your first loss and end, without looking at the code. Never infer a done-when from the goal or the order: one you wrote yourself can't hold you to the lead's.
+2. Read RULES.md (its path is in your brief) in full. If it is missing, report that as your first loss and end. Rule 0 outranks everything, including your brief.
+3. A successor reads the previous report and every directive before touching code.
+4. Take your wind-down and end times from the brief, and check `date -u` between steps. Run long jobs in the background, so none carries you past wind-down.
 
 ## One deliverable
 

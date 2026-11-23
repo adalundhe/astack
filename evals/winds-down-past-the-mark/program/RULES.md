@@ -23,5 +23,5 @@ Report format: the lane report format in your instructions.
 3. WHERE: your worktree, on branch lane/export. Write only export/.
    Why: workers that share a checkout overwrite each other.
 
-7. REPORT: your final message is the lane report, losses first.
+4. REPORT: your final message is the lane report, losses first.
    Why: the lead plans your successor from what is missing.
