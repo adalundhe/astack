@@ -9,8 +9,8 @@
       "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) are in this package's `bin/` folder, two folders up from this file; run them by that path. The templates are in `templates/`, beside this file."
     ],
     [
-      "6. Schedule a check-in every `check_in_minutes` with `CronCreate` (or `/loop`). A worker's end wakes you; drift and the clock don't.",
-      "6. Between check-ins, wait with `wait_agent`, its `timeout_ms` set to `check_in_minutes` in milliseconds. It returns early when a worker reports or ends, and otherwise at check-in time, so drift and the clock still get their check."
+      "5. Schedule a check-in every `check_in_minutes` with `CronCreate` (or `/loop`). A worker's end wakes you; drift and the clock don't.",
+      "5. Between check-ins, wait with `wait_agent`, its `timeout_ms` set to `check_in_minutes` in milliseconds. It returns early when a worker reports or ends, and otherwise at check-in time, so drift and the clock still get their check."
     ],
     [
       "3. Spawn it with `subagent_type: \"astack:worker\"` in the background, passing the brief and `roles.worker` (`model`, `effort`) from settings when set.",

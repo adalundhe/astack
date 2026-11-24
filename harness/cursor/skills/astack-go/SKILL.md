@@ -22,7 +22,7 @@ The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `ast
 Read the matching skill file(s) before starting:
 
 - **Configure timing and per-role models/effort:** `../astack-setup/SKILL.md`
-- **Run a multi-lane program with parallel workers:** `../astack-lead/SKILL.md`, plus `../dagify/SKILL.md`, `../workflow-this/SKILL.md`, `../track-it/SKILL.md`
+- **Plan and run multi-step work (DAG -> workflow or parallel workers):** plan a reviewed dependency graph with `../dagify/SKILL.md`, automate unattended/recurring graphs with `../workflow-this/SKILL.md`, or dispatch ready DAG tasks to parallel workers with `../astack-lead/SKILL.md` (and sync issues via `../track-it/SKILL.md`)
 - **Check status, catch up, or rebuild context after a break:**
   - Quick status of running workers and lanes: `../astack-status/SKILL.md`
   - Single-pane-of-glass catch-up and context rebuild after a break or compaction (decisions waiting, bugs/regressions, features/milestones, hypotheses/experiments/research): `../whatsup/SKILL.md`
