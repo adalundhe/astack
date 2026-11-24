@@ -33,8 +33,9 @@ The adapted files, and what each adapts from pstack (versions 0.15.36 to 0.15.48
 | astack file | adapts |
 |---|---|
 | `skills/lead/SKILL.md` | `skills/poteto-mode/playbooks/orchestrate.md` (supervision: read the branch, not the summary; ask the person only for real decisions) and the Subagents section of `skills/poteto-mode/SKILL.md` (a fresh agent with consolidated scope). |
-| `skills/benchmarking/SKILL.md` | `skills/benchmark-checklist/SKILL.md` (alternate at least five runs; profile apart from timed runs; count errors), `skills/principle-explain-the-number/SKILL.md` (set the bar before you run; name the limiter; rule out what else a number could be measuring) and `skills/poteto-mode/playbooks/hillclimb.md` (prove the harness can see a change; accept only past noise). |
+| `skills/benchmarking/SKILL.md` | `skills/benchmark-checklist/SKILL.md` (alternate compared runs; profile apart from timed runs; count errors), `skills/principle-explain-the-number/SKILL.md` (set the bar before you run; name the limiter; rule out what else a number could be measuring) and `skills/poteto-mode/playbooks/hillclimb.md` (prove the harness can see a change; accept only past noise). |
 | `skills/ab-test/SKILL.md` | `skills/benchmark-checklist/SKILL.md` (alternate the arms, round by round). |
+| `skills/cleanup/SKILL.md` | `skills/create-verification-skill/SKILL.md` (stop only what you started, never by process name; evidence survives cleanup). |
 | `skills/fair-benchmarks/SKILL.md` | `skills/benchmark-checklist/SKILL.md` (each side tuned as it ships; count errors; alternate and repeat). |
 | `skills/blast-radius/SKILL.md` | `skills/blast-radius/SKILL.md` (find the one fact a change is safe because of, look where a search stops, prove it by running code). |
 | `skills/comment-cop/SKILL.md` | `agents/comment-sicko.md` and `skills/no-comments/SKILL.md` (what a comment may keep: legal headers, public API contracts, outside constraints, issue links). |

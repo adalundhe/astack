@@ -1,19 +1,25 @@
 # astack
 
-astack makes coding agents work like the engineers you'd want on your team. They take one job at a time and prove it works. They make it work, then robust, then fast. They measure instead of guessing, try to break their own work before anyone else can, and make their own calls, writing down why. They come to you only when they truly need you.
+Skills and agents for Claude Code, Cursor and Codex that change how coding agents work:
 
-It runs in Claude Code, Cursor and Codex, and grew out of Cursor's [pstack](https://github.com/cursor/plugins/tree/main/pstack).
+- A big job gets split into pieces with a clear finish line. Each piece goes to its own agent with a time limit, and nothing merges until the lead has checked it.
+- Agents prove what they claim. They run the code, reproduce the bug, and show you the output instead of telling you it works.
+- Choices get settled by measuring the options, and every decision is written down where you can read it.
+- Reviews try to break a change the way a user would, and block only on problems they reproduced.
+- Performance work starts from a full baseline, commits each gain on its own, and reverts anything that regresses.
+- You get asked about sign-ins, installs and trade-offs that are yours to make, and little else.
 
-## What we believe
+It's modeled on Cursor's [pstack](https://github.com/cursor/plugins/tree/main/pstack).
 
-- **Work, then robust, then fast.** In that order, every time.
-- **Measure, don't guess.** Choices get settled by testing them. Numbers are learned or derived, never picked.
-- **Faster never means less.** A quicker version still does everything the slower one did.
-- **Cut before you add.** A good change often leaves less code. If the code can say it, a comment shouldn't.
-- **Prove it.** Check the real thing, and show the work in a way anyone can rerun.
-- **Leave it better.** If something broken is in your way, fix it, even if you didn't break it.
-- **Freedom, on the record.** Agents explore, try things, fail and learn. They write down every decision, and don't ask you to confirm what they can settle themselves.
-- **Keep it human.** Write code and words for the person reading them at 3am: impact first, plain, nothing they haven't seen.
+## The rules agents follow
+
+- Make it work, then make it robust, then make it fast.
+- No number is picked out of the air: limits, timeouts and sizes are measured or derived.
+- A faster version returns the same results, just as fresh, with the same guarantees.
+- Code that explains itself gets no comment, and code nobody needs gets deleted.
+- If something broken is in the way, fix it in its own PR, even if someone else broke it.
+- Agents try things, fail and learn without asking permission, and record every decision they make.
+- Anything written for a person leads with what matters to them, in plain words.
 
 ## Install
 
@@ -39,7 +45,7 @@ Then start a new session.
 
 ## Get started
 
-Set the clocks once: how long a worker may run, when it starts wrapping up, and how often the lead checks in. Unless you say otherwise, that's 60, 5 and 5 minutes.
+Set how long a worker may run, when it starts wrapping up, and how often the lead checks in (60, 5 and 5 minutes by default):
 
 ```
 /astack:setup
@@ -52,92 +58,98 @@ Then give the lead a goal: what you want, how you'll know it's done, and where m
 measured against the current release on the same machine. Merges go to main after lint and tests.
 ```
 
-The lead plans the work, starts a worker for each piece, checks every merge itself, and keeps a log under `~/.cache/astack/<program>/`. You'll hear from it when something is genuinely yours to decide. `/astack:status` shows who's working on what.
+The lead splits the work, starts a worker for each piece, verifies every merge, and logs what happens under `~/.cache/astack/<program>/`. `/astack:status` shows which workers are running, their time left and their last commits.
 
-In Cursor, these are `/astack-setup`, `/astack-lead` and `/astack-status`; in Codex, `$astack-setup`, `$astack-lead` and `$astack-status`. In Codex, setup also installs the worker agent, which Codex plugins can't ship.
+In Cursor these are `/astack-setup`, `/astack-lead` and `/astack-status`; in Codex, `$astack-setup`, `$astack-lead` and `$astack-status`. In Codex, setup also installs the worker agent, which Codex plugins can't ship.
 
 ## The skills
 
-Use any skill on its own, or let the lead and its workers reach for them as they go. Run one as `/astack:<name>` in Claude Code, `/<name>` in Cursor, or `$<name>` in Codex. In Cursor and Codex, `lead`, `setup`, `status` and `review` take an `astack-` prefix.
+Run a skill as `/astack:<name>` in Claude Code, `/<name>` in Cursor, or `$<name>` in Codex. In Cursor and Codex, `lead`, `setup`, `status` and `review` take an `astack-` prefix. Agents also use them on their own as they work.
 
 **Plan and run the work**
 
-- `lead`: runs a program. It splits the work up, starts a worker for each piece, checks in, verifies every merge, and brings you only real decisions.
-- `dagify`: breaks a request into small tasks, each with criteria and tests, ordered so most can run at once.
-- `workflow-this`: turns that plan into a workflow that runs itself, and picks up where it left off after a crash.
-- `track-it`: keeps the work in your issue tracker.
-- `setup` and `status`: set the clocks, and see who's working on what.
+- `lead`: splits a job into pieces, starts a worker for each, checks in on a schedule, verifies every merge, and asks you only what's yours to decide.
+- `dagify`: turns a request into small tasks, each with acceptance criteria and tests, ordered so independent ones run in parallel.
+- `workflow-this`: turns that task list into a script or automation that tracks each task's state and resumes after a crash.
+- `track-it`: creates and updates issues for the work in GitHub, Jira, Linear or whatever tracker you use.
+- `setup`: sets how long workers run and how often the lead checks in.
+- `status`: shows running workers, their time left and their last commits.
 
 **Ship it**
 
-- `watch-pr`: takes a pull request to ready-to-merge.
-- `address-feedback`: answers every review comment with a fix, an answer or evidence.
-- `leave-it-better`: fixes the broken things you trip over, in their own PR.
+- `watch-pr`: gets a pull request to ready-to-merge: green CI, every comment handled, and a ping to you every 24 hours it waits.
+- `address-feedback`: works through review comments, fixing each one, answering it, or showing with evidence why it's wrong.
+- `leave-it-better`: fixes broken tests, builds and checks you run into, in a separate PR.
+- `cleanup`: removes the temp files, build output, caches and test data your work left behind.
 
 **Review it**
 
-- `review`: sends reviewers to break the work. Only findings a rerun proves survive.
-- `adversarial-review`: how each reviewer does it: reproduce the problem, confirm the fix, then attack it like a user would.
-- `worrywart`: pushes back on a review point with evidence, not argument.
-- `blast-radius`: finds what a change could break beyond its diff.
+- `review`: sends several reviewers at a change and keeps only the problems they can reproduce.
+- `adversarial-review`: reproduces the reported bug, checks the fix, then attacks the change with bad input, load, faults and races.
+- `worrywart`: answers a review point you think is wrong with logs, runs and scripts, not opinion.
+- `blast-radius`: finds what a change could break outside its diff, and proves why it's safe.
 
 **Write it well**
 
-Each rule says what to start with, what to watch for, and when it doesn't fit.
+Each of these says where to start, what to look for, and when it doesn't apply.
 
-- `no-implicit-states`: make state machines explicit.
-- `no-hidden-flow-control`: no catch-alls; handle failures where they happen, or return them as values.
-- `no-hidden-config`: every setting visible, documented and tested.
-- `minimize-state-stores`: keep each piece of data in one place; caches have to earn theirs.
-- `check-your-boundaries`: parse outside data once, at the edge, then trust it.
-- `no-shared-writes`: give each writer its own state before reaching for a lock.
-- `safe-to-rerun`: run it twice or crash it halfway, and it still ends up right.
-- `no-bolt-ons`: design a new requirement in; don't bolt it on.
-- `yagni`: one path per job, no shims or leftovers.
-- `comment-cop`: if the code can say it, no comment.
-- `delight-users`: the user's experience beats the builder's convenience.
-- `no-picked-constants`: learn or derive every number.
-- `event-driven`: wake on events, not timers.
-- `never-trade-functionality`: faster never means less.
+- `no-implicit-states`: replaces piles of flags and status strings with one explicit state type.
+- `no-hidden-flow-control`: replaces catch-all error handling with specific handling or typed error values.
+- `no-hidden-config`: puts every setting and environment variable in one place, documented and tested.
+- `minimize-state-stores`: removes caches, copies and globals that no measurement justifies.
+- `check-your-boundaries`: parses input once where it enters, so the code inside can trust it.
+- `no-shared-writes`: gives each thread, process or agent its own state instead of a lock.
+- `safe-to-rerun`: makes commands, jobs and migrations safe to retry or resume after a crash.
+- `no-bolt-ons`: folds a new requirement into the design instead of adding special cases.
+- `yagni`: deletes compatibility shims, dead paths and unused flags.
+- `comment-cop`: deletes comments the code already explains.
+- `delight-users`: checks the details users meet: feedback, error messages, empty and loading states, defaults.
+- `no-picked-constants`: replaces hard-coded limits and timeouts with measured or derived values.
+- `event-driven`: replaces sleeps, timers and polling with waits on real events.
+- `never-trade-functionality`: checks that a speedup still returns the same results with the same guarantees.
 
 **Make it better**
 
-- `simplify-me`: make what you just wrote smaller and clearer, without losing anything.
-- `modularize`: split monolithic code into modules that each do one job.
-- `clamber`: climb toward a performance goal in small, measured, committed steps.
-- `explore-the-limits`: build competing versions and keep the measured winner.
-- `deeper`: do the task the way the best in the field would, without making it bigger.
+- `simplify-me`: shrinks and clarifies code you just wrote, keeping it as correct and as fast.
+- `modularize`: splits a large file, package or codebase into modules that each do one job.
+- `clamber`: improves a performance metric step by step, committing each gain and reverting each regression.
+- `explore-the-limits`: builds competing implementations and keeps whichever measures best.
+- `deeper`: rewrites a task to the standard the best in the field would hold it to, without adding scope.
 
 **Measure and prove**
 
-- `benchmarking`, `ab-test`, `decide-by-data` and `fair-benchmarks`: measure properly, then decide.
-- `tests-assert-behaviour` and `full-spectrum-testing`: test what users see, in every way it can break.
-- `prove-it`: check the real thing, and show your evidence.
-- `test-drive`: drive the real app the way its users do.
-- `every-case`: formally verify what tests can't reach.
-- `bugs-by-scenario`: a bug is real when a real scenario shows it.
-- `research`: find out what's already known before building.
+- `benchmarking`: writes benchmarks from performance targets, with known noise and a pass bar set in advance.
+- `ab-test`: settles a choice by building each option and measuring them the same way.
+- `decide-by-data`: chooses between designs by measuring them, not by arguing.
+- `fair-benchmarks`: compares against other systems on the same machine with the same client.
+- `tests-assert-behaviour`: tests what users can observe, never internals or timing.
+- `full-spectrum-testing`: writes tests for failures, edge cases, races and injected faults, not just the happy path.
+- `prove-it`: checks results on the real thing and hands you something you can rerun.
+- `test-drive`: writes a script that runs the real app the way its users do.
+- `every-case`: formally verifies concurrency, retries and state machines that tests can't cover.
+- `bugs-by-scenario`: confirms a bug with a real query or workload before anyone fixes it.
+- `research`: finds existing implementations, papers and data before anything gets built.
 
 **Talk it through**
 
-- `play-it-back`: say back what you heard, so a misunderstanding costs a line, not a build.
-- `talk-to-me`: explain an idea with the right words, a picture, an example and an analogy.
-- `play-with-me`: make a small demo or mockup to try before anything gets built.
-- `how-it-works`: explain part of a system, every claim pointing at the code.
-- `show-the-states`: draw how a system moves between states, and how it fails.
-- `wat`: say that again, clearly.
-- `rtfm`: read what's already there before asking.
-- `decisions-in-plain-words`: decide what you can, and bring people only what's theirs.
+- `play-it-back`: restates what you asked for, so a misunderstanding is caught before work starts.
+- `talk-to-me`: explains an unfamiliar idea with the right terms, a diagram, a worked example and an analogy.
+- `play-with-me`: builds a quick mockup or demo you can try before the real thing is built.
+- `how-it-works`: explains part of a codebase, citing a file and line for every claim.
+- `show-the-states`: draws a state diagram of how a system behaves, or how it failed.
+- `wat`: rephrases the last message so it's clear.
+- `rtfm`: reads the docs, code and history before asking you anything.
+- `decisions-in-plain-words`: settles what it can, and asks you the rest as a plain choice with a recommendation.
 
 **Learn**
 
-- `make-it-stick`: keep what worked and what failed, with the conditions each held under.
-- `automate-this`: script what repeats.
-- `create-adc`: work out an architecture decision, and write it down.
+- `make-it-stick`: records what worked and what failed, and under what conditions, so the next agent knows when a lesson applies.
+- `automate-this`: turns repeated commands and manual checking into scripts and watchers.
+- `create-adc`: works through an architecture decision with you and writes it up as a decision record.
 
-**Agents:** `worker` builds one piece of a program within its time limit and reports what it lost first. `reviewer` reviews one change by trying to break it.
+**Agents:** `worker` builds one piece within its time limit and reports what it didn't finish first. `reviewer` reviews one change by trying to break it.
 
-**Under the hood:** templates for a program's rules, a worker's brief, its report and the lane log; `astack-verify-merge`, which checks a claimed merge in one step; `astack-status`; a hook that timestamps the lane log; and evals that check workers wind down on time and report losses first.
+**Also included:** templates for a program's rules, a worker's brief, its report and the log; `astack-verify-merge`, which confirms a merge landed and what it changed; `astack-status`; a hook that timestamps each log line; and evals that check workers stop on time and report losses first.
 
 ## Working on astack
 
@@ -147,4 +159,4 @@ The evals need a Claude Code login and use your plan: `claude plugin eval harnes
 
 ## Credits
 
-astack is MIT licensed ([LICENSE](./LICENSE)). It borrows good ideas from Lauren Tan's [pstack](https://github.com/cursor/plugins/tree/main/pstack), also MIT; [NOTICE.md](./NOTICE.md) lists what we adapted and carries its license.
+astack is MIT licensed ([LICENSE](./LICENSE)). It adapts parts of Lauren Tan's [pstack](https://github.com/cursor/plugins/tree/main/pstack), also MIT; [NOTICE.md](./NOTICE.md) lists which files and carries its license.
