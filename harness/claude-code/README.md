@@ -128,7 +128,7 @@ Each of these says where to start, what to look for, and when it doesn't apply.
 - `test-drive`: writes a script that runs the real app the way its users do.
 - `every-case`: formally verifies concurrency, retries and state machines that tests can't cover.
 - `bugs-by-scenario`: confirms a bug with a real query or workload before anyone fixes it.
-- `research`: finds existing implementations, papers and data before anything gets built.
+- `research-this`: researches a question in the code and on the web, quotes and checks every source, and grades each finding A to F.
 
 **Talk it through**
 

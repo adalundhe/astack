@@ -15,7 +15,7 @@ Start from their files, code and words, not a summary. If their description coul
 4. **A worked example,** from their own code or data where possible: real input, each step, real output.
 5. **An analogy** in a sentence or two, and where it breaks. A neighbouring field that solved the same problem also lends its terms and prior art.
 6. **What they haven't mentioned** that the field knows matters: its failure modes, limits and costs.
-7. **Their description, rewritten** in the new words and still plain to an outsider. It feeds the brief, the plan or **research**.
+7. **Their description, rewritten** in the new words and still plain to an outsider. It feeds the brief, the plan or **research-this**.
 
 Open every link and confirm it says what you cite it for; cut what you can't.
 

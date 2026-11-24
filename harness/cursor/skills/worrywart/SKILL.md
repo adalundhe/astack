@@ -13,7 +13,7 @@ Refute a review point you believe is wrong, with evidence, rather than arguing i
    - traces, logs and screenshots from runs of the real code;
    - a demo run, and a script the reviewer can run to watch it hold;
    - where the setting already handles it: the system, setting or documented practice that does, cited;
-   - for a design or architecture point: counter-evidence or research (**research**, **prove-it**).
+   - for a design or architecture point: counter-evidence or research (**research-this**, **prove-it**).
 4. **Answer once**, impact first, with the evidence attached. The reviewer either withdraws the point or proves it with a reproduction.
 
 A reviewer whose points keep failing this way is replaced with a fresh one.

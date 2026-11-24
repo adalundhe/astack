@@ -12,7 +12,7 @@ Find the project's verify skills: project skills that run a model checker, prove
 ## Create
 
 1. **Pick the target from the code,** starting where the person pointed: a promise whose break harms users, in cases tests rarely reach. The strongest target, not the easiest.
-2. **Let the question pick the tool** (**research** what others use):
+2. **Let the question pick the tool** (**research-this**: what do others use?):
    - Can steps happen in a bad order? A model checker on a small model of the design; TLA+ is a common choice in any language.
    - Does the code hold for every input (memory safety, overflow, a data structure's invariant)? A verifier that runs on the code.
    - No verifier for this language? Generated inputs against the real code, rather than a hand-written model, which would prove the model instead of the code.

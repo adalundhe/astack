@@ -9,7 +9,7 @@ Find the best possible implementation by building competing versions and measuri
 
 Deliver what the person asked for, not what is convenient: by default, the provably most correct, robust, performant, efficient and scalable implementation, backed by tests, benchmarks, profiles and outside evidence. Delight users.
 
-1. **Research the field** (**research**): the competing implementations and references, ranked by trust.
+1. **Research the field** (**research-this**): the competing implementations and references, each finding graded.
 2. **Start from prior art, then push it.** Blend approaches, break the parts that limit them, and form hypotheses for beating the industry standard by an order of magnitude in correctness, robustness, performance and ease of use.
 3. **Build the competitors in parallel,** each as its own task in its own worktree, combinations included (**ab-test**).
 4. **Measure them** with profiling, **benchmarking** and **ab-test**. Keep the winner and delete the rest.
