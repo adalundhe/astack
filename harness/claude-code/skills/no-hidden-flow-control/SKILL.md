@@ -1,6 +1,7 @@
 ---
 name: no-hidden-flow-control
 description: "Handle specific failures where they happen or return typed error values; avoid broad catch-alls, swallowed errors, or exceptions used as control flow. Use when writing or reviewing error handling."
+disable-model-invocation: true
 ---
 
 # No hidden flow control

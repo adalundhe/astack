@@ -1,6 +1,7 @@
 ---
 name: tests-assert-behaviour
 description: "Keep tests asserting user-observable behavior—not internals, machine state, or timing—isolated, deterministic, red-first, and diamond-shaped. Use when writing, reviewing, or fixing flaky tests."
+disable-model-invocation: true
 ---
 
 # Tests assert behaviour

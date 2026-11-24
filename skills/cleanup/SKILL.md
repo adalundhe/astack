@@ -1,6 +1,7 @@
 ---
 name: cleanup
 description: "Remove temporary files, build artifacts, caches, test data, and processes created by your work without touching anything else or still needed. Use when finishing a task, handing off, or after experiments."
+disable-model-invocation: true
 ---
 
 # Cleanup

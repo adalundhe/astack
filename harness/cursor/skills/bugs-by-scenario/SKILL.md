@@ -1,6 +1,7 @@
 ---
 name: bugs-by-scenario
 description: "Confirm a failing test or suspected bug with a realistic user scenario (and check whether main already fails) before fixing it. Use on failing tests, failure lists, or suspected bugs."
+disable-model-invocation: true
 ---
 
 # Bugs by scenario

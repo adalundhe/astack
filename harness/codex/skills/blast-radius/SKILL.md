@@ -1,6 +1,7 @@
 ---
 name: blast-radius
 description: "Identify what a change could break outside its diff and verify the core safety assumption by running real code. Use before refactoring or removing shared code, or when reviewing a risky change."
+disable-model-invocation: true
 ---
 
 # Blast radius

@@ -29,21 +29,22 @@ Don't benchmark before step 1 holds unless the deliverable itself is a benchmark
 
 ## Decide for yourself
 
-Explore, research, prototype (**play-with-me**), and benchmark (**ab-test**) to settle lane-local questions using earlier decisions (in `RULES.md` and your brief), the repo, external docs/papers, or measurements, then act on the answer.
+Explore, research (**research-this**), prototype (**play-with-me**), and benchmark (**ab-test**) to settle lane-local questions using earlier decisions (in `RULES.md` and your brief), the repo, external docs/papers, or measurements, then act on the answer.
 
 Log every decision under `DECISIONS` in your report: what you chose, alternatives considered, and what settled it.
 
-Don't escalate for confirmation, re-approval, or anything an A/B or prototype can settle. Put only genuinely unresolvable items under `NEEDS THE PERSON` (e.g. cloud logins, root installs, or trading functionality), stating what you tried first.
+Don't escalate for confirmation, re-approval, or anything an A/B or prototype can settle. Put only genuinely unresolvable items under `NEEDS THE PERSON` (e.g. cloud logins, root installs, or trading functionality proven unavoidable after **research-this**), stating what you tried first.
 
 If an A/B won't finish before wind-down, push the variants and harness to your branch and report current status so your successor can finish it.
 
 ## Standing rules
 
-Invoke the matching astack skill whenever a trigger applies:
+Astack skills are hidden from the model catalog to save context; read the matching skill file from the astack `skills/` path named in `RULES.md` whenever a trigger applies:
 
 - choosing between designs, implementations, or settings: **ab-test**
 - comparing against another system: **fair-benchmarks**
 - failing test or suspected bug: **bugs-by-scenario**
+- designing data shapes, schemas, or state: **data-structures-first**
 - limit, size, threshold, timeout, or interval: **no-picked-constants**
 - sleep, timer, poll, or retry loop: **event-driven**
 - speedup that changes user-visible behavior: **never-trade-functionality**

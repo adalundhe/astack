@@ -1,6 +1,7 @@
 ---
 name: adversarial-review
 description: "Review a change by reproducing the original bug, confirming acceptance criteria, trying to break it in its real environment, checking coding rules, and reporting proven blockers first. Use when reviewing a fix, feature, branch, or PR."
+disable-model-invocation: true
 ---
 
 # Adversarial review

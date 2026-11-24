@@ -1,6 +1,7 @@
 ---
 name: decisions-in-plain-words
 description: "Resolve what you can yourself, log every decision, and only escalate genuine human choices as plain options with a recommendation. Use before asking the person anything or writing a report."
+disable-model-invocation: true
 ---
 
 # Decisions in plain words

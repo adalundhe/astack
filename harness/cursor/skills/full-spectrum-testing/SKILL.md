@@ -1,6 +1,7 @@
 ---
 name: full-spectrum-testing
 description: "Write acceptance-driven tests across the test diamond (unit, integration, end-to-end) covering failure modes, edge cases, concurrency, fuzzing, and injected faults. Use when writing or auditing a task's tests."
+disable-model-invocation: true
 ---
 
 # Full-spectrum testing

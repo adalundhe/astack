@@ -1,6 +1,7 @@
 ---
 name: worrywart
 description: "Push back with solid evidence on a review comment that is unproven, unreproducible, already handled by surrounding systems, or not worth its cost. Use before changing code for a questionable review point."
+disable-model-invocation: true
 ---
 
 # Worrywart

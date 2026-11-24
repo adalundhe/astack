@@ -1,6 +1,7 @@
 ---
 name: decide-by-data
 description: "Settle choices between designs, implementations, or configs by measuring them instead of arguing. Use when comparing approaches or before escalating a design question."
+disable-model-invocation: true
 ---
 
 # Decide by data

@@ -1,6 +1,7 @@
 ---
 name: deeper
 description: "Tighten a task brief before starting so it uses primary sources, domain tools, and external proof instead of taking shortcuts, without expanding scope. Use before briefing or starting work."
+disable-model-invocation: true
 ---
 
 # Deeper

@@ -1,6 +1,7 @@
 ---
 name: watch-pr
 description: "Take reviewed code through its PR: open it, monitor CI and comments via background watchers, fix failures, resolve every comment, ping if open 24h, hand off at time limit, and report when merge-ready. Use once review clears or when taking over a PR."
+disable-model-invocation: true
 ---
 
 # Watch a PR

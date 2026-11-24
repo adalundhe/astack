@@ -1,6 +1,7 @@
 ---
 name: how-it-works
 description: "Give a read-only, file-and-line-cited walkthrough of part of a codebase (mental model, components, flow, state, gotchas), marking claims as run vs. read. Use before editing unfamiliar code or answering 'how does X work' / 'where should this live'."
+disable-model-invocation: true
 ---
 
 # How it works

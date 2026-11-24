@@ -1,6 +1,7 @@
 ---
 name: talk-to-me
 description: "Explain an unfamiliar concept, design, or result clearly on the first read using proper domain terms, a Mermaid diagram, a worked example, and a short analogy. Use when introducing unfamiliar concepts or translating everyday descriptions into field terms."
+disable-model-invocation: true
 ---
 
 # Talk to me

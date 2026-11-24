@@ -1,6 +1,7 @@
 ---
 name: dagify
 description: "Break a large request into a dependency graph of small, parallelizable tasks with acceptance criteria and tests, avoiding overlapping file edits. Use before building multi-task work or re-planning a program."
+disable-model-invocation: true
 ---
 
 # Dagify

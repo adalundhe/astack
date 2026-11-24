@@ -1,6 +1,7 @@
 ---
 name: create-adc
 description: "Work through an architecture decision with the person one evidenced question at a time and write it up as the next AD-N document. Use when asked to draft, review, or grill an architecture decision (ADC/AD)."
+disable-model-invocation: true
 ---
 
 # Create ADC

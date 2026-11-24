@@ -1,16 +1,20 @@
 {
   "replace": [
     [
-      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`) are on your PATH, and the templates are in `${CLAUDE_SKILL_DIR}/templates/`.",
-      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`) are in this package's `bin/` folder, two folders up from this file; run them by that path. The templates are in `templates/`, beside this file."
+      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`) are on your PATH.",
+      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`) are in this package's `bin/` folder, two folders up from this file; run them by that path."
+    ],
+    [
+      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`) are on your PATH, and the templates are in `${CLAUDE_SKILL_DIR}/templates/`.",
+      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`) are in this package's `bin/` folder, two folders up from this file; run them by that path. The templates are in `templates/`, beside this file."
     ],
     [
       "6. Schedule a check-in every `check_in_minutes` with `CronCreate` (or `/loop`). A worker's end wakes you; drift and the clock don't.",
       "6. Schedule a check-in every `check_in_minutes` with `/loop`. Drift and the clock send no event, so the schedule catches them."
     ],
     [
-      "3. Spawn it with `subagent_type: \"astack:worker\"` in the background, passing the brief and the worker's `model` and `effort` from settings when set.",
-      "3. Spawn it as the `astack-worker` subagent in the background, passing the brief and the worker's model from settings when set."
+      "3. Spawn it with `subagent_type: \"astack:worker\"` in the background, passing the brief and `roles.worker` (`model`, `effort`) from settings when set.",
+      "3. Spawn it as the `astack-worker` subagent in the background, passing the brief and `roles.worker.model` from settings when set."
     ],
     [
       "if it doesn't, stop it with `TaskStop` and start a successor from its branch.",
@@ -25,12 +29,12 @@
       "- Ask outright, as a plain choice with your pick (**decisions-in-plain-words**), with Cursor's question tool, and keep working on everything else."
     ],
     [
-      "2. **Ask**, showing the current value first, using `AskUserQuestion`:",
-      "2. **Ask**, showing the current value first, with Cursor's question tool:"
+      "2. **Ask**, showing current values first, using `AskUserQuestion`:",
+      "2. **Ask**, showing current values first, with Cursor's question tool:"
     ],
     [
-      "Model options in Claude Code: `model` is opus, sonnet, haiku, or fable; `effort` is low, medium, high, xhigh, or max. Every agent shares the session's provider.",
-      "Model options in Cursor: any model name you can pass to a subagent in this session. The name sets the provider, and for some models the effort, so workers and reviewers can run on a different provider from the session."
+      "Claude Code options: `model` (`opus`, `sonnet`, `haiku`, `fable`), `effort` (`low`, `medium`, `high`, `xhigh`, `max`); provider is shared with the session. Never pick values on the person's behalf.",
+      "Cursor options: any subagent model name available in this session (the model name sets provider and, where supported, effort). Never pick values on the person's behalf."
     ],
     [
       "5. **Install what this tool needs.** Nothing in Claude Code: the plugin ships the agents and the hook.",

@@ -1,6 +1,7 @@
 ---
 name: no-bolt-ons
 description: "Integrate new requirements cleanly into the existing design instead of adding special-case flags, parallel copies, or wrapper patches. Use when adding features to existing code or reviewing special-case changes."
+disable-model-invocation: true
 ---
 
 # No bolt-ons

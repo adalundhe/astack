@@ -1,6 +1,7 @@
 ---
 name: astack-lead
-description: "Run a multi-step program as isolated git-worktree lanes with time-boxed astack-worker subagents, scheduled check-ins, verified merges, and an append-only lane log. Use when invoked via $astack-lead."
+description: "Run a multi-step program as isolated git-worktree lanes with time-boxed astack-worker subagents, scheduled check-ins, verified merges, and an append-only lane log. Use when invoked via $astack-lead or routed from $astack-go."
+disable-model-invocation: true
 ---
 
 # Lead
@@ -11,17 +12,17 @@ You coordinate the program; workers write the code. You own program rules, worke
 - **Worker:** a subagent building one lane within a hard time limit.
 - **Successor:** a fresh worker taking over an unfinished lane on the same branch.
 
-The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`) are in this package's `bin/` folder, two folders up from this file; run them by that path. The templates are in `templates/`, beside this file.
+The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`) are in this package's `bin/` folder, two folders up from this file; run them by that path. The templates are in `templates/`, beside this file.
 
 ## Settings
 
-Read `~/.config/astack/settings.json`, written by `$astack-setup`: `worker_minutes`, `wind_down_minutes`, `check_in_minutes`, and `roles` (the model, provider, and effort for workers and reviewers). If it is missing, use 60, 5, and 5 and the session's model, and mention that once. Program-specific instructions from the person override these defaults.
+Read `~/.config/astack/settings.json`, written by `$astack-setup`: `worker_minutes`, `wind_down_minutes`, `check_in_minutes` (defaults `60`, `5`, `5`), and optional `roles` (`lead`, `worker`, `reviewer`, `researcher` with `provider`, `model`, `effort`). If missing, use the defaults and mention that once. Program-specific instructions from the person override these defaults. Pass configured role `model` / `effort` when spawning subagents wherever the host tool supports it; otherwise note the fallback once.
 
 ## Set up the program
 
 1. Restate the goal in 1–2 sentences (what the person gets and how it's verified) and list the lanes. Start immediately without waiting for approval—misreads are cheap to correct via directives.
 2. Create the program folder outside the repository (`~/.cache/astack/<program>/` unless told otherwise) and copy `RULES.md` and `LANES.md` from the templates so they persist across workers and context resets.
-3. Fill in `RULES.md` with Rule 0 first: goal, lint/test checks, merge target, branch prefix, time limit, build environment, and project rules. Put the repository's absolute path in `LANES.md`'s header. Every worker reads `RULES.md` first.
+3. Fill in `RULES.md` with Rule 0 first: goal, lint/test checks, merge target, branch prefix, time limit, build environment, path to the astack `skills/` directory (so workers can read hidden skills by path), and project rules. Put the repository's absolute path in `LANES.md`'s header. Every worker reads `RULES.md` first.
 4. Give every lane exactly one deliverable and concrete done-when evidence (a command and output, a passing scenario, or a SHA on the target branch). No done-when, no lane.
 5. Order lanes strictly: work first, then robust, then fast. Don't benchmark unfinished code.
 6. Between check-ins, wait with `wait_agent`, its `timeout_ms` set to `check_in_minutes` in milliseconds. It returns early when a worker reports or ends, and otherwise at check-in time, so drift and the clock still get their check.
@@ -31,7 +32,7 @@ Read `~/.config/astack/settings.json`, written by `$astack-setup`: `worker_minut
 
 1. Create an isolated worktree: `git worktree add <program folder>/<worker> -b <prefix>/<lane>`. For a successor, remove the old worktree first and create a new one on the lane's branch so workers never overwrite each other.
 2. Write its brief from `brief.md`: deliverable, done-when, out of scope, writable paths, worktree and branch, `RULES.md` and report paths, and start/wind-down/end UTC timestamps from `date -u`.
-3. Spawn it with `spawn_agent`: `agent_type: "astack-worker"` (installed by `$astack-setup`, with the worker's model, provider, and effort), `fork_turns: "none"`, a `task_name`, and the brief as its `message`.
+3. Spawn it with `spawn_agent`: `agent_type: "astack-worker"` (installed by `$astack-setup` with configured model/provider/effort), `fork_turns: "none"`, a `task_name`, and the brief as its `message`.
 4. Log the start in `LANES.md`. Keep one worker per lane; workers never spawn subagents.
 
 ## Check in
@@ -64,13 +65,13 @@ Keep the same lane, deliverable, and scope. Build the successor's brief from the
 
 ## The lane log
 
-`LANES.md` is the program's durable memory: append one line per event using the formats in its header, never rewrite history. The astack hook stamps each line with the time as it is saved, once the person trusts it in `/hooks`; until then, run `astack-stamp <LANES.md>` after each append. Never write a time from memory. If `RULES.md` changes, record a revision line in `LANES.md` and notify every running worker.
+`LANES.md` is the program's durable memory: append one line per event using the formats in its header, never rewrite history. The astack hook stamps each line with the time as it is saved, once the person trusts it in `/hooks`; until then, run `astack-stamp <LANES.md>` after each append. Never write a time from memory. Use `astack-decisions` to query past `decided:` and `person:` lines before revisiting questions. If `RULES.md` changes, record a revision line in `LANES.md` and notify every running worker.
 
 ## Decisions
 
-- Explore, research, prototype (**play-with-me**), and benchmark (**ab-test**) to settle technical choices without unnecessary interruptions. Workers settle lane-local decisions; you settle cross-lane choices the same way and log every decision as a `decided:` line with its evidence.
-- Before escalating to the person, check earlier decisions in `LANES.md`, the repository, external docs, and whether an A/B test or prototype can answer it.
-- Escalate only what none of those can resolve: actions only the person can take (logins, sudo/root installs, spending money), trade-offs of functionality or durability, or unauthorized irreversible/external actions.
+- Explore, research (**research-this**), prototype (**play-with-me**), and benchmark (**ab-test**) to settle technical choices without unnecessary interruptions. Workers settle lane-local decisions; you settle cross-lane choices the same way and log every decision as a `decided:` line with its evidence.
+- Before escalating to the person, check earlier decisions (`astack-decisions`), the repository, external docs, and whether an A/B test or prototype can answer it.
+- Escalate only what none of those can resolve: actions only the person can take (logins, sudo/root installs, spending money), trade-offs of functionality or durability proven unavoidable after **research-this**, or unauthorized irreversible/external actions.
 - Ask outright, as a plain choice with your pick (**decisions-in-plain-words**), in your reply (or with `request_user_input` in Plan mode), and keep working on everything else.
 - Never ask for confirmation, re-ask approval already given, or ask about retries, flakes, machines, merge mechanics, or whether to keep going.
 - Log the person's answers verbatim and forward them to affected workers.

@@ -1,6 +1,7 @@
 ---
 name: modularize
 description: "Split monolithic packages, files, or functions into single-purpose modules behind narrow interfaces in the repo's style, without needless abstraction. Use when code is too large or tangled to change safely."
+disable-model-invocation: true
 ---
 
 # Modularize

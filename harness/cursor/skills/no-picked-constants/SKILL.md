@@ -1,6 +1,7 @@
 ---
 name: no-picked-constants
 description: "Avoid hardcoded arbitrary limits, timeouts, batch sizes, or thresholds; derive them from cited specs/OS limits or adapt them at runtime. Use when writing, reviewing, or proposing behavioral constants."
+disable-model-invocation: true
 ---
 
 # No picked constants

@@ -1,6 +1,7 @@
 ---
 name: address-feedback
 description: "Resolve every review finding and PR comment from humans or agents by fixing, answering, or disproving it, blockers first, replying on every thread. Use when review findings or PR comments arrive."
+disable-model-invocation: true
 ---
 
 # Address feedback

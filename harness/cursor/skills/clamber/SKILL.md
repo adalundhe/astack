@@ -1,6 +1,7 @@
 ---
 name: clamber
 description: "Iteratively improve performance (CPU, memory, I/O, network, concurrency, or size) in small measured steps: baseline everything, change one thing at a time, commit gains, revert regressions. Use when significant optimization is needed."
+disable-model-invocation: true
 ---
 
 # Clamber

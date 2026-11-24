@@ -1,6 +1,7 @@
 ---
 name: safe-to-rerun
 description: "Make state-changing operations idempotent and crash-recoverable so rerunning or stopping halfway still ends in the right state. Use when writing or reviewing commands, migrations, deploy steps, jobs, or retries."
+disable-model-invocation: true
 ---
 
 # Safe to rerun

@@ -1,6 +1,7 @@
 ---
 name: show-the-states
 description: "Diagram a system's states, triggers, conditions, failure paths, and observed probabilities in Mermaid stateDiagram-v2. Use for debugging, onboarding, design, planning, or reviews."
+disable-model-invocation: true
 ---
 
 # Show the states

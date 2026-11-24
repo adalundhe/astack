@@ -1,6 +1,7 @@
 ---
 name: minimize-state-stores
 description: "Keep one source of truth for each piece of data; add caches, copies, or long-lived state only when measurements justify them. Use when writing or reviewing caching, denormalization, or stateful code."
+disable-model-invocation: true
 ---
 
 # Minimize state stores

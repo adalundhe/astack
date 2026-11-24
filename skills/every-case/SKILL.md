@@ -1,6 +1,7 @@
 ---
 name: every-case
 description: "Set up and maintain formal verification (TLA+, code verifiers, or generated checks) for concurrency, state machines, protocols, parsers, or unsafe code, and replay counterexamples on real code. Use when tests can't cover dangerous orderings or inputs, or after verified code changes."
+disable-model-invocation: true
 ---
 
 # Every case

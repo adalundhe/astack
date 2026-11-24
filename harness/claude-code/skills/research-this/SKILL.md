@@ -1,6 +1,7 @@
 ---
 name: research-this
 description: "Research a question across internal sources (code, logs, data, docs) and external sources (specs, papers, official docs, web), verify quotes against their citations, and grade each finding A–F. Use before unsettled decisions, before accepting a functionality trade-off, or when claims need graded evidence."
+disable-model-invocation: true
 ---
 
 # Research this

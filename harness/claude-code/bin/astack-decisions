@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""Query decisions and person directives recorded in an astack lane log.
+
+Usage: astack-decisions [LANES.md | PROGRAM_FOLDER] [--query TEXT] [--settled-by KIND] [--since ISO_TIME] [--json]
+
+With no path, reads ./LANES.md, else the newest lane log under ~/.cache/astack/.
+Extracts `decided:` lines and verbatim `person:` directives from `## Log`.
+"""
+import argparse
+import json
+import os
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+STAMP_FORMAT = "%Y-%m-%dT%H:%MZ"
+LINE = re.compile(r"^(?P<stamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z) (?P<rest>.+)$")
+DECIDED = re.compile(
+    r"^decided:\s*(?P<question>.+?)\s*->\s*(?P<choice>.+?)"
+    r"(?:\s*\(settled by\s+(?P<settled_by>[^;)]+?)(?:;\s*evidence:\s*(?P<evidence>[^)]*))?\))?$"
+)
+PERSON = re.compile(r'^person:\s*"(?P<words>.*)"(?:\s*->\s*(?P<effect>.*))?$')
+
+
+def parse_time(text):
+    text = text.strip()
+    for fmt in (STAMP_FORMAT, "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    raise ValueError(f"unrecognized UTC timestamp: {text!r} (expected YYYY-MM-DDTHH:MMZ or YYYY-MM-DD)")
+
+
+def find_log(arg):
+    if arg:
+        path = Path(arg).expanduser()
+        return path / "LANES.md" if path.is_dir() else path
+    if Path("LANES.md").is_file():
+        return Path("LANES.md")
+    root = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "astack"
+    logs = sorted(root.glob("*/LANES.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return logs[0] if logs else None
+
+
+def read_decisions(path):
+    entries = []
+    in_log = False
+    for raw in path.read_text().splitlines():
+        if raw.startswith("## "):
+            in_log = raw.strip() == "## Log"
+            continue
+        match = LINE.match(raw) if in_log else None
+        if not match:
+            continue
+        stamp, rest = match["stamp"], match["rest"]
+        if decided := DECIDED.match(rest):
+            entries.append({
+                "time": stamp,
+                "kind": "decided",
+                "question": decided["question"].strip(),
+                "choice": decided["choice"].strip(),
+                "settled_by": (decided["settled_by"] or "").strip(),
+                "evidence": (decided["evidence"] or "").strip(),
+            })
+        elif person := PERSON.match(rest):
+            entries.append({
+                "time": stamp,
+                "kind": "person",
+                "question": "person directive",
+                "choice": person["words"].strip(),
+                "settled_by": "person",
+                "evidence": (person["effect"] or "").strip(),
+            })
+    return entries
+
+
+def filter_entries(entries, query=None, settled_by=None, since=None):
+    result = entries
+    if since is not None:
+        result = [e for e in result if parse_time(e["time"]) >= since]
+    if settled_by:
+        needle = settled_by.lower()
+        result = [e for e in result if needle in e["settled_by"].lower()]
+    if query:
+        needle = query.lower()
+        result = [
+            e for e in result
+            if needle in f"{e['question']} {e['choice']} {e['settled_by']} {e['evidence']}".lower()
+        ]
+    return result
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Show decisions recorded in an astack lane log.")
+    parser.add_argument("path", nargs="?")
+    parser.add_argument("--query", help="case-insensitive substring filter")
+    parser.add_argument("--settled-by", help="filter by how the decision was settled (e.g. A/B, research, person)")
+    parser.add_argument("--since", help="include decisions at or after this UTC time (YYYY-MM-DDTHH:MMZ or YYYY-MM-DD)")
+    parser.add_argument("--json", action="store_true", dest="as_json", help="output JSON")
+    args = parser.parse_args(argv)
+
+    try:
+        since = parse_time(args.since) if args.since else None
+    except ValueError as err:
+        print(str(err), file=sys.stderr)
+        return 2
+
+    log = find_log(args.path)
+    if not log or not log.is_file():
+        print("[]" if args.as_json else "No astack lane log found.")
+        return 1
+
+    entries = filter_entries(read_decisions(log), query=args.query, settled_by=args.settled_by, since=since)
+    if args.as_json:
+        print(json.dumps(entries, indent=2))
+        return 0
+
+    program = log.parent.name
+    print(f"astack decisions: {program} ({log})")
+    if not entries:
+        print("\nNo matching decisions.")
+        return 0
+    print()
+    for entry in entries:
+        if entry["kind"] == "person":
+            effect = f" -> {entry['evidence']}" if entry["evidence"] else ""
+            print(f"  {entry['time']} [person] \"{entry['choice']}\"{effect}")
+        else:
+            meta = []
+            if entry["settled_by"]:
+                meta.append(f"settled by {entry['settled_by']}")
+            if entry["evidence"]:
+                meta.append(f"evidence: {entry['evidence']}")
+            suffix = f" ({'; '.join(meta)})" if meta else ""
+            print(f"  {entry['time']} {entry['question']} -> {entry['choice']}{suffix}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

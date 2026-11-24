@@ -1,6 +1,7 @@
 ---
 name: run-it-back
 description: "Restate the goal, problem, user-visible done-when, exclusions, and assumptions in short checkable lines before starting. Use before planning or whenever a request is ambiguous."
+disable-model-invocation: true
 ---
 
 # Run it back

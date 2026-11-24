@@ -1,6 +1,7 @@
 ---
 name: astack-status
 description: "Show an astack program's active workers, timers, latest commits, lane states, and open questions. Use for $astack-status or when asked how a program is progressing."
+disable-model-invocation: true
 ---
 
 # Status

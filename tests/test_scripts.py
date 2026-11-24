@@ -234,5 +234,51 @@ class VerifyMergeTest(Scratch):
         self.assertTrue(result.stdout.startswith("NOT CHECKED:"))
 
 
+class DecisionsTest(Scratch):
+    def write_log(self, lines):
+        path = self.dir / "prog" / "LANES.md"
+        path.parent.mkdir()
+        path.write_text(f"{MARKER}\n# prog lane log\n\n## Log\n\n" + "\n".join(lines) + "\n")
+        return path
+
+    def test_lists_decided_lines_and_person_directives(self):
+        path = self.write_log([
+            "2026-11-23T10:00Z started w1 on api (a1) | branch lane/api",
+            "2026-11-23T10:15Z decided: JSON vs CBOR -> CBOR (settled by an A/B; evidence: bench/cbor.md)",
+            "2026-11-23T10:30Z person: \"Keep backward-compatible CLI flags\" -> w1 told",
+            "2026-11-23T11:00Z decided: retry strategy -> exponential backoff (settled by research; evidence: RFC 9110)",
+        ])
+        result = run("astack-decisions", str(path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("JSON vs CBOR -> CBOR (settled by an A/B; evidence: bench/cbor.md)", result.stdout)
+        self.assertIn('[person] "Keep backward-compatible CLI flags" -> w1 told', result.stdout)
+        self.assertIn("retry strategy -> exponential backoff", result.stdout)
+
+    def test_filters_by_query_settled_by_since_and_json(self):
+        path = self.write_log([
+            "2026-11-23T10:15Z decided: JSON vs CBOR -> CBOR (settled by an A/B; evidence: bench/cbor.md)",
+            "2026-11-23T10:30Z person: \"Keep backward-compatible CLI flags\" -> w1 told",
+            "2026-11-23T11:00Z decided: retry strategy -> exponential backoff (settled by research; evidence: RFC 9110)",
+        ])
+        by_source = run("astack-decisions", str(path), "--settled-by", "A/B", "--json")
+        self.assertEqual(by_source.returncode, 0, by_source.stderr)
+        items = json.loads(by_source.stdout)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]["choice"], "CBOR")
+
+        since = run("astack-decisions", str(path), "--since", "2026-11-23T10:30Z", "--json")
+        self.assertEqual(since.returncode, 0, since.stderr)
+        self.assertEqual([i["kind"] for i in json.loads(since.stdout)], ["person", "decided"])
+
+        query = run("astack-decisions", str(path), "--query", "rfc 9110", "--json")
+        self.assertEqual(len(json.loads(query.stdout)), 1)
+
+    def test_missing_log_exits_one_and_bad_since_exits_two(self):
+        missing = run("astack-decisions", str(self.dir / "nope"))
+        self.assertEqual(missing.returncode, 1)
+        bad = run("astack-decisions", str(self.dir), "--since", "not-a-date")
+        self.assertEqual(bad.returncode, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,31 +1,33 @@
 ---
 name: setup
-description: "Configure worker runtime limit, wind-down buffer, lead check-in interval, and the model, provider, and reasoning effort for workers and reviewers in ~/.config/astack/settings.json. Use for /astack:setup or changing these settings."
+description: "Configure worker timing and per-role model, provider, and effort in ~/.config/astack/settings.json. Use for /astack:setup."
+disable-model-invocation: true
 ---
 
 # Setup
 
-Ask the person for three timing settings and the models workers and reviewers run on, and save them. The lead reads them when starting a program.
+Configure timing and subagent model settings in `~/.config/astack/settings.json` (or `$XDG_CONFIG_HOME/astack/settings.json`).
 
-1. **Read** `~/.config/astack/settings.json` (or `$XDG_CONFIG_HOME/astack/settings.json` if set). If missing, start from the defaults: 60 minutes per worker, 5-minute wind-down buffer, and 5-minute lead check-in interval; workers and reviewers run on the session's own model.
-2. **Ask**, showing the current value first, using `AskUserQuestion`:
-   - How many minutes may a worker run?
-   - How many minutes before that limit does it wind down?
-   - Every how many minutes does the lead check in?
-   - Which model, provider, and reasoning effort should workers use? Reviewers? ("Same as this session" is always an option.)
+1. **Read current settings.** Default to `worker_minutes: 60`, `wind_down_minutes: 5`, `check_in_minutes: 5`, and session defaults for `roles` (`worker`, `reviewer`, plus optional `lead` / `researcher`).
+2. **Ask**, showing current values first, using `AskUserQuestion`:
+   - Worker time limit, wind-down buffer, and lead check-in interval (minutes).
+   - Model, provider, and effort for `worker` and `reviewer` (and optionally `lead` / `researcher`), leaving blank to inherit the session.
 
-   Model options in Claude Code: `model` is opus, sonnet, haiku, or fable; `effort` is low, medium, high, xhigh, or max. Every agent shares the session's provider.
-
-   These are the person's choices; never pick them yourself.
-3. **Validate** that the three timings are positive integers, that wind-down is strictly shorter than the worker limit, and that each model, provider, and effort is one on offer. If not, ask again.
-4. **Write** the full file, creating parent directories if needed, and omit any role setting that's "same as this session":
+   Claude Code options: `model` (`opus`, `sonnet`, `haiku`, `fable`), `effort` (`low`, `medium`, `high`, `xhigh`, `max`); provider is shared with the session. Never pick values on the person's behalf.
+3. **Validate:** positive integers for timing (`wind_down_minutes < worker_minutes`) and valid platform options for any role overrides. Re-ask if invalid.
+4. **Write the file** (creating parent directories if needed), omitting any role field left on session default:
 
    ```json
-   {"worker_minutes": 60, "wind_down_minutes": 5, "check_in_minutes": 5,
-    "roles": {"worker": {"model": "<model>", "provider": "<provider>", "effort": "<effort>"}, "reviewer": {}}}
+   {
+     "worker_minutes": 60,
+     "wind_down_minutes": 5,
+     "check_in_minutes": 5,
+     "roles": {
+       "worker": {"model": "<model>", "provider": "<provider>", "effort": "<effort>"},
+       "reviewer": {}
+     }
+   }
    ```
 
 5. **Install what this tool needs.** Nothing in Claude Code: the plugin ships the agents and the hook.
-6. **Confirm** in one line: the saved values, file path, and that they take effect on the next program (program-specific instructions still override them).
-
-Other subagents that skills start run on the session's model.
+6. **Confirm** in one line: saved values, file path, and that they apply from the next run (program instructions still override them).

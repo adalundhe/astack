@@ -2,6 +2,7 @@
 
 Goal: <what the person gets, and how it is measured>.
 Lane log: <path to LANES.md>. Report format: <path to report.md>.
+Astack skills: <path to astack skills/ directory, for reading hidden skills by path>.
 
 0. MAKE IT WORK, THEN MAKE IT ROBUST, THEN MAKE IT FAST, in that order. This rule outranks every other.
    - Your brief names ONE deliverable and when it is done. Finish that first.

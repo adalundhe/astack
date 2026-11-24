@@ -1,6 +1,7 @@
 ---
 name: check-your-boundaries
 description: "Parse and validate external data into domain types once at the boundary, then trust those types inside. Use when writing or reviewing code handling requests, CLI args, config, env vars, files, DB rows, or API replies."
+disable-model-invocation: true
 ---
 
 # Check your boundaries

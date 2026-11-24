@@ -1,6 +1,7 @@
 ---
 name: play-with-me
 description: "Build a small throwaway mockup, script, or demo so the person can try a design or idea before full implementation, proactively. Use whenever showing beats describing."
+disable-model-invocation: true
 ---
 
 # Play with me

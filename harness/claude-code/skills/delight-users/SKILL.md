@@ -1,6 +1,7 @@
 ---
 name: delight-users
 description: "Design and audit work from the consumer's side (end user, API caller, operator, or maintainer): clear feedback, actionable errors, complete states, good defaults, and ergonomic APIs. Use when designing, building, or reviewing user-facing work."
+disable-model-invocation: true
 ---
 
 # Delight users

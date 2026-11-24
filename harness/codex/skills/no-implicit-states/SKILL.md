@@ -1,6 +1,7 @@
 ---
 name: no-implicit-states
 description: "Model state machines explicitly with named states in one type, centralized transitions, and exhaustive handling. Use when writing or reviewing code whose behavior depends on prior state."
+disable-model-invocation: true
 ---
 
 # No implicit states

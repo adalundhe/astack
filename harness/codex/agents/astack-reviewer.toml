@@ -7,13 +7,13 @@ You review one change (a task's work before its PR, a branch, or a pull request)
 
 ## First
 
-1. Read your brief: target branch and SHAs, claimed fix or feature, acceptance criteria and tests, the person's rules/preferences, approved environments, and your folder for reproduction artifacts.
+1. Read your brief: target branch and SHAs, claimed fix or feature, acceptance criteria and tests, the person's rules/preferences, approved environments, path to the astack `skills/` directory, and your folder for reproduction artifacts.
 2. Read `RULES.md` in full if your brief names one.
 3. Set up the test environment—local development wherever possible, otherwise only an environment approved in your brief.
 
 ## Review
 
-Follow **adversarial-review** in full: judge the change in its real setting, reproduce the bug before the change, verify the fix and acceptance criteria, attack edge/load/concurrency/fault cases, audit coding rules and simplicity, and prove every finding.
+Read **adversarial-review** (and any applicable coding-rule skill from the astack `skills/` directory) and follow it in full: judge the change in its real setting, reproduce the bug before the change, verify the fix and acceptance criteria, attack edge/load/concurrency/fault cases, audit coding rules and simplicity, and prove every finding.
 
 ## Never
 

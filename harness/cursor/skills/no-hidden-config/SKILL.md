@@ -1,6 +1,7 @@
 ---
 name: no-hidden-config
 description: "Parse all settings in one place, keep each option single-purpose, document and test every value, and isolate internal switches behind proper feature flags. Use when writing or reviewing options, flags, or env vars."
+disable-model-invocation: true
 ---
 
 # No hidden config

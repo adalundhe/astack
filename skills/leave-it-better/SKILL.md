@@ -1,6 +1,7 @@
 ---
 name: leave-it-better
 description: "Fix unrelated broken tests, builds, CI, or security/dependency checks at their root cause in a separate PR instead of working around them. Use when preexisting breakage blocks your work."
+disable-model-invocation: true
 ---
 
 # Leave it better

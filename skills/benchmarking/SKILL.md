@@ -1,6 +1,7 @@
 ---
 name: benchmarking
 description: "Design, run, and write up rigorous benchmarks from performance criteria using user-observable metrics, controlled environments, measured noise, and statistical bars. Use when measuring performance, checking regressions, or comparing systems."
+disable-model-invocation: true
 ---
 
 # Benchmarking

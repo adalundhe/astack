@@ -1,6 +1,7 @@
 ---
 name: rtfm
 description: "Check the user's message, repo docs/code/history, local environment, and official tool docs before asking questions or claiming to be blocked. Use before asking the person anything."
+disable-model-invocation: true
 ---
 
 # RTFM

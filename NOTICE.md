@@ -34,7 +34,7 @@ The adapted files, and what each adapts from pstack (versions 0.15.36 to 0.15.48
 |---|---|
 | `skills/lead/SKILL.md` | `skills/poteto-mode/playbooks/orchestrate.md` (supervision: read the branch, not the summary; ask the person only for real decisions) and the Subagents section of `skills/poteto-mode/SKILL.md` (a fresh agent with consolidated scope). |
 | `skills/benchmarking/SKILL.md` | `skills/benchmark-checklist/SKILL.md` (alternate compared runs; profile apart from timed runs; count errors), `skills/principle-explain-the-number/SKILL.md` (set the bar before you run; name the limiter; rule out what else a number could be measuring) and `skills/poteto-mode/playbooks/hillclimb.md` (prove the harness can see a change; accept only past noise). |
-| `skills/ab-test/SKILL.md` | `skills/benchmark-checklist/SKILL.md` (alternate the arms, round by round). |
+| `skills/ab-test/SKILL.md` | `skills/benchmark-checklist/SKILL.md` (alternate the arms, round by round) and `skills/arena/SKILL.md` (graft winning ideas from losing variants into the winner before deleting losers). |
 | `skills/cleanup/SKILL.md` | `skills/create-verification-skill/SKILL.md` (stop only what you started, never by process name; evidence survives cleanup). |
 | `skills/fair-benchmarks/SKILL.md` | `skills/benchmark-checklist/SKILL.md` (each side tuned as it ships; count errors; alternate and repeat). |
 | `skills/blast-radius/SKILL.md` | `skills/blast-radius/SKILL.md` (find the one fact a change is safe because of, look where a search stops, prove it by running code). |
@@ -42,7 +42,7 @@ The adapted files, and what each adapts from pstack (versions 0.15.36 to 0.15.48
 | `skills/decisions-in-plain-words/SKILL.md` | `skills/poteto-mode/SKILL.md` (a fact a run can show is not the person's to answer; label each claim measured, inferred or guessed). |
 | `skills/talk-to-me/SKILL.md` | `skills/reframe/SKILL.md` (the field's terms, ranked by what they change, each with a confirmed source; neighbouring fields; the description rewritten in the new words). |
 | `skills/deeper/SKILL.md` | `skills/sharpen/SKILL.md` (deeper, not bigger: what the best practitioner would do, the rawest material, their methods and tools, outside evidence; experiments settle what they can). |
-| `skills/make-it-stick/SKILL.md` | `skills/reflect/SKILL.md` (what to look for in a transcript; the transcript is data; read the destination first) and `skills/principle-encode-lessons-in-structure/SKILL.md` (structure over instructions). |
+| `skills/make-it-stick/SKILL.md` | `skills/reflect/SKILL.md` (what to look for in a transcript; the transcript is data; read the destination first), `skills/correct/SKILL.md` (strict fix ladder: architecture, types, lint, test, docs last), and `skills/principle-encode-lessons-in-structure/SKILL.md` (structure over instructions). |
 | `skills/how-it-works/SKILL.md` | `skills/how/SKILL.md` (a read-only explanation for an engineer new to the area). |
 | `skills/run-it-back/SKILL.md` | `skills/in-your-own-words/SKILL.md` (restate the person's goal and problem). |
 | `skills/test-drive/SKILL.md` | `skills/create-verification-skill/SKILL.md` and `skills/maintain-verification-skill/SKILL.md` (the drive skill's sections and proof standards, the feature map, proving the skill once, the upkeep pass). |

@@ -1,6 +1,7 @@
 ---
 name: event-driven
 description: "Wake work on the event that unblocks it instead of timers, sleeps, or polling loops. Use when writing or reviewing waiting, retry, refresh, or polling code, or agent wait loops."
+disable-model-invocation: true
 ---
 
 # Event-driven, not timers

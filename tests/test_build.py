@@ -1,4 +1,4 @@
-"""Checks on the three packages: current with the source, and shaped the way each tool reads them."""
+"""Checks on the three packages: current with source, shaped for each tool, Go-mode index complete, and evals valid."""
 import json
 import re
 import subprocess
@@ -20,6 +20,18 @@ CURSOR_ENTRY_KEYS = {"name", "source", "description", "minClientVersions"}
 
 def load(path):
     return json.loads(Path(path).read_text())
+
+
+def front_matter(path):
+    text = Path(path).read_text()
+    match = re.match(r"---\n(.*?)\n---\n", text, re.S)
+    if not match:
+        raise AssertionError(f"{path} has no front matter")
+    fields = {}
+    for line in match.group(1).splitlines():
+        key, _, value = line.partition(":")
+        fields[key.strip()] = value.strip()
+    return fields, text[match.end():]
 
 
 class BuildTest(unittest.TestCase):
@@ -55,25 +67,87 @@ class BuildTest(unittest.TestCase):
 
     def test_skill_names_match_their_folders(self):
         for skill in HARNESS.glob("*/skills/*/SKILL.md"):
-            name = re.search(r"^name: (.+)$", skill.read_text(), re.M).group(1)
-            self.assertEqual(name, skill.parent.name, skill)
+            fields, _ = front_matter(skill)
+            self.assertEqual(fields["name"], skill.parent.name, skill)
 
     def test_cursor_and_codex_use_prefixed_names(self):
         for tool in ("cursor", "codex"):
             names = {p.name for p in (HARNESS / tool / "skills").iterdir()}
-            self.assertTrue({"astack-lead", "astack-setup", "astack-status"} <= names, names)
-            self.assertFalse({"lead", "setup", "status"} & names, names)
+            self.assertTrue({"astack-go", "astack-lead", "astack-setup", "astack-status", "astack-review"} <= names, names)
+            self.assertFalse({"go", "lead", "setup", "status", "review"} & names, names)
         self.assertTrue((HARNESS / "cursor/agents/astack-worker.md").is_file())
+        self.assertTrue((HARNESS / "cursor/agents/astack-reviewer.md").is_file())
 
-    def test_the_codex_worker_is_a_valid_agent_file(self):
-        agent = tomllib.loads((HARNESS / "codex/agents/astack-worker.toml").read_text())
-        self.assertEqual(agent["name"], "astack-worker")
-        self.assertIn("RESULT: DONE | NOT DONE", agent["developer_instructions"])
+    def test_only_go_is_visible_in_the_skill_catalog(self):
+        for tool, go_name in (("claude-code", "go"), ("cursor", "astack-go"), ("codex", "astack-go")):
+            visible = []
+            for skill in sorted((HARNESS / tool / "skills").glob("*/SKILL.md")):
+                fields, _ = front_matter(skill)
+                if fields.get("disable-model-invocation") != "true":
+                    visible.append(skill.parent.name)
+            self.assertEqual(visible, [go_name], f"{tool} visible skills: {visible}")
 
-    def test_the_hook_scripts_are_executable_in_every_package(self):
+    def test_go_indexes_every_other_skill_with_valid_paths(self):
+        source_skills = {p.name for p in (ROOT / "skills").iterdir() if (p / "SKILL.md").is_file()}
+        go_text = (ROOT / "skills/go/SKILL.md").read_text()
+        linked = set(re.findall(r"\$\{CLAUDE_SKILL_DIR\}/\.\./([a-z0-9-]+)/SKILL\.md", go_text))
+        self.assertEqual(linked, source_skills - {"go"})
+
+        for tool, go_name in (("claude-code", "go"), ("cursor", "astack-go"), ("codex", "astack-go")):
+            go_file = HARNESS / tool / "skills" / go_name / "SKILL.md"
+            text = go_file.read_text()
+            if tool == "claude-code":
+                refs = re.findall(r"\$\{CLAUDE_SKILL_DIR\}/(\.\./[a-z0-9-]+/SKILL\.md)", text)
+            else:
+                refs = re.findall(r"(\.\./[a-z0-9-]+/SKILL\.md)", text)
+            self.assertEqual(len(set(refs)), len(source_skills) - 1, f"{tool} ref count")
+            for rel in refs:
+                target = (go_file.parent / rel).resolve()
+                self.assertTrue(target.is_file(), f"{tool}: missing {rel} -> {target}")
+
+    def test_the_codex_agents_are_valid_toml_files(self):
+        worker = tomllib.loads((HARNESS / "codex/agents/astack-worker.toml").read_text())
+        self.assertEqual(worker["name"], "astack-worker")
+        self.assertIn("RESULT: DONE | NOT DONE", worker["developer_instructions"])
+        reviewer = tomllib.loads((HARNESS / "codex/agents/astack-reviewer.toml").read_text())
+        self.assertEqual(reviewer["name"], "astack-reviewer")
+        self.assertIn("$astack-lead or $astack-review", reviewer["description"])
+
+    def test_the_scripts_are_executable_in_every_package(self):
         for tool in ("claude-code", "cursor", "codex"):
-            for script in ("astack-stamp", "astack-stamp-hook", "astack-status", "astack-verify-merge"):
+            for script in ("astack-decisions", "astack-stamp", "astack-stamp-hook", "astack-status", "astack-verify-merge"):
                 self.assertTrue((HARNESS / tool / "bin" / script).stat().st_mode & 0o111, f"{tool}/{script}")
+
+    def test_readme_lists_every_skill_and_notice_attributions_hold(self):
+        skills = {p.name for p in (ROOT / "skills").iterdir() if (p / "SKILL.md").is_file()}
+        readme = (ROOT / "README.md").read_text()
+        listed = set(re.findall(r"^- `([a-z0-9-]+)`:", readme, re.M))
+        self.assertEqual(listed, skills)
+
+        notice = (ROOT / "NOTICE.md").read_text()
+        adapted = sorted({m for m in re.findall(r"`(skills/[^`]+)`", notice) if (ROOT / m).is_file()})
+        for rel in adapted:
+            self.assertIn("See NOTICE.md.", (ROOT / rel).read_text(), rel)
+
+    def test_evals_are_well_formed(self):
+        cases = sorted(p for p in (ROOT / "evals").iterdir() if p.is_dir())
+        self.assertGreaterEqual(len(cases), 9)
+        for case in cases:
+            yaml_text = (case / "case.yaml").read_text()
+            self.assertIn(f"name: {case.name}", yaml_text)
+            self.assertTrue((case / "prompt.md").is_file())
+            if "scaffold_script: setup.sh" in yaml_text:
+                self.assertTrue((case / "setup.sh").stat().st_mode & 0o111, case.name)
+            graders = sorted((case / "graders").glob("*.md"))
+            self.assertTrue(graders, f"{case.name} has no graders")
+            for grader in graders:
+                fields, body = front_matter(grader)
+                self.assertIn(fields.get("type"), {"llm", "regex", "tool_used"}, grader)
+                if fields["type"] == "regex":
+                    pattern = fields["pattern"].strip("'\"")
+                    re.compile(pattern)
+                elif fields["type"] == "llm":
+                    self.assertTrue(body.strip(), grader)
 
 
 if __name__ == "__main__":

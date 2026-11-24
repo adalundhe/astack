@@ -1,6 +1,7 @@
 ---
 name: test-drive
 description: "Create or update a project-local drive-<app> skill that launches the real app, exercises user flows, and captures proof (screenshots, transcripts, logs). Use to verify real user behavior or fix a stale drive skill."
+disable-model-invocation: true
 ---
 
 # Test drive

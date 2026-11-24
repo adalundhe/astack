@@ -1,6 +1,7 @@
 ---
 name: comment-cop
 description: "Strip comments that narrate or excuse the code, keeping only what code can't express (API contracts, external constraints, legal headers, issue links). Use when writing, reviewing, or cleaning up comments."
+disable-model-invocation: true
 ---
 
 # Comment cop

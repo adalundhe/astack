@@ -1,6 +1,7 @@
 ---
 name: never-trade-functionality
 description: "Ensure optimizations keep exact results, freshness, durability, error visibility, and features—researching compliant approaches before claiming any trade-off is unavoidable. Use when optimizing or proposing approximate/deferred variants."
+disable-model-invocation: true
 ---
 
 # Never trade functionality for speed

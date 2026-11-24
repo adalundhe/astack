@@ -4,9 +4,9 @@
 Usage: python3 scripts/build.py [--check]
 
 Writes harness/claude-code, harness/cursor and harness/codex. Cursor and Codex get prefixed names
-(astack-lead, astack-worker, ...) and the sentences in packaging/<tool>/replace.json. The build fails when a
-sentence in replace.json is missing from the source, or when a Claude Code-only name is left in their skills or
-agents. With --check, it builds into a temporary folder and fails if harness/ differs.
+(astack-go, astack-lead, astack-worker, ...) and the sentences in packaging/<tool>/replace.json. The build
+fails when a sentence in replace.json is missing from the source, or when a Claude Code-only name is left in
+their skills or agents. With --check, it builds into a temporary folder and fails if harness/ differs.
 """
 import argparse
 import json
@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "harness"
 PACKAGING = ROOT / "packaging"
 DOCS = ("README.md", "LICENSE", "NOTICE.md")
-RENAMED = ("lead", "setup", "status", "review")
+RENAMED = ("go", "lead", "setup", "status", "review")
 TOOLS = {
     "claude-code": {"prefixed": False, "invoke": "/astack:", "agent": "claude-code"},
     "cursor": {"prefixed": True, "invoke": "/", "agent": "cursor"},
@@ -86,8 +86,19 @@ class Translator:
                 text = text.replace(source, target)
                 self.used.add(source)
         invoke = TOOLS[self.tool]["invoke"]
-        text = re.sub(r"/astack:(" + "|".join(RENAMED) + r")\b", lambda match: f"{invoke}astack-{match.group(1)}", text)
-        return text.replace("astack:worker", "astack-worker")
+        text = re.sub(
+            r"\$\{CLAUDE_SKILL_DIR\}/\.\./([a-z0-9-]+)/SKILL\.md",
+            lambda match: f"../{skill_name(match.group(1), self.tool)}/SKILL.md",
+            text,
+        )
+        text = text.replace("${CLAUDE_SKILL_DIR}/../", "../")
+        text = re.sub(
+            r"/astack:([a-z0-9-]+)\b",
+            lambda match: f"{invoke}{skill_name(match.group(1), self.tool)}",
+            text,
+        )
+        text = text.replace("astack:worker", "astack-worker")
+        return text.replace("astack:reviewer", "astack-reviewer")
 
     def check(self, path, text):
         for token in self.table["forbid"]:
@@ -115,9 +126,6 @@ def build_skills(tool, out, translate):
             if source.name == "SKILL.md":
                 fields, body = split_front_matter(source, text)
                 fields["name"] = name
-                if tool == "codex":
-                    # Codex can only reach a skill that is in its catalog, even when the person names it.
-                    fields.pop("disable-model-invocation", None)
                 text = join_front_matter(fields, body)
             translate.check(target.relative_to(out), text)
             write(target, text)

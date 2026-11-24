@@ -1,6 +1,7 @@
 ---
 name: rearchitect
 description: "Identify structural friction in a codebase (starting where code changes most), propose ranked restructurings with before-and-after diagrams, and execute the top pick via dagify. Use when code is getting harder to change or test, or when improving architecture."
+disable-model-invocation: true
 ---
 
 # Rearchitect

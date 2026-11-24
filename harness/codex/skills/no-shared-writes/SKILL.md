@@ -1,6 +1,7 @@
 ---
 name: no-shared-writes
 description: "Keep concurrent threads, processes, services, and agents from mutating the same state: isolate per writer, merge on read, and serialize structurally only for true invariants. Use when writing concurrent/parallel code or adding locks."
+disable-model-invocation: true
 ---
 
 # No shared writes

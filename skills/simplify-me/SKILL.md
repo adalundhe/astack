@@ -1,6 +1,7 @@
 ---
 name: simplify-me
 description: "Trim unnecessary code and complexity from recent changes or code under review while keeping correctness, edge cases, and performance intact. Use after implementation, before review, or during review."
+disable-model-invocation: true
 ---
 
 # Simplify me

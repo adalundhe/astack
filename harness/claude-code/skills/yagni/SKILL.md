@@ -1,6 +1,7 @@
 ---
 name: yagni
 description: "Keep one code path per job: migrate callers and delete legacy paths, shims, adapters, aliases, and dead flags together unless explicitly requested. Use when replacing code, reviewing changes, or cleaning up."
+disable-model-invocation: true
 ---
 
 # YAGNI

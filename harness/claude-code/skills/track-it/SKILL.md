@@ -1,6 +1,7 @@
 ---
 name: track-it
 description: "Create and maintain issues for lanes in the project's tracker (GitHub, Jira, Linear, etc.) without duplicates, updating states on events and closing with proof. Run by the lead when tracking is requested."
+disable-model-invocation: true
 ---
 
 # Track it
