@@ -10,7 +10,7 @@ Author, configure, and run sophisticated DAG workflows with `werkflow` (`https:/
 ## Setup and execution
 
 - Check installed `uv`, Python `>=3.11`, core packages, and modules via `astack-tools doctor`.
-- Install via `astack-tools install` (`--profile standard` installs core + shell/file/git/github/http/python/system/secrets/encryption; use `--profile all` or `--modules docker,aws,jira,metrikflow,appito` for extras; load into a shell with `eval "$(astack-tools env)"`). Do **not** run `pip install 'werkflow[all]'`—upstream's `all` extra has a typo (`werkflow-metrik` instead of `werkflow-metrikflow`).
+- Install via `astack-tools install` (`--profile standard` installs core + shell/file/git/github/http/python/system/secrets/encryption; use `--profile all` or `--modules docker,aws,jira,metrikflow,appito` for extras; load into a shell with `eval "$(astack-tools env)"`). Prefer `astack-tools install --profile all` over `pip install 'werkflow[all]'`—it pins the fixed `werkflow-docker>=0.4.1` / `werkflow-metrikflow>=0.3.1` releases and also includes `werkflow-jira` and `werkflow-appito`.
 - **Run non-interactively (for agents and CI):**
   ```bash
   astack-tools werkflow run path/to/workflow.py --ci --no-prompt --graceful-abort \

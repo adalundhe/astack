@@ -466,18 +466,18 @@ class ToolsTest(Scratch):
         venv = self.dir / "venv"
         core = run("astack-tools", "install", "--venv", str(venv), "--profile", "core", "--dry-run")
         self.assertEqual(core.returncode, 0, core.stderr)
-        self.assertIn("taskex orchestral werkflow", core.stdout)
+        self.assertIn("taskex>=0.5.0 orchestral>=0.4.0 werkflow>=0.4.0", core.stdout)
         self.assertNotIn("werkflow-shell", core.stdout)
 
         all_prof = run("astack-tools", "install", "--venv", str(venv), "--profile", "all", "--dry-run")
         self.assertEqual(all_prof.returncode, 0, all_prof.stderr)
-        self.assertIn("werkflow-metrikflow", all_prof.stdout)
+        self.assertIn("werkflow-metrikflow>=0.3.1", all_prof.stdout)
         self.assertNotIn("werkflow-metrik ", all_prof.stdout)
-        self.assertIn("werkflow-docker", all_prof.stdout)
+        self.assertIn("werkflow-docker>=0.4.1", all_prof.stdout)
 
         extra = run("astack-tools", "install", "--venv", str(venv), "--profile", "core", "--modules", "docker,jira", "--dry-run")
         self.assertEqual(extra.returncode, 0, extra.stderr)
-        self.assertIn("werkflow-docker", extra.stdout)
+        self.assertIn("werkflow-docker>=0.4.1", extra.stdout)
         self.assertIn("werkflow-jira", extra.stdout)
 
         gh = run("astack-tools", "install", "--venv", str(venv), "--profile", "core", "--modules", "shell", "--from-github", "--dry-run")

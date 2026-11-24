@@ -48,6 +48,14 @@ EXTRA_MODULES = (
 ALL_MODULES = STANDARD_MODULES + EXTRA_MODULES
 ALL_KNOWN = CORE_PACKAGES + ("werkflow-core",) + ALL_MODULES
 
+MIN_VERSIONS = {
+    "taskex": ">=0.5.0",
+    "orchestral": ">=0.4.0",
+    "werkflow": ">=0.4.0",
+    "werkflow-docker": ">=0.4.1",
+    "werkflow-metrikflow": ">=0.3.1",
+}
+
 MIN_PYTHON_SPEC = ">=3.11"
 DEFAULT_UV_PYTHON_INSTALL = "3.12"
 
@@ -275,7 +283,7 @@ def resolve_packages(profile: str, modules: str | None, from_github: bool) -> li
                 if pkg not in names:
                     names.append(pkg)
     if not from_github:
-        return names
+        return [f"{name}{MIN_VERSIONS.get(name, '')}" for name in names]
     specs = []
     for name in names:
         if name in GITHUB_REPOS:
