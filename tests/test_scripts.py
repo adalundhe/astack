@@ -418,7 +418,7 @@ class ToolsTest(Scratch):
         bin_dir = self.dir / "user-bin"
         first = run("astack-tools", "link-bin", "--bin-dir", str(bin_dir))
         self.assertEqual(first.returncode, 0, first.stderr)
-        for name in ("astack-tools", "astack-status", "astack-decisions", "astack-verify-merge", "astack-statechart", "astack-stamp"):
+        for name in ("astack-tools", "astack-status", "astack-decisions", "astack-verify-merge", "astack-check-gates", "astack-statechart", "astack-stamp"):
             linked = bin_dir / name
             self.assertTrue(linked.is_symlink(), f"missing symlink {linked}")
             self.assertEqual(linked.resolve(), (BIN / name).resolve())
@@ -768,7 +768,7 @@ class StatechartTest(Scratch):
         )
         self.assertEqual(no_tlc.returncode, 2)
 
-        # Fake TLC stub (clean pass -> exit 0, writes DOT and checks -continue arg)
+        # Fake TLC stub (clean pass -> exit 0, writes DOT, verifies -tool and -dump dot,actionlabels)
         args_log = self.dir / "tlc_args.txt"
         tlc_ok = self.dir / "fake-tlc-ok"
         tlc_ok.write_text(
@@ -777,37 +777,40 @@ class StatechartTest(Scratch):
             'dot_file=""\n'
             'prev=""\n'
             'for a in "$@"; do\n'
-            '  if [ "$prev" = "dot" ]; then dot_file="$a"; fi\n'
+            '  if [ "$prev" = "dot,actionlabels" ] || [ "$prev" = "dot" ]; then dot_file="$a"; fi\n'
             '  prev="$a"\n'
             'done\n'
-            'printf \'digraph G { 1 [label="x=0", style=filled]; 2 [label="x=1"]; 1 -> 2 [label="Inc"]; }\\n\' > "$dot_file"\n'
-            'echo "2 states generated, 2 distinct states found, 0 states left on queue."\n'
-            'echo "The depth of the complete state graph search is 1."\n'
+            'printf \'strict digraph DiskGraph { -1 [label="x = 0", style = filled]; 2 [label="x = 1"]; -1 -> 2 [label="Inc", color="black"]; }\\n\' > "$dot_file"\n'
+            "printf '%s\\n' '@!@!@STARTMSG 2199:0 @!@!@' '2 states generated, 2 distinct states found, 0 states left on queue.' '@!@!@ENDMSG 2199 @!@!@'\n"
+            "printf '%s\\n' '@!@!@STARTMSG 2194:0 @!@!@' 'The depth of the complete state graph search is 1.' '@!@!@ENDMSG 2194 @!@!@'\n"
             'exit 0\n'
         )
         tlc_ok.chmod(0o755)
         out_mmd = self.dir / "out.mmd"
         ok = run("astack-statechart", "check", str(model), "--tlc", str(tlc_ok), "--mermaid", str(out_mmd), "--json")
         self.assertEqual(ok.returncode, 0, ok.stderr)
-        self.assertIn("-continue", args_log.read_text().splitlines())
+        passed_args = args_log.read_text().splitlines()
+        self.assertIn("-tool", passed_args)
+        self.assertIn("dot,actionlabels", passed_args)
+        self.assertIn("-continue", passed_args)
         self.assertTrue(out_mmd.is_file())
-        self.assertEqual(json.loads(ok.stdout)["distinct_states"], 2)
+        ok_data = json.loads(ok.stdout)
+        self.assertEqual(ok_data["distinct_states"], 2)
+        self.assertEqual(ok_data["parser_mode"], "tool")
+        self.assertIn("Inc", ok_data["mermaid"])
 
         # --stop-on-first omits -continue
         ok2 = run("astack-statechart", "check", str(model), "--tlc", str(tlc_ok), "--stop-on-first", "--json")
         self.assertEqual(ok2.returncode, 0, ok2.stderr)
         self.assertNotIn("-continue", args_log.read_text().splitlines())
 
-        # Fake TLC stub with violation -> exit 1
+        # Fake TLC stub with -tool violation -> exit 1
         tlc_fail = self.dir / "fake-tlc-fail"
         tlc_fail.write_text(
             "#!/bin/sh\n"
-            "printf '%s\\n' 'Error: Invariant NoOverflow is violated.'\n"
-            "printf '%s\\n' 'Error: The behavior up to this point is:'\n"
-            "printf '%s\\n' 'State 1: <Initial predicate>'\n"
-            "printf '%s\\n' '/\\ x = 0'\n"
-            "printf '%s\\n' 'State 2: <Inc>'\n"
-            "printf '%s\\n' '/\\ x = 1'\n"
+            "printf '%s\\n' '@!@!@STARTMSG 2110:1 @!@!@' 'Invariant NoOverflow is violated.' '@!@!@ENDMSG 2110 @!@!@'\n"
+            "printf '%s\\n' '@!@!@STARTMSG 2217:4 @!@!@' '1: <Initial predicate>' '/\\ x = 0' '@!@!@ENDMSG 2217 @!@!@'\n"
+            "printf '%s\\n' '@!@!@STARTMSG 2217:4 @!@!@' '2: <Inc line 4, col 5 to line 4, col 12 of module Mini>' '/\\ x = 1' '@!@!@ENDMSG 2217 @!@!@'\n"
             "exit 12\n"
         )
         tlc_fail.chmod(0o755)
@@ -816,6 +819,45 @@ class StatechartTest(Scratch):
         vdata = json.loads(viol.stdout)
         self.assertEqual(vdata["violations"][0]["name"], "NoOverflow")
         self.assertEqual(vdata["violations"][0]["hops"], 1)
+        self.assertEqual(vdata["violations"][0]["steps"][1]["action"], "Inc")
+
+        # PROBE 1A: TLC writes a DOT graph then exits 12 with an unrecognized error -> MUST exit 1, NEVER false-pass!
+        tlc_unrec_12 = self.dir / "fake-tlc-unrec-12"
+        tlc_unrec_12.write_text(
+            "#!/bin/sh\n"
+            'dot_file=""\n'
+            'prev=""\n'
+            'for a in "$@"; do\n'
+            '  if [ "$prev" = "dot,actionlabels" ] || [ "$prev" = "dot" ]; then dot_file="$a"; fi\n'
+            '  prev="$a"\n'
+            'done\n'
+            'printf \'digraph G { 1 [label="x = 0", style=filled]; 2 [label="x = 1"]; 1 -> 2 [label="Step"]; }\\n\' > "$dot_file"\n'
+            "printf '%s\\n' 'Error: Assertion failed in Check.'\n"
+            "exit 12\n"
+        )
+        tlc_unrec_12.chmod(0o755)
+        res12 = run("astack-statechart", "check", str(model), "--tlc", str(tlc_unrec_12))
+        self.assertEqual(res12.returncode, 1, res12.stdout + res12.stderr)
+        self.assertNotIn("All checked invariants held", res12.stdout)
+
+        # PROBE 1B: TLC writes a partial DOT graph then crashes with exit 255 -> MUST exit 2, NEVER exit 0!
+        tlc_crash_255 = self.dir / "fake-tlc-crash-255"
+        tlc_crash_255.write_text(
+            "#!/bin/sh\n"
+            'dot_file=""\n'
+            'prev=""\n'
+            'for a in "$@"; do\n'
+            '  if [ "$prev" = "dot,actionlabels" ] || [ "$prev" = "dot" ]; then dot_file="$a"; fi\n'
+            '  prev="$a"\n'
+            'done\n'
+            'printf \'digraph G { 1 [label="x = 0", style=filled]; }\\n\' > "$dot_file"\n'
+            "printf '%s\\n' 'Exception in thread main: java.lang.OutOfMemoryError' >&2\n"
+            "exit 255\n"
+        )
+        tlc_crash_255.chmod(0o755)
+        res255 = run("astack-statechart", "check", str(model), "--tlc", str(tlc_crash_255))
+        self.assertEqual(res255.returncode, 2, res255.stdout + res255.stderr)
+        self.assertNotIn("All checked invariants held", res255.stdout)
 
         # Fake TLC stub with parse/tool error -> exit 2
         tlc_err = self.dir / "fake-tlc-err"
@@ -823,6 +865,116 @@ class StatechartTest(Scratch):
         tlc_err.chmod(0o755)
         err = run("astack-statechart", "check", str(model), "--tlc", str(tlc_err))
         self.assertEqual(err.returncode, 2)
+
+    def test_long_shared_prefix_states_mark_exact_violating_node_and_disambiguate_labels(self):
+        # PROBE 2: Two states sharing >120-char queue prefix differing only at the end (y = 0 vs y = 1)
+        long_q = "<<" + ", ".join(str(i) for i in range(1, 45)) + ">>"
+        healthy_state = f"/\\ q = {long_q}\n/\\ y = 0"
+        broken_state = f"/\\ q = {long_q}\n/\\ y = 1"
+        self.assertGreater(len(long_q), 150)
+
+        dot = self.dir / "long_prefix.dot"
+        dot.write_text(
+            "strict digraph DiskGraph {\n"
+            f'  -100 [label="{_dot_escape(healthy_state)}", style = filled];\n'
+            f'  -200 [label="{_dot_escape(broken_state)}"];\n'
+            '  -100 -> -200 [label="Flip", color="black"];\n'
+            "}\n"
+        )
+        trace = self.dir / "long_prefix.tool.out"
+        trace.write_text(
+            "@!@!@STARTMSG 2110:1 @!@!@\n"
+            "Invariant YZero is violated.\n"
+            "@!@!@ENDMSG 2110 @!@!@\n"
+            "@!@!@STARTMSG 2217:4 @!@!@\n"
+            "1: <Initial predicate>\n"
+            f"{healthy_state}\n"
+            "@!@!@ENDMSG 2217 @!@!@\n"
+            "@!@!@STARTMSG 2217:4 @!@!@\n"
+            "2: <Flip line 10, col 1 to line 10, col 12 of module Q>\n"
+            f"{broken_state}\n"
+            "@!@!@ENDMSG 2217 @!@!@\n"
+        )
+        res = run("astack-statechart", "render", str(dot), "--trace", str(trace), "--json")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        data = json.loads(res.stdout)
+        # Violation MUST be marked on -200 (y = 1), NEVER on -100 (y = 0)
+        self.assertEqual(data["violating_states"], {"-200": "YZero"})
+        self.assertNotIn("-100", data["violating_states"])
+
+        # Rendered Mermaid labels for the two states must be distinct and reveal y = 0 vs y = 1
+        state_lines = [ln for ln in data["mermaid"].splitlines() if ln.strip().startswith('state "')]
+        self.assertEqual(len(state_lines), 2)
+        self.assertNotEqual(state_lines[0], state_lines[1])
+        self.assertIn("y = 0", state_lines[0])
+        self.assertNotIn("[VIOLATION:", state_lines[0])
+        self.assertIn("y = 1", state_lines[1])
+        self.assertIn("[VIOLATION: YZero]", state_lines[1])
+
+    def test_recorded_tlc_219_tool_fixtures(self):
+        fixtures = Path(__file__).resolve().parent / "fixtures" / "tlc"
+
+        # 1. Deadlock with real TLC 2.19 -tool output + -dump dot,actionlabels
+        dl = run(
+            "astack-statechart", "render",
+            str(fixtures / "counter_deadlock.dot"),
+            "--trace", str(fixtures / "counter_deadlock.tool.out"),
+            "--json",
+        )
+        self.assertEqual(dl.returncode, 0, dl.stderr)
+        dl_data = json.loads(dl.stdout)
+        self.assertEqual(dl_data["states"], 4)
+        self.assertEqual(dl_data["transitions"], 3)
+        self.assertEqual(dl_data["violating_states"], {"-4900539538744082733": "Deadlock"})
+        self.assertEqual(dl_data["violations"][0]["kind"], "deadlock")
+        self.assertEqual(dl_data["violations"][0]["hops"], 3)
+        self.assertEqual(dl_data["violations"][0]["steps"][1]["action"], "Inc")
+        self.assertIn("s0 --> s1: Inc", dl_data["mermaid"])
+
+        # 2. Initial-state invariant violation (EC 2107) with empty DOT
+        empty_dot = self.dir / "empty_init.dot"
+        empty_dot.write_text("strict digraph DiskGraph { subgraph cluster_graph { color=\"white\"; } }\n")
+        init_v = run(
+            "astack-statechart", "render",
+            str(empty_dot),
+            "--trace", str(fixtures / "initial_violation.tool.out"),
+            "--json",
+        )
+        self.assertEqual(init_v.returncode, 0, init_v.stderr)
+        init_data = json.loads(init_v.stdout)
+        self.assertEqual(init_data["violations"][0]["kind"], "invariant")
+        self.assertEqual(init_data["violations"][0]["name"], "NotNine")
+        self.assertEqual(init_data["violations"][0]["hops"], 0)
+        self.assertIn("x = 9 [VIOLATION: NotNine]", init_data["mermaid"])
+
+        # 3. Temporal loop (EC 2116 + 2122)
+        loop_v = run(
+            "astack-statechart", "render",
+            str(empty_dot),
+            "--trace", str(fixtures / "temporal_loop.tool.out"),
+            "--json",
+        )
+        self.assertEqual(loop_v.returncode, 0, loop_v.stderr)
+        loop_data = json.loads(loop_v.stdout)
+        self.assertEqual(loop_data["violations"][0]["kind"], "temporal")
+        self.assertEqual(loop_data["violations"][0]["hops"], 2)
+        self.assertEqual(loop_data["violations"][0]["cycle_back_to"], 2)
+        self.assertIn("cycle", loop_data["mermaid"])
+
+        # 4. Action property (EC 2112) + stuttering liveness (EC 2218)
+        act_v = run(
+            "astack-statechart", "render",
+            str(empty_dot),
+            "--trace", str(fixtures / "action_and_stuttering.tool.out"),
+            "--json",
+        )
+        self.assertEqual(act_v.returncode, 0, act_v.stderr)
+        act_data = json.loads(act_v.stdout)
+        by_name = {v["name"]: v for v in act_data["violations"]}
+        self.assertEqual(by_name["Monotonic"]["kind"], "property")
+        self.assertEqual(by_name["Monotonic"]["hops"], 1)
+        self.assertEqual(by_name["Monotonic"]["steps"][1]["action"], "Drop")
+        self.assertEqual(by_name["TemporalProperty"]["cycle_back_to"], 1)
 
     @unittest.skipUnless(_has_real_tlc(), "TLC / tla2tools.jar not installed")
     def test_check_against_real_tlc_when_installed(self):
@@ -850,6 +1002,66 @@ class StatechartTest(Scratch):
         bdata = json.loads(bad.stdout)
         self.assertEqual(bdata["violations"][0]["name"], "Broken")
         self.assertEqual(bdata["violations"][0]["hops"], 3)
+
+
+class CheckGatesTest(Scratch):
+    def setUp(self):
+        super().setUp()
+        self.origin = self.dir / "origin.git"
+        git(self.dir, "init", "-q", "--bare", "-b", "main", str(self.origin))
+        self.repo = self.dir / "repo"
+        git(self.dir, "clone", "-q", str(self.origin), str(self.repo))
+        git(self.repo, "checkout", "-q", "-b", "main")
+        (self.repo / "tests").mkdir()
+        self.base = commit(
+            self.repo,
+            "tests/test_app.py",
+            "import unittest\nclass T(unittest.TestCase):\n    def test_a(self):\n        self.assertEqual(1 + 1, 2)\n        self.assertEqual(2 + 2, 4)\n",
+        )
+        git(self.repo, "push", "-q", "origin", "main")
+
+    def test_clean_commit_exits_zero(self):
+        sha = commit(self.repo, "app.py", "def add(a, b):\n    return a + b\n")
+        res = run("astack-check-gates", sha, "--repo", str(self.repo), "--json")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertTrue(json.loads(res.stdout)["clean"])
+
+    def test_flags_skips_suppressions_weakened_assertions_and_config_edits(self):
+        # 1. Test skip + tautological assert + net dropped assertions
+        sha_test = commit(
+            self.repo,
+            "tests/test_app.py",
+            "import unittest\nclass T(unittest.TestCase):\n    @unittest.skip('flaky')\n    def test_a(self):\n        assert True\n",
+        )
+        res_test = run("astack-check-gates", sha_test, "--repo", str(self.repo), "--json")
+        self.assertEqual(res_test.returncode, 1)
+        cats = {f["category"] for f in json.loads(res_test.stdout)["findings"]}
+        self.assertIn("test-skip", cats)
+        self.assertIn("weakened-assertion", cats)
+
+        # 2. Lint / typecheck suppressions
+        sha_lint = commit(self.repo, "app.py", "x = 1  # noqa: F401\ny = 2  # type: ignore\n")
+        res_lint = run("astack-check-gates", sha_lint, "--repo", str(self.repo), "--json")
+        self.assertEqual(res_lint.returncode, 1)
+        self.assertEqual(len(json.loads(res_lint.stdout)["findings"]), 2)
+
+        # 3. CI / gate config modification
+        (self.repo / ".github" / "workflows").mkdir(parents=True)
+        sha_ci = commit(self.repo, ".github/workflows/ci.yml", "name: CI\n")
+        res_ci = run("astack-check-gates", sha_ci, "--repo", str(self.repo), "--json")
+        self.assertEqual(res_ci.returncode, 1)
+        self.assertEqual(json.loads(res_ci.stdout)["findings"][0]["category"], "gate-config-edit")
+
+        # 4. verify-merge surfaces GATE SIGNALS and fails under --strict-gates
+        git(self.repo, "push", "-q", "origin", "main")
+        warn_res = run("astack-verify-merge", sha_test, "--repo", str(self.repo), cache=self.dir / "cache")
+        self.assertEqual(warn_res.returncode, 0, warn_res.stdout)
+        self.assertIn("GATE SIGNALS", warn_res.stdout)
+
+        strict_res = run("astack-verify-merge", sha_test, "--strict-gates", "--repo", str(self.repo), cache=self.dir / "cache")
+        self.assertEqual(strict_res.returncode, 1, strict_res.stdout)
+        self.assertTrue(strict_res.stdout.startswith("NOT VERIFIED:"))
+        self.assertIn("GATE SIGNALS", strict_res.stdout)
 
 
 if __name__ == "__main__":

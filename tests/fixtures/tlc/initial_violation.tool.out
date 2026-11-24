@@ -1,0 +1,11 @@
+@!@!@STARTMSG 2262:0 @!@!@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+@!@!@ENDMSG 2262 @!@!@
+@!@!@STARTMSG 2107:1 @!@!@
+Invariant NotNine is violated by the initial state:
+x = 9
+
+@!@!@ENDMSG 2107 @!@!@
+@!@!@STARTMSG 2186:0 @!@!@
+Finished in 322ms at (2026-10-26 21:45:25)
+@!@!@ENDMSG 2186 @!@!@

@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""Audit a git diff or commit for gate-gaming / gate-loosening signals.
+
+Flags added test skips/quarantines, added lint/typecheck/coverage suppressions,
+tautological or net-deleted test assertions, narrowed test-runner filters, and
+edits to CI/lint/gate configuration files.
+
+Usage:
+  astack-check-gates [COMMIT_OR_RANGE] [--repo DIR] [--staged] [--working] [--json]
+
+Exit codes:
+  0 = no gate-loosening signals found
+  1 = gate-loosening signals found (requires lead countersign, contract reset, or dedicated gate fix)
+  2 = invalid repository, commit, or usage error
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+
+@dataclass
+class Finding:
+    category: str  # "test-skip" | "lint-suppression" | "weakened-assertion" | "gate-config-edit"
+    file: str
+    line: int
+    reason: str
+    snippet: str
+
+
+_TEST_FILE_RE = re.compile(
+    r"(^|/)(tests?|__tests__|spec|specs)/|"
+    r"(^|/)test_[^/]+\.py$|"
+    r"_test\.(py|go|rs|ts|tsx|js|jsx)$|"
+    r"\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$",
+    re.I,
+)
+
+_GATE_CONFIG_PATTERNS = (
+    re.compile(r"^\.github/workflows/"),
+    re.compile(r"^\.gitlab-ci\.yml$"),
+    re.compile(r"^\.circleci/"),
+    re.compile(r"(^|/)\.pre-commit-config\.ya?ml$"),
+    re.compile(r"(^|/)(\.?ruff\.toml|mypy\.ini|\.flake8|\.pylintrc|bandit\.ya?ml)$"),
+    re.compile(r"(^|/)(\.eslintrc(\.[^/]+)?|eslint\.config\.[^/]+|biome\.jsonc?|\.prettierrc(\.[^/]+)?)$"),
+    re.compile(r"(^|/)(tsconfig(\.[^/]+)?\.json|jest\.config\.[^/]+|vitest\.config\.[^/]+|pytest\.ini|tox\.ini)$"),
+    re.compile(r"(^|/)(clippy\.toml|\.clippy\.toml|rustfmt\.toml|\.golangci\.ya?ml)$"),
+    re.compile(r"(^|/)(pyproject\.toml|Makefile|RULES\.md)$"),
+)
+
+_SKIP_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"@unittest\.skip\b|@pytest\.mark\.(skip|skipif|xfail)\b"), "added Python test skip/xfail decorator"),
+    (re.compile(r"\b(pytest\.skip|pytest\.xfail|self\.skipTest)\s*\("), "added runtime Python test skip"),
+    (re.compile(r"\b(describe|it|test)\.(skip|only|fixme|todo)\s*\("), "added JS/TS test skip/only/fixme"),
+    (re.compile(r"\b(xit|xtest|xdescribe|fit|fdescribe)\s*\("), "added JS/TS disabled/focused test"),
+    (re.compile(r"#\[ignore\b"), "added Rust #[ignore] on test"),
+    (re.compile(r"\bt\.(Skip|Skipf|SkipNow)\s*\("), "added Go test skip"),
+)
+
+_SUPPRESSION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"#\s*noqa\b", re.I), "added # noqa lint suppression"),
+    (re.compile(r"#\s*type:\s*ignore\b", re.I), "added # type: ignore suppression"),
+    (re.compile(r"#\s*pylint:\s*disable=", re.I), "added pylint disable suppression"),
+    (re.compile(r"#\s*pragma:\s*no cover\b", re.I), "added coverage exclusion"),
+    (re.compile(r"(//|/\*)\s*eslint-disable\b", re.I), "added eslint-disable suppression"),
+    (re.compile(r"//\s*biome-ignore\b", re.I), "added biome-ignore suppression"),
+    (re.compile(r"@ts-(ignore|expect-error|nocheck)\b"), "added TypeScript check suppression"),
+    (re.compile(r"#\[allow\s*\("), "added Rust #[allow(...)] lint suppression"),
+    (re.compile(r"//\s*nolint\b", re.I), "added Go //nolint suppression"),
+)
+
+_TAUTOLOGY_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"^\s*assert\s+True\b"), "added tautological `assert True`"),
+    (re.compile(r"\bassertTrue\s*\(\s*True\s*\)"), "added tautological `assertTrue(True)`"),
+    (re.compile(r"\bexpect\s*\(\s*true\s*\)\s*\.toBe\s*\(\s*true\s*\)"), "added tautological `expect(true).toBe(true)`"),
+    (re.compile(r"^\s*assert!\s*\(\s*true\s*\)"), "added tautological `assert!(true)`"),
+)
+
+_ASSERTION_LINE_RE = re.compile(
+    r"^\s*assert\b|\bself\.assert[A-Z]\w*\s*\(|\bexpect\s*\(|\bassert_(eq|ne|matches)!\s*\(|\bassert!\s*\(|\bt\.(Fatal|Fatalf|Error|Errorf)\s*\("
+)
+
+_NARROW_FILTER_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\b(pytest|vitest|jest|mocha)\b.*\s(-k|--grep|--testNamePattern|--ignore)\b"), "added test filter/ignore flag"),
+    (re.compile(r"\b(testPathIgnorePatterns|excludePathPatterns)\b"), "added test path ignore pattern"),
+)
+
+
+def _git(repo: Path, *args: str, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, input=stdin)
+
+
+def _is_test_file(path: str) -> bool:
+    return bool(_TEST_FILE_RE.search(path))
+
+
+def _is_gate_config(path: str) -> bool:
+    return any(p.search(path) for p in _GATE_CONFIG_PATTERNS)
+
+
+def analyze_diff(diff_text: str) -> list[Finding]:
+    """Scan a unified git diff (with -U0 or normal context) for gate-tampering signals."""
+    findings: list[Finding] = []
+    current_file: str | None = None
+    new_line = 0
+    config_flagged: set[str] = set()
+    test_removed_asserts: dict[str, tuple[int, str]] = {}
+    test_added_asserts: dict[str, int] = {}
+
+    for raw in diff_text.splitlines():
+        if raw.startswith("diff --git "):
+            current_file = None
+            new_line = 0
+            continue
+        if raw.startswith("+++ "):
+            target = raw[4:].strip()
+            if target == "/dev/null":
+                current_file = None
+                continue
+            current_file = target[2:] if target.startswith("b/") else target
+            if _is_gate_config(current_file) and current_file not in config_flagged:
+                config_flagged.add(current_file)
+                findings.append(
+                    Finding(
+                        category="gate-config-edit",
+                        file=current_file,
+                        line=1,
+                        reason="modified CI, lint, test, or gate configuration file",
+                        snippet=current_file,
+                    )
+                )
+            continue
+        if raw.startswith("@@ "):
+            if m := re.search(r"\+(\d+)", raw):
+                new_line = int(m.group(1))
+            continue
+        if current_file is None:
+            continue
+
+        if raw.startswith("+") and not raw.startswith("+++"):
+            content = raw[1:]
+            line_no = new_line
+            new_line += 1
+            snippet = content.strip()[:120]
+
+            if _is_test_file(current_file):
+                for pat, reason in _SKIP_PATTERNS:
+                    if pat.search(content):
+                        findings.append(Finding("test-skip", current_file, line_no, reason, snippet))
+                        break
+                for pat, reason in _TAUTOLOGY_PATTERNS:
+                    if pat.search(content):
+                        findings.append(Finding("weakened-assertion", current_file, line_no, reason, snippet))
+                        break
+                if _ASSERTION_LINE_RE.search(content):
+                    test_added_asserts[current_file] = test_added_asserts.get(current_file, 0) + 1
+            else:
+                for pat, reason in _NARROW_FILTER_PATTERNS:
+                    if pat.search(content):
+                        findings.append(Finding("weakened-assertion", current_file, line_no, reason, snippet))
+                        break
+
+            for pat, reason in _SUPPRESSION_PATTERNS:
+                if pat.search(content):
+                    findings.append(Finding("lint-suppression", current_file, line_no, reason, snippet))
+                    break
+
+        elif raw.startswith("-") and not raw.startswith("---"):
+            content = raw[1:]
+            if _is_test_file(current_file) and _ASSERTION_LINE_RE.search(content):
+                prev_count, first_snip = test_removed_asserts.get(current_file, (0, content.strip()[:120]))
+                test_removed_asserts[current_file] = (prev_count + 1, first_snip)
+        elif not raw.startswith("\\"):
+            new_line += 1
+
+    # Flag test files where assertions were removed without equivalent replacements
+    for path, (removed, first_snip) in sorted(test_removed_asserts.items()):
+        added = test_added_asserts.get(path, 0)
+        if removed > added:
+            findings.append(
+                Finding(
+                    category="weakened-assertion",
+                    file=path,
+                    line=1,
+                    reason=f"net drop in test assertions ({removed} removed, {added} added)",
+                    snippet=first_snip,
+                )
+            )
+
+    return findings
+
+
+def diff_for_target(repo: Path, target: str | None, *, staged: bool, working: bool) -> tuple[str | None, str | None]:
+    """Return (diff_text, error_message)."""
+    if staged:
+        res = _git(repo, "diff", "--cached", "--unified=0")
+        return (res.stdout, None) if res.returncode == 0 else (None, res.stderr.strip() or "git diff --cached failed")
+    if working or not target:
+        res = _git(repo, "diff", "HEAD", "--unified=0")
+        return (res.stdout, None) if res.returncode == 0 else (None, res.stderr.strip() or "git diff HEAD failed")
+    if ".." in target:
+        res = _git(repo, "diff", "--unified=0", target)
+        return (res.stdout, None) if res.returncode == 0 else (None, res.stderr.strip() or f"git diff {target} failed")
+
+    # Single commit SHA: diff against first parent (or empty tree for root commit)
+    rev = _git(repo, "rev-parse", "--verify", "--quiet", f"{target}^{{commit}}")
+    if rev.returncode != 0:
+        return None, f"{target} is not a commit in {repo}"
+    sha = rev.stdout.strip()
+    parents = _git(repo, "rev-list", "--parents", "-n", "1", sha).stdout.split()[1:]
+    base = parents[0] if parents else _git(repo, "hash-object", "-t", "tree", "--stdin", stdin="").stdout.strip()
+    res = _git(repo, "diff", "--unified=0", base, sha)
+    return (res.stdout, None) if res.returncode == 0 else (None, res.stderr.strip() or f"git diff {base} {sha} failed")
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Flag potential gate-gaming or gate-loosening edits in a git diff or commit.")
+    parser.add_argument("target", nargs="?", help="commit SHA or git diff range (e.g. origin/main..HEAD); defaults to working tree vs HEAD")
+    parser.add_argument("--repo", default=".", help="git repository path (default: .)")
+    parser.add_argument("--staged", action="store_true", help="inspect staged index changes")
+    parser.add_argument("--working", action="store_true", help="inspect working tree changes against HEAD")
+    parser.add_argument("--json", action="store_true", dest="as_json")
+    args = parser.parse_args(argv)
+
+    repo = Path(args.repo).resolve()
+    if _git(repo, "rev-parse", "--git-dir").returncode != 0:
+        print(f"error: {repo} is not a git repository", file=sys.stderr)
+        return 2
+
+    diff_text, err = diff_for_target(repo, args.target, staged=args.staged, working=args.working)
+    if err is not None or diff_text is None:
+        print(f"error: {err}", file=sys.stderr)
+        return 2
+
+    findings = analyze_diff(diff_text)
+    if args.as_json:
+        print(json.dumps({"clean": not findings, "count": len(findings), "findings": [asdict(f) for f in findings]}, indent=2))
+        return 1 if findings else 0
+
+    if not findings:
+        print("GATES CLEAN: no skipped tests, lint suppressions, weakened assertions, or gate-config edits detected.")
+        return 0
+
+    print(f"GATE SIGNALS ({len(findings)}): review required — countersign in RULES.md, isolate genuine gate fixes, or reject & reset contract if gamed:")
+    for f in findings:
+        print(f"  - [{f.category}] {f.file}:{f.line} — {f.reason}: {f.snippet}")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

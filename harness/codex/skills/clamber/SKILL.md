@@ -31,12 +31,12 @@ Pick the largest remaining bottleneck (or largest source of $\sigma$/tail varian
 
 Then:
 
-1. **Set a $\sigma$-grounded step goal:** target moving the metric by **at least one current standard deviation ($\ge 1\sigma$)** or materially shrinking $\sigma$ itself, and state the exact mechanism (e.g., "pool scratch buffers to cut GC pause spikes driving $\sigma$", not "try caching").
+1. **Set a $\sigma$-grounded step goal:** target moving the metric by **at least one current standard deviation ($\ge 1\sigma$)** (as the step goal / MDE, sized with enough runs for $\ge 80\%$ power) or materially shrinking $\sigma$ / tail spread itself, and state the exact mechanism (e.g., "pool scratch buffers to cut GC pause spikes driving $\sigma$", not "try caching").
 2. **Make one isolated change.** Don't stack untested ideas.
 3. **Run the tests.** User-visible behavior must stay identical (**never-trade-functionality**).
 4. **Re-measure all baseline metrics (median and $\sigma$).**
-   - **Sanity-check the gain:** verify the speedup stays within the Amdahl bound ($1/(1-f)$ for the profiled fraction $f$ of touched work) and confirm outputs were genuinely computed.
-   - Keep the change only if it improves the target beyond noise (or measurably shrinks $\sigma$) without regressing other metrics, then recompute $\sigma$ on the new baseline for the next step.
+   - **Sanity-check the gain:** verify the speedup stays within the Amdahl bound ($1/(1-f)$ where $f$ includes both active CPU work **and waiting**—locks, I/O, queueing, GC—from wall-clock profiles) and confirm outputs were genuinely computed.
+   - Keep the change only if it passes **benchmarking**'s dual acceptance bar—either a significant location win (95% Mann-Whitney U / bootstrap median CI) **or** a significant spread win (Brown–Forsythe test and/or 95% bootstrap CI on $\sigma_{\text{new}}/\sigma_{\text{base}} < 1$ or tail-spread ratio $< 1$, with median non-regressed)—without regressing other metrics, then recompute $\sigma$ on the new baseline for the next step.
 5. **Commit or revert cleanly.** Commit each kept win on its own with before/after median and $\sigma$ in the commit message so later regressions can be bisected/reverted individually. Revert failed attempts completely.
 6. **Log the attempt** and repeat.
 
@@ -44,11 +44,11 @@ If you have several independent ideas, test them in parallel in separate worktre
 
 ## Finish
 
-- **Minimum attempt floor:** don't stop after a lucky early win. Complete at least **5 distinct measured attempts** across real bottlenecks and variance sources (unless you already hit a proven hardware/algorithmic ceiling backed by profiles and **research-this**).
+- **Agreed minimum attempt floor:** don't stop after a lucky early win, and don't pick a magic constant (**no-picked-constants**). Agree the minimum number of distinct measured attempts with the person before starting (or derive and record the floor in the experiment log from the task's time budget and remaining profiled headroom), and complete that floor across real bottlenecks and variance sources unless you hit a proven hardware/algorithmic ceiling backed by profiles and **research-this**.
 - **Break through plateaus:** if incremental tweaks stall short of the goal, try another optimization category, attack $\sigma$/variance directly, combine near misses, reread the hot path, or prototype alternative architectures (**explore-the-limits**).
 - **Know when to stop:** stop once the target (both baseline and variance stability) is met and the minimum attempt floor is satisfied. Before concluding further gains require trading functionality, run **research-this** and **explore-the-limits** to verify no compliant design exists; only then present the best compliant result, what limits it, and the trade-off with numbers to the person (**never-trade-functionality**, **decisions-in-plain-words**). Never relax the goal to declare victory.
 - **Report:** baseline vs. final median and $\sigma$ for every metric, steps kept and reverted, the full log, the current bottleneck, and the best next lead (**prove-it**).
 
-Referenced skills: `tests-assert-behaviour` (`../tests-assert-behaviour/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`), `diagnose` (`../diagnose/SKILL.md`), `never-trade-functionality` (`../never-trade-functionality/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `explore-the-limits` (`../explore-the-limits/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `tests-assert-behaviour` (`../tests-assert-behaviour/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`), `diagnose` (`../diagnose/SKILL.md`), `never-trade-functionality` (`../never-trade-functionality/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `no-picked-constants` (`../no-picked-constants/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `explore-the-limits` (`../explore-the-limits/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's Hillclimb playbook (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

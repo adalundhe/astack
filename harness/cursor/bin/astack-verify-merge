@@ -59,12 +59,30 @@ def run_check(repo, tip, command):
     return code, str(log)
 
 
+def gate_signals(repo, sha):
+    checker = Path(__file__).resolve().parent / "astack-check-gates"
+    if not checker.is_file():
+        return []
+    res = subprocess.run(
+        [sys.executable, str(checker), sha, "--repo", str(repo), "--json"],
+        capture_output=True, text=True,
+    )
+    if res.returncode not in (0, 1):
+        return []
+    try:
+        import json
+        return json.loads(res.stdout).get("findings", [])
+    except Exception:
+        return []
+
+
 def main():
     parser = argparse.ArgumentParser(description="Verify that a claimed merge is on the target branch.")
     parser.add_argument("sha")
     parser.add_argument("--target", default="origin/main")
     parser.add_argument("--repo", default=".")
     parser.add_argument("--check", help="command to run in a clean worktree of the target's tip")
+    parser.add_argument("--strict-gates", action="store_true", help="fail verification (exit 1) if gate-loosening signals are detected")
     args = parser.parse_args()
 
     repo = Path(args.repo).resolve()
@@ -91,20 +109,35 @@ def main():
         print(f"NOT CHECKED: {on_target.stderr.strip()}")
         return 2
 
+    signals = gate_signals(repo, sha)
     code = 0
     if args.check:
         code, detail = run_check(repo, tip, args.check)
         if code is None:
             print(f"NOT CHECKED: {detail}")
             return 2
-        verdict = "VERIFIED" if code == 0 else "NOT VERIFIED"
-        print(f"{verdict}: {sha[:12]} is on {args.target} (tip {tip[:12]}); check {'passed' if code == 0 else f'failed, exit {code}'}")
+        gate_blocked = args.strict_gates and bool(signals)
+        passed = code == 0 and not gate_blocked
+        verdict = "VERIFIED" if passed else "NOT VERIFIED"
+        suffix = f"check {'passed' if code == 0 else f'failed, exit {code}'}"
+        if gate_blocked:
+            suffix += f"; {len(signals)} gate signal(s) require countersign"
+        print(f"{verdict}: {sha[:12]} is on {args.target} (tip {tip[:12]}); {suffix}")
         print(f"check: `{args.check}` in a clean worktree of {tip[:12]}; output in {detail}")
+        if gate_blocked:
+            code = 1
+    elif args.strict_gates and signals:
+        print(f"NOT VERIFIED: {sha[:12]} is on {args.target} (tip {tip[:12]}); {len(signals)} gate signal(s) require countersign")
+        code = 1
     else:
         print(f"VERIFIED: {sha[:12]} is on {args.target} (tip {tip[:12]})")
     print("commit: " + git(repo, "show", "-s", "--format=%h %s (%an, %cI)", sha).stdout.strip())
     print("changed, against its first parent:")
     print(changes(repo, sha))
+    if signals:
+        print(f"GATE SIGNALS ({len(signals)}): inspect before accepting (countersign in RULES.md, isolate gate fix, or reset contract):")
+        for s in signals:
+            print(f"  - [{s['category']}] {s['file']}:{s['line']} — {s['reason']}: {s['snippet']}")
     return 0 if code == 0 else 1
 
 

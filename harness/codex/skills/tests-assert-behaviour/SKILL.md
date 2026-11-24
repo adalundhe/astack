@@ -12,7 +12,7 @@ Tests verify user-observable correctness—never internal implementation details
 ## Start with
 
 1. **Assert observable behavior:** outputs, visible state, errors, and bounded work. Behavior-preserving refactors should keep tests green.
-2. **Use an independent oracle:** never compute the expected value using the code under test (same helper, formula, or serializer)—that is a tautology and proves nothing. Use hand-worked constants, an independent reference, round-trip/algebraic invariants, or verified fixtures.
+2. **Use an independent oracle (never test self-built data):** never compute the expected value using the code under test (same helper, formula, or serializer), and never assert on fixture/stub/mock data the test constructed itself without exercising real production logic—both are tautologies that prove nothing. Use hand-worked constants, an independent reference, round-trip/algebraic invariants, or verified fixtures.
 3. **Assert the error type callers branch on, not the message:** check the exception class, typed error variant/code, exit status, or HTTP status callers actually handle—not brittle English prose (unless the message wording itself is a documented user-facing contract).
 4. **Stay independent of hardware and load.** Never depend on core count, scheduling luck, or elapsed wall time. Verify complexity bounds by counting work (rows, allocations, syscalls, requests) as input scales.
 5. **Isolate state:** every test sets up and tears down its own state (only ordered steps within a single integration or E2E scenario share state).
@@ -26,6 +26,7 @@ Tests verify user-observable correctness—never internal implementation details
 ## Watch for
 
 - expected values computed by calling the code under test (tautological tests that prove nothing);
+- assertions on fixture, mock, or stub data the test constructed itself without running real code under test;
 - assertions matching exact error message prose instead of the typed error class, enum, or code callers branch on;
 - bad or meaningless tests kept only to pad coverage;
 - assertions on private functions, internal call sequences, mock invocation counts, or internal struct shapes;

@@ -149,8 +149,9 @@ Indexed in `go` and checked by `review`:
 - **CLI scripts (`bin/`):**
   - `astack-status`: active workers, timers, latest branch commits, and open questions (`--line` for status bars).
   - `astack-decisions`: query `decided:` entries and verbatim `person:` directives (`--query`, `--settled-by`, `--since`, `--json`).
-  - `astack-verify-merge`: verifies a claimed commit is on the target branch and can run checks in a clean worktree.
-  - `astack-statechart`: runs TLC on TLA+ models (or parses DOT/trace output), finds shortest paths to broken invariants, and renders collision-safe Mermaid `stateDiagram-v2`.
+  - `astack-verify-merge`: verifies a claimed commit is on the target branch, surfaces gate-loosening signals (`--strict-gates` to block without countersign), and can run checks in a clean worktree.
+  - `astack-check-gates`: audits a commit or diff for gate-gaming signals (added test skips, lint/typecheck suppressions, tautological or net-deleted assertions, and CI/lint/gate config edits).
+  - `astack-statechart`: runs TLC in `-tool` mode with `-dump dot,actionlabels` (or parses DOT/trace output offline), follows TLC exit status strictly, finds shortest paths to broken invariants via full untruncated state matching, and renders collision-safe Mermaid `stateDiagram-v2`.
   - `astack-stamp` (+ post-edit hook): timestamps new lines appended to `LANES.md`.
   - `astack-tools`: links `astack-*` CLI scripts onto `PATH` (`link-bin`), provisions Python `>=3.11` via `uv` across macOS/Linux/Windows (arm64 & amd64), and manages an isolated venv for `taskex`, `orchestral`, and `werkflow` (`doctor`, `install`, `link-bin`, `python`, `werkflow`, `env`, `path`).
 - **Evals & CI:** 11 Claude Code evals under `evals/` (worker wind-down/reports, Go-mode routing & dedicated worker/reviewer agent spawning, 6 coding rules) and GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).

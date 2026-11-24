@@ -9,7 +9,7 @@ You are running in astack Go mode. Every other astack skill is hidden from the m
 
 Skill files live beside this one at `${CLAUDE_SKILL_DIR}/../<name>/SKILL.md`. Never guess a skill's instructions from the one-line summary below—read the file first when it applies.
 
-Run the astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-statechart`, `astack-tools`) from `PATH` (once `/astack:setup` links them into `~/.local/bin`) or directly from `${CLAUDE_SKILL_DIR}/../../bin/`.
+Run the astack scripts (`astack-status`, `astack-verify-merge`, `astack-check-gates`, `astack-stamp`, `astack-decisions`, `astack-statechart`, `astack-tools`) from `PATH` (once `/astack:setup` links them into `~/.local/bin`) or directly from `${CLAUDE_SKILL_DIR}/../../bin/`.
 
 ## Startup
 

@@ -14,10 +14,10 @@ When working from a TLA+ specification or TLC state-graph dump, run the bundled 
 
 - **Model-check with TLC and draw the state machine:**
   `astack-statechart check MODEL.tla [--cfg MODEL.cfg] [--max-states N] [--mermaid out.mmd] [--json]`
-  Runs TLC (continuing across violations by default so every broken invariant is reported), computes the shortest path to each broken invariant/deadlock/temporal violation, and emits collision-safe Mermaid `stateDiagram-v2`.
+  Runs TLC in machine-readable `-tool` mode with `-dump dot,actionlabels` (continuing across violations by default so every broken invariant is reported), follows TLC's exit status strictly (`0` clean, `1` violation/deadlock/liveness failure, `2` tool/spec/crash error—never false-passing on non-zero TLC exits), matches trace states using full untruncated canonical state keys, disambiguates colliding truncated labels, and emits collision-safe Mermaid `stateDiagram-v2`.
 - **Render existing TLC DOT / trace output offline:**
   `astack-statechart render states.dot [--trace tlc.out] [--max-states N] [--mermaid out.mmd] [--json]`
-  Parses Graphviz DOT + optional TLC stdout/stderr, computes BFS minimum-hop paths to violations, and pins initial and failure-path states even when `--max-states` trims large graphs.
+  Parses Graphviz DOT + optional TLC stdout/stderr (`-tool` or plain format), computes BFS minimum-hop paths to violations, and pins initial and failure-path states even when `--max-states` trims large graphs.
 
 Use the tool's verified graph and shortest paths as ground truth, then translate raw variable names into domain words when presenting the chart to human readers.
 

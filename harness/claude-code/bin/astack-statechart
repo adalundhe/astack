@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Run TLC on a TLA+ model (or parse TLC DOT/trace output), find shortest paths to broken invariants, and emit Mermaid stateDiagram-v2.
+"""Run TLC on a TLA+ model in -tool mode (or parse TLC DOT/trace output), find shortest paths to broken invariants, and emit Mermaid stateDiagram-v2.
 
 Usage:
-  astack-statechart check MODEL.tla [--cfg MODEL.cfg] [--tlc CMD] [--jar PATH] [--dump-dot PATH] [--mermaid PATH] [--max-states N] [--workers N] [--json]
+  astack-statechart check MODEL.tla [--cfg MODEL.cfg] [--tlc CMD] [--jar PATH] [--dump-dot PATH] [--mermaid PATH] [--max-states N] [--workers N] [--stop-on-first] [--json]
   astack-statechart render INPUT.dot [--trace TLC_OUT.txt] [--mermaid PATH] [--max-states N] [--json]
 
 Exit codes:
-  check:  0 = all invariants hold, 1 = violation/deadlock found, 2 = TLC missing or invocation/parse error
+  check:  0 = all invariants hold (TLC exit 0 and no errors/violations)
+          1 = violation/deadlock/liveness failure found (or TLC violation exit 10/11/12/13)
+          2 = TLC missing, invocation/parse/config error, or non-zero TLC crash (e.g. 1, 150, 255)
   render: 0 = rendered cleanly, 2 = missing file or parse error
 """
 from __future__ import annotations
@@ -24,6 +26,33 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
+# Official TLC -tool EC message codes (tlc2.output.EC)
+EC_INVARIANT_VIOLATED_INITIAL = 2107
+EC_PROPERTY_VIOLATED_INITIAL = 2108
+EC_INVARIANT_VIOLATED_BEHAVIOR = 2110
+EC_ACTION_PROPERTY_VIOLATED_BEHAVIOR = 2112
+EC_DEADLOCK_REACHED = 2114
+EC_TEMPORAL_PROPERTY_VIOLATED = 2116
+EC_BACK_TO_STATE = 2122
+EC_INIT_GENERATED1 = 2190
+EC_INIT_GENERATED2 = 2191
+EC_SEARCH_DEPTH = 2194
+EC_STATS = 2199
+EC_PROGRESS_STATS = 2200
+EC_STATE_PRINT2 = 2217
+EC_STATE_PRINT3 = 2218
+
+# TLC message severity levels
+LEVEL_NONE = 0
+LEVEL_ERROR = 1
+LEVEL_TLCBUG = 2
+LEVEL_WARNING = 3
+LEVEL_STATE = 4
+
+# TLC violation process exit codes (10=deadlock/old, 11=deadlock, 12=safety/invariant, 13=liveness/temporal)
+TLC_VIOLATION_EXITS = frozenset({10, 11, 12, 13})
+
+
 @dataclass
 class Edge:
     src: str
@@ -34,11 +63,21 @@ class Edge:
 
 @dataclass
 class StateGraph:
-    nodes: dict[str, str] = field(default_factory=dict)  # node_id -> display label
+    nodes: dict[str, str] = field(default_factory=dict)  # node_id -> full state label (untruncated)
     node_attrs: dict[str, dict[str, str]] = field(default_factory=dict)
     edges: list[Edge] = field(default_factory=list)
     initial_ids: list[str] = field(default_factory=list)
     violating_ids: dict[str, str] = field(default_factory=dict)  # node_id -> invariant/reason
+
+
+@dataclass
+class ToolMessage:
+    code: int
+    level: int
+    body: list[str | ToolMessage] = field(default_factory=list)
+
+    def text(self) -> str:
+        return "\n".join(part for part in self.body if isinstance(part, str))
 
 
 @dataclass
@@ -50,7 +89,7 @@ class TraceStep:
 
 @dataclass
 class Violation:
-    kind: str  # "invariant" | "deadlock" | "temporal" | "violation"
+    kind: str  # "invariant" | "property" | "deadlock" | "temporal" | "violation" | "tlc-violation"
     name: str
     hops: int
     steps: list[dict[str, str]]
@@ -59,6 +98,8 @@ class Violation:
 
 _DOT_KEYWORDS = frozenset({"strict", "graph", "digraph", "subgraph", "node", "edge"})
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_TOOL_START = re.compile(r"@!@!@STARTMSG (\d+):(\d+) @!@!@$")
+_TOOL_END = re.compile(r"^@!@!@ENDMSG \d+ @!@!@$")
 
 
 def _unescape_dot(raw: str) -> str:
@@ -69,12 +110,10 @@ def _unescape_dot(raw: str) -> str:
         ch = raw[i]
         if ch == "\\" and i + 1 < n:
             nxt = raw[i + 1]
-            if nxt == "n":
+            if nxt in ("n", "l", "r"):
                 out.append("\n")
             elif nxt == "t":
                 out.append(" ")
-            elif nxt == "l" or nxt == "r":
-                out.append("\n")
             else:
                 out.append(nxt)
             i += 2
@@ -173,13 +212,12 @@ def _parse_attrs(tokens: list[tuple[str, str]], pos: int) -> tuple[dict[str, str
 
 
 def parse_dot(text: str) -> StateGraph:
-    """Parse a Graphviz DOT state graph (including TLC -dump dot output)."""
+    """Parse a Graphviz DOT state graph (including TLC -dump dot,actionlabels output)."""
     tokens = _tokenize_dot(text)
     graph = StateGraph()
     pos = 0
     n = len(tokens)
 
-    # Advance past optional header: [strict] (digraph|graph) [name] {
     while pos < n and tokens[pos][0] != "{":
         pos += 1
     if pos < n and tokens[pos][0] == "{":
@@ -205,7 +243,6 @@ def parse_dot(text: str) -> StateGraph:
                     pos += 1
             continue
         if kind in ("ID", "STRING"):
-            # Graph-level attribute assignment: key = value
             if pos + 1 < n and tokens[pos + 1][0] == "=":
                 pos += 2
                 if pos < n and tokens[pos][0] in ("ID", "STRING"):
@@ -248,7 +285,6 @@ def parse_dot(text: str) -> StateGraph:
             continue
         pos += 1
 
-    # Infer initial states if DOT didn't mark style=filled
     if not graph.initial_ids and graph.nodes:
         in_deg = {nid: 0 for nid in graph.nodes}
         for edge in graph.edges:
@@ -260,13 +296,193 @@ def parse_dot(text: str) -> StateGraph:
     return graph
 
 
-def parse_tlc_output(text: str) -> dict:
-    """Parse TLC stdout/stderr for stats and counterexample traces."""
+def _canonical_state_key(text: str) -> str:
+    """Full, untruncated canonical state fingerprint for exact trace-to-DOT matching."""
+    cleaned = _CONTROL_CHARS.sub("", text).replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not cleaned:
+        return ""
+    # Split multi-variable TLA+ conjuncts (`/\\ var = val`) cleanly while preserving multi-line values
+    lines = [line.strip() for line in cleaned.split("\n") if line.strip()]
+    conjuncts: list[str] = []
+    for line in lines:
+        if line.startswith("/\\"):
+            conjuncts.append(re.sub(r"\s+", " ", line[2:].strip()))
+        elif conjuncts:
+            conjuncts[-1] = conjuncts[-1] + " " + re.sub(r"\s+", " ", line)
+        else:
+            conjuncts.append(re.sub(r"\s+", " ", line))
+    return "\n".join(conjuncts)
+
+
+def parse_tool_messages(text: str) -> list[ToolMessage]:
+    """Parse TLC -tool STARTMSG/ENDMSG framed messages."""
+    messages: list[ToolMessage] = []
+    stack: list[ToolMessage] = []
+    for raw in text.splitlines():
+        line = raw.rstrip("\r")
+        if m := _TOOL_START.search(line):
+            msg = ToolMessage(code=int(m.group(1)), level=int(m.group(2)))
+            if stack:
+                stack[-1].body.append(msg)
+            stack.append(msg)
+        elif _TOOL_END.match(line):
+            if stack:
+                done = stack.pop()
+                if not stack:
+                    messages.append(done)
+        elif stack:
+            stack[-1].body.append(line)
+    # Recover any truncated top-level message (e.g., mid-crash)
+    if stack:
+        top = stack[0]
+        if top.body:
+            messages.append(top)
+    return messages
+
+
+def _extract_action_name(header_line: str) -> str:
+    """Extract clean action name from TLC `<Action line X, col Y ...>` or `<Initial predicate>`."""
+    if m := re.search(r"<([^>]+)>", header_line):
+        inner = m.group(1).strip()
+        if inner.lower().startswith("initial predicate"):
+            return "Initial predicate"
+        # Strip ` line N, col M ... of module Foo` suffix for concise labels
+        if m2 := re.match(r"^([^\s]+)\s+line\s+\d+", inner):
+            return m2.group(1)
+        return inner
+    return ""
+
+
+def _parse_tool_tlc_output(messages: list[ToolMessage]) -> dict:
+    """Parse structured TLC -tool messages into stats, errors, and violations."""
     summary: dict = {
+        "mode": "tool",
         "distinct_states": None,
         "states_generated": None,
         "depth": None,
         "violations": [],
+        "errors": [],
+    }
+    current_kind: str | None = None
+    current_name: str | None = None
+    current_steps: list[TraceStep] = []
+    current_cycle: int | None = None
+
+    def flush_violation() -> None:
+        nonlocal current_kind, current_name, current_steps, current_cycle
+        if current_kind is not None:
+            summary["violations"].append(
+                Violation(
+                    kind=current_kind,
+                    name=current_name or current_kind,
+                    hops=max(0, len(current_steps) - 1),
+                    steps=[
+                        {"state": s.state, "action": s.action, "step": str(s.number)}
+                        for s in current_steps
+                    ],
+                    cycle_back_to=current_cycle,
+                )
+            )
+        current_kind = None
+        current_name = None
+        current_steps = []
+        current_cycle = None
+
+    for msg in messages:
+        body = msg.text().strip()
+        code = msg.code
+
+        if code in (EC_STATS, EC_PROGRESS_STATS):
+            if m := re.search(r"(\d+)\s+states generated.*?(\d+)\s+distinct states found", body):
+                summary["states_generated"] = max(summary["states_generated"] or 0, int(m.group(1)))
+                summary["distinct_states"] = max(summary["distinct_states"] or 0, int(m.group(2)))
+        elif code == EC_INIT_GENERATED1:
+            if m := re.search(r"(\d+)\s+distinct states?\s+generated", body):
+                summary["distinct_states"] = max(summary["distinct_states"] or 0, int(m.group(1)))
+        elif code == EC_INIT_GENERATED2:
+            if m := re.search(r"with\s+(\d+)\s+of them distinct", body):
+                summary["distinct_states"] = max(summary["distinct_states"] or 0, int(m.group(1)))
+        elif code == EC_SEARCH_DEPTH:
+            if m := re.search(r"The depth of the complete state graph search is (\d+)", body):
+                summary["depth"] = int(m.group(1))
+        elif code in (EC_INVARIANT_VIOLATED_INITIAL, EC_PROPERTY_VIOLATED_INITIAL):
+            flush_violation()
+            lines = body.splitlines()
+            first = lines[0].strip() if lines else ""
+            state_body = "\n".join(line.strip() for line in lines[1:] if line.strip())
+            if code == EC_INVARIANT_VIOLATED_INITIAL:
+                m = re.match(r"^Invariant\s+(.+?)\s+is violated by the initial", first)
+                kind, name = "invariant", (m.group(1) if m else "Invariant")
+            else:
+                m = re.match(r"^Property\s+(.+?)\s+is violated by the initial", first)
+                kind, name = "property", (m.group(1) if m else "Property")
+            summary["violations"].append(
+                Violation(
+                    kind=kind,
+                    name=name,
+                    hops=0,
+                    steps=[{"state": state_body, "action": "Initial predicate", "step": "1"}],
+                )
+            )
+        elif code == EC_INVARIANT_VIOLATED_BEHAVIOR:
+            flush_violation()
+            m = re.search(r"^Invariant\s+(.+?)\s+is violated\.?$", body, re.M)
+            current_kind = "invariant"
+            current_name = m.group(1) if m else "Invariant"
+        elif code == EC_ACTION_PROPERTY_VIOLATED_BEHAVIOR:
+            flush_violation()
+            m = re.search(r"^Action property\s+(.+?)\s+is violated\.?$", body, re.M)
+            current_kind = "property"
+            current_name = m.group(1) if m else "ActionProperty"
+        elif code == EC_DEADLOCK_REACHED:
+            flush_violation()
+            current_kind = "deadlock"
+            current_name = "Deadlock"
+        elif code == EC_TEMPORAL_PROPERTY_VIOLATED:
+            flush_violation()
+            current_kind = "temporal"
+            current_name = "TemporalProperty"
+        elif code == EC_STATE_PRINT2 and current_kind is not None:
+            lines = body.splitlines()
+            if lines:
+                hdr = lines[0].strip()
+                m = re.match(r"^(?:State\s+)?(\d+):\s*(.*)$", hdr)
+                num = int(m.group(1)) if m else len(current_steps) + 1
+                action = _extract_action_name(m.group(2) if m else hdr)
+                state_body = "\n".join(line.strip() for line in lines[1:] if line.strip())
+                current_steps.append(TraceStep(number=num, action=action, state=state_body))
+        elif code == EC_STATE_PRINT3 and current_kind is not None:
+            # Stuttering self-loop on the last state
+            if current_steps:
+                current_cycle = current_steps[-1].number
+            flush_violation()
+        elif code == EC_BACK_TO_STATE and current_kind is not None:
+            m = re.match(r"^(\d+):\s*Back to state:", body)
+            if m:
+                current_cycle = int(m.group(1))
+            flush_violation()
+        elif msg.level in (LEVEL_ERROR, LEVEL_TLCBUG) and body:
+            if code not in (2121, 2264):  # "The behavior up to this point is:" / "The following behavior..."
+                summary["errors"].append(f"[{code}] {body}")
+
+    flush_violation()
+    return summary
+
+
+def parse_tlc_output(text: str) -> dict:
+    """Parse TLC output: prefers -tool STARTMSG/ENDMSG frames, falls back to plain human output."""
+    if "@!@!@STARTMSG " in text:
+        messages = parse_tool_messages(text)
+        if messages:
+            return _parse_tool_tlc_output(messages)
+
+    summary: dict = {
+        "mode": "plain",
+        "distinct_states": None,
+        "states_generated": None,
+        "depth": None,
+        "violations": [],
+        "errors": [],
     }
     if m := re.search(r"(\d+)\s+states generated,\s+(\d+)\s+distinct states found", text):
         summary["states_generated"] = int(m.group(1))
@@ -281,12 +497,55 @@ def parse_tlc_output(text: str) -> dict:
         line = lines[i].strip()
         kind = None
         name = None
-        if m := re.match(r"^Error:\s+Invariant\s+(\S+)\s+is violated\.?$", line):
+        if m := re.match(r"^(?:Error:\s+)?Invariant\s+(.+?)\s+is violated by the initial state:?$", line):
+            inv_name = m.group(1)
+            i += 1
+            state_lines: list[str] = []
+            while i < total:
+                st = lines[i].strip()
+                if not st or st.startswith("Error:") or st.startswith("Finished in ") or re.match(r"^\d+\s+states generated,", st):
+                    break
+                state_lines.append(st)
+                i += 1
+            summary["violations"].append(
+                Violation(
+                    kind="invariant",
+                    name=inv_name,
+                    hops=0,
+                    steps=[{"state": "\n".join(state_lines), "action": "Initial predicate", "step": "1"}],
+                )
+            )
+            continue
+        elif m := re.match(r"^(?:Error:\s+)?Property\s+(.+?)\s+is violated by the initial state:?$", line):
+            prop_name = m.group(1)
+            i += 1
+            state_lines = []
+            while i < total:
+                st = lines[i].strip()
+                if not st or st.startswith("Error:") or st.startswith("Finished in ") or re.match(r"^\d+\s+states generated,", st):
+                    break
+                state_lines.append(st)
+                i += 1
+            summary["violations"].append(
+                Violation(
+                    kind="property",
+                    name=prop_name,
+                    hops=0,
+                    steps=[{"state": "\n".join(state_lines), "action": "Initial predicate", "step": "1"}],
+                )
+            )
+            continue
+        elif m := re.match(r"^(?:Error:\s+)?Invariant\s+(\S+)\s+is violated\.?$", line):
             kind, name = "invariant", m.group(1)
-        elif re.match(r"^Error:\s+Deadlock reached\.?$", line):
+        elif m := re.match(r"^(?:Error:\s+)?Action property\s+(\S+)\s+is violated\.?$", line):
+            kind, name = "property", m.group(1)
+        elif re.match(r"^(?:Error:\s+)?Deadlock reached\.?$", line):
             kind, name = "deadlock", "Deadlock"
-        elif re.match(r"^Error:\s+Temporal properties were violated\.?$", line):
+        elif re.match(r"^(?:Error:\s+)?Temporal properties were violated\.?$", line):
             kind, name = "temporal", "TemporalProperty"
+        elif line.startswith("Error:") and "behavior up to this point" not in line.lower():
+            summary["errors"].append(line)
+
         if kind is None:
             i += 1
             continue
@@ -308,29 +567,37 @@ def parse_tlc_output(text: str) -> dict:
             current_lines = []
 
         while i < total:
-            raw = lines[i]
-            stripped = raw.strip()
+            stripped = lines[i].strip()
             if stripped.startswith("Error:") and steps:
                 break
             if re.match(r"^\d+\s+states generated,", stripped) or stripped.startswith("Finished in "):
                 break
-            if m := re.match(r"^State\s+(\d+):\s*<(.+?)>\s*$", stripped):
+            if m := re.match(r"^(?:State\s+)?(\d+):\s*<(.+?)>\s*$", stripped):
                 flush_step()
                 current_num = int(m.group(1))
-                current_action = m.group(2).strip()
+                current_action = _extract_action_name(f"<{m.group(2)}>")
                 i += 1
                 continue
-            if m := re.match(r"^Back to state\s+(\d+):", stripped):
+            if m := re.match(r"^(?:(\d+):\s*)?Back to state(?:\s+(\d+))?:", stripped):
                 flush_step()
-                cycle_back = int(m.group(1))
+                cycle_back = int(m.group(1) or m.group(2))
                 i += 1
                 break
-            if stripped == "Error: The behavior up to this point is:":
+            if re.match(r"^(?:State\s+)?\d+:\s*Stuttering$", stripped):
+                flush_step()
+                if steps:
+                    cycle_back = steps[-1].number
+                i += 1
+                break
+            if stripped in (
+                "Error: The behavior up to this point is:",
+                "The behavior up to this point is:",
+                "The following behavior constitutes a counter-example:",
+            ):
                 i += 1
                 continue
-            if current_num is not None:
-                if stripped:
-                    current_lines.append(stripped)
+            if current_num is not None and stripped:
+                current_lines.append(stripped)
             i += 1
 
         flush_step()
@@ -406,7 +673,7 @@ def shortest_paths_to_violations(graph: StateGraph) -> list[Violation]:
     return results
 
 
-def _clean_mermaid_label(text: str, *, max_len: int = 120) -> str:
+def _sanitize_mermaid_text(text: str) -> str:
     cleaned = _CONTROL_CHARS.sub("", text)
     cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
     parts = [line.strip() for line in cleaned.split("\n") if line.strip()]
@@ -417,6 +684,13 @@ def _clean_mermaid_label(text: str, *, max_len: int = 120) -> str:
         .replace("[*]", "(star)")
         .replace("%%", "% %")
     )
+    if joined.endswith("\\"):
+        joined = joined + " "
+    return joined
+
+
+def _clean_mermaid_label(text: str, *, max_len: int = 120) -> str:
+    joined = _sanitize_mermaid_text(text)
     if len(joined) > max_len:
         joined = joined[: max_len - 3] + "..."
     if joined.endswith("\\"):
@@ -426,8 +700,60 @@ def _clean_mermaid_label(text: str, *, max_len: int = 120) -> str:
 
 def _clean_edge_label(text: str, *, max_len: int = 80) -> str:
     cleaned = _clean_mermaid_label(text, max_len=max_len)
-    cleaned = cleaned.replace(":", " -")
-    return cleaned
+    return cleaned.replace(":", " -")
+
+
+def _build_unique_display_labels(keep_ids: list[str], graph: StateGraph, *, max_len: int = 120) -> dict[str, str]:
+    """Build sanitized display labels, disambiguating any distinct states that collide after truncation."""
+    full_map = {nid: _sanitize_mermaid_text(graph.nodes[nid]) for nid in keep_ids}
+    base_map = {nid: _clean_mermaid_label(graph.nodes[nid], max_len=max_len) for nid in keep_ids}
+
+    groups: dict[str, list[str]] = {}
+    for nid in keep_ids:
+        groups.setdefault(base_map[nid], []).append(nid)
+
+    display: dict[str, str] = {}
+    for base, nids in groups.items():
+        if len(nids) == 1:
+            display[nids[0]] = base
+            continue
+        # Find longest common prefix across colliding full labels, then back up to the
+        # start of the differing conjunct/assignment so `var = val` stays readable
+        fulls = [full_map[nid] for nid in nids]
+        common = os.path.commonprefix(fulls)
+        prefix_len = len(common)
+        if 0 < prefix_len < max(len(f) for f in fulls):
+            conj = common.rfind(", /\\ ")
+            if conj != -1:
+                prefix_len = conj + 2
+            else:
+                comma = common.rfind(", ")
+                if comma != -1:
+                    prefix_len = comma + 2
+                else:
+                    space = common.rfind(" ")
+                    if space != -1:
+                        prefix_len = space + 1
+        used: set[str] = set()
+        for idx, nid in enumerate(nids):
+            full = full_map[nid]
+            tail = full[prefix_len:].lstrip(", ")
+            if tail:
+                tail_budget = min(40, max(16, max_len // 3))
+                if len(tail) > tail_budget:
+                    tail = tail[: tail_budget - 3] + "..."
+                head_budget = max(20, max_len - len(tail) - 6)
+                head = full[:head_budget].rstrip()
+                candidate = f"{head}... | {tail}"
+            else:
+                candidate = f"{base} (#{idx + 1})"
+            if candidate in used:
+                candidate = f"{candidate} (#{idx + 1})"
+            if candidate.endswith("\\"):
+                candidate = candidate + " "
+            used.add(candidate)
+            display[nid] = candidate
+    return display
 
 
 def render_mermaid(
@@ -436,15 +762,10 @@ def render_mermaid(
     *,
     max_states: int | None = None,
 ) -> tuple[str, int]:
-    """Render StateGraph into collision-free, keyword-safe Mermaid stateDiagram-v2.
-
-    Returns (mermaid_text, omitted_state_count).
-    """
+    """Render StateGraph into collision-free, keyword-safe Mermaid stateDiagram-v2."""
     violations = violations or []
     all_ids = list(graph.nodes.keys())
 
-    # Determine which nodes to keep if max_states is set
-    keep_ids: list[str]
     if max_states is not None and max_states > 0 and len(all_ids) > max_states:
         pinned: list[str] = []
         seen: set[str] = set()
@@ -487,12 +808,12 @@ def render_mermaid(
     kept_set = set(keep_ids)
     omitted = len(all_ids) - len(keep_ids)
 
-    # Map arbitrary node IDs (including __proto__, constructor, [*], end, quotes) to safe s0..sN IDs
     safe_id: dict[str, str] = {nid: f"s{idx}" for idx, nid in enumerate(keep_ids)}
+    display_labels = _build_unique_display_labels(keep_ids, graph)
     lines = ["stateDiagram-v2"]
 
     for nid in keep_ids:
-        label = _clean_mermaid_label(graph.nodes[nid])
+        label = display_labels[nid]
         if nid in graph.violating_ids:
             reason = _clean_mermaid_label(graph.violating_ids[nid], max_len=40)
             label = f"{label} [VIOLATION: {reason}]"
@@ -563,7 +884,7 @@ def find_tlc(explicit_tlc: str | None, explicit_jar: str | None) -> list[str] | 
     if tlc := shutil.which("tlc"):
         return [tlc]
     jar_candidates = []
-    if env_jar := os.environ.get("TLA2TOOLS_JAR"):
+    if env_jar := (os.environ.get("TLA2TOOLS_JAR") or os.environ.get("TLA2TOOLS")):
         jar_candidates.append(Path(env_jar).expanduser())
     jar_candidates.extend([
         Path("/opt/homebrew/share/tla+/tla2tools.jar"),
@@ -594,7 +915,9 @@ def _format_report(
     lines.append(f"astack-statechart: {total_states} states, {total_edges} transitions, {len(violations)} violation(s)")
     if stats and stats.get("distinct_states") is not None:
         depth = f", depth {stats['depth']}" if stats.get("depth") is not None else ""
-        lines.append(f"  TLC: {stats['distinct_states']} distinct states ({stats['states_generated']} generated{depth})")
+        gen = stats.get("states_generated")
+        gen_txt = f"{gen} generated" if gen is not None else "stats"
+        lines.append(f"  TLC: {stats['distinct_states']} distinct states ({gen_txt}{depth})")
     if omitted > 0:
         lines.append(f"  diagram: showing {total_states - omitted}/{total_states} states ({omitted} omitted)")
     if violations:
@@ -635,17 +958,36 @@ def _merge_graph_and_trace(graph: StateGraph, trace_info: dict) -> tuple[StateGr
     if not graph.nodes and trace_violations:
         graph = _graph_from_trace_violations(trace_violations)
     elif trace_violations:
-        # Match trace steps back onto DOT nodes by normalized label so --max-states pins full failure paths
-        by_norm = {_clean_mermaid_label(lbl): nid for nid, lbl in graph.nodes.items()}
-        for v in trace_violations:
-            for step in v.steps:
-                norm = _clean_mermaid_label(step["state"])
-                if norm in by_norm and "id" not in step:
-                    step["id"] = by_norm[norm]
-            if v.steps:
-                last_norm = _clean_mermaid_label(v.steps[-1]["state"])
-                if last_norm in by_norm and by_norm[last_norm] not in graph.violating_ids:
-                    graph.violating_ids[by_norm[last_norm]] = v.name
+        # Match trace steps onto DOT nodes using FULL untruncated canonical state keys
+        by_canonical: dict[str, list[str]] = {}
+        for nid, lbl in graph.nodes.items():
+            ckey = _canonical_state_key(lbl)
+            by_canonical.setdefault(ckey, []).append(nid)
+
+        for v_idx, v in enumerate(trace_violations):
+            prev_id: str | None = None
+            for s_idx, step in enumerate(v.steps):
+                ckey = _canonical_state_key(step["state"])
+                matches = by_canonical.get(ckey, [])
+                if matches:
+                    step["id"] = matches[0]
+                    prev_id = matches[0]
+                elif step["state"]:
+                    # Violating state (e.g. initial state outside CONSTRAINT) absent from DOT dump: add it
+                    synth_id = f"trace_v{v_idx}_s{s_idx + 1}"
+                    graph.nodes[synth_id] = step["state"]
+                    by_canonical.setdefault(ckey, []).append(synth_id)
+                    if s_idx == 0 and synth_id not in graph.initial_ids:
+                        graph.initial_ids.append(synth_id)
+                    if prev_id is not None:
+                        graph.edges.append(Edge(src=prev_id, dst=synth_id, label=step.get("action", "")))
+                    step["id"] = synth_id
+                    prev_id = synth_id
+            if v.steps and "id" in v.steps[-1]:
+                last_id = v.steps[-1]["id"]
+                if last_id not in graph.violating_ids:
+                    graph.violating_ids[last_id] = v.name
+
     graph_violations = _dedupe_shortest_violations(shortest_paths_to_violations(graph))
     if trace_violations:
         seen_names = {v.name for v in trace_violations}
@@ -656,13 +998,43 @@ def _merge_graph_and_trace(graph: StateGraph, trace_info: dict) -> tuple[StateGr
     return graph, violations
 
 
+def _classify_tlc_outcome(returncode: int, violations: list[Violation], trace_info: dict, combined: str) -> tuple[int, list[Violation]]:
+    """Map TLC exit status + parsed results to strict (exit_code, violations). Never false-passes on nonzero TLC exit."""
+    if returncode == 0:
+        if violations:
+            return 1, violations
+        if trace_info.get("errors"):
+            return 2, violations
+        return 0, violations
+
+    if returncode in TLC_VIOLATION_EXITS:
+        if not violations:
+            # TLC exited with a violation code (10/11/12/13) even if our parser didn't see a trace
+            errs = trace_info.get("errors") or []
+            hint = errs[0].splitlines()[0] if errs else (
+                next((ln.strip() for ln in combined.splitlines() if ln.strip()), f"exit {returncode}")
+            )
+            violations = [
+                Violation(
+                    kind="tlc-violation",
+                    name=f"TLC exit {returncode}: {hint[:100]}",
+                    hops=0,
+                    steps=[],
+                )
+            ]
+        return 1, violations
+
+    # Any other non-zero exit code (1, 150, 255, JVM/SANY/config crash) is a tool error — NEVER exit 0!
+    return 2, violations
+
+
 def cmd_render(args) -> int:
     dot_path = Path(args.dot).expanduser()
     if not dot_path.is_file():
         print(f"error: DOT file not found: {dot_path}", file=sys.stderr)
         return 2
     graph = parse_dot(dot_path.read_text(encoding="utf-8", errors="replace"))
-    trace_info: dict = {"violations": []}
+    trace_info: dict = {"violations": [], "errors": []}
     if args.trace:
         trace_path = Path(args.trace).expanduser()
         if not trace_path.is_file():
@@ -678,6 +1050,7 @@ def cmd_render(args) -> int:
             "states": len(graph.nodes),
             "transitions": len(graph.edges),
             "initial_states": graph.initial_ids,
+            "violating_states": graph.violating_ids,
             "omitted_states": omitted,
             "violations": [v.__dict__ for v in violations],
             "mermaid": mermaid,
@@ -705,7 +1078,13 @@ def cmd_check(args) -> int:
     cfg = Path(args.cfg).expanduser().resolve() if args.cfg else model.with_suffix(".cfg")
     with tempfile.TemporaryDirectory(prefix="astack-statechart-") as scratch:
         dot_out = Path(args.dump_dot).expanduser().resolve() if args.dump_dot else Path(scratch) / "states.dot"
-        cmd = [*tlc_cmd, "-workers", str(args.workers), "-cleanup", "-dump", "dot", str(dot_out)]
+        cmd = [
+            *tlc_cmd,
+            "-tool",
+            "-workers", str(args.workers),
+            "-cleanup",
+            "-dump", "dot,actionlabels", str(dot_out),
+        ]
         if not args.stop_on_first:
             cmd.append("-continue")
         if cfg.is_file():
@@ -718,8 +1097,11 @@ def cmd_check(args) -> int:
         graph = parse_dot(dot_actual.read_text(encoding="utf-8", errors="replace")) if dot_actual.is_file() else StateGraph()
         graph, violations = _merge_graph_and_trace(graph, trace_info)
 
-        if proc.returncode != 0 and not violations and not graph.nodes:
-            print(f"error: TLC exited {proc.returncode}:\n{combined.strip()}", file=sys.stderr)
+        exit_code, violations = _classify_tlc_outcome(proc.returncode, violations, trace_info, combined)
+        if exit_code == 2:
+            err_lines = trace_info.get("errors") or []
+            detail = "\n".join(err_lines) if err_lines else "\n".join(combined.strip().splitlines()[-30:])
+            print(f"error: TLC exited {proc.returncode} on {model.name}:\n{detail}", file=sys.stderr)
             return 2
 
         mermaid, omitted = render_mermaid(graph, violations, max_states=args.max_states)
@@ -730,11 +1112,13 @@ def cmd_check(args) -> int:
             payload = {
                 "model": str(model),
                 "tlc_exit_code": proc.returncode,
+                "parser_mode": trace_info.get("mode"),
                 "distinct_states": trace_info.get("distinct_states"),
                 "states_generated": trace_info.get("states_generated"),
                 "depth": trace_info.get("depth"),
                 "states": len(graph.nodes),
                 "transitions": len(graph.edges),
+                "violating_states": graph.violating_ids,
                 "omitted_states": omitted,
                 "violations": [v.__dict__ for v in violations],
                 "mermaid": mermaid,
@@ -742,11 +1126,13 @@ def cmd_check(args) -> int:
             print(json.dumps(payload, indent=2))
         else:
             print(_format_report(graph, violations, mermaid, omitted, stats=trace_info))
-        return 1 if violations else 0
+        return exit_code
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Run TLC or parse TLC DOT/traces to report shortest counterexamples and Mermaid stateDiagram-v2.")
+    parser = argparse.ArgumentParser(
+        description="Run TLC in -tool mode (with -dump dot,actionlabels) or parse TLC DOT/traces to report shortest counterexamples and Mermaid stateDiagram-v2."
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_check = sub.add_parser("check", help="run TLC on a TLA+ model, report shortest paths to broken invariants, and draw Mermaid stateDiagram-v2")
@@ -763,7 +1149,7 @@ def main(argv=None) -> int:
 
     p_render = sub.add_parser("render", help="parse a Graphviz DOT state graph (and optional TLC output) into shortest violation paths + Mermaid")
     p_render.add_argument("dot", help="path to TLC -dump dot output")
-    p_render.add_argument("--trace", help="optional TLC stdout/stderr text file for counterexample traces")
+    p_render.add_argument("--trace", help="optional TLC stdout/stderr text file (-tool or plain) for counterexample traces")
     p_render.add_argument("--mermaid", help="write Mermaid stateDiagram-v2 to this file")
     p_render.add_argument("--max-states", type=int, help="cap rendered states (always keeping initial and failure-path states)")
     p_render.add_argument("--json", action="store_true", dest="as_json")
