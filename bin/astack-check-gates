@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
-"""Audit a git diff or commit for gate-gaming / gate-loosening signals.
+"""Audit a git diff, range (<base>..<head>), or commit for gate-gaming / gate-loosening signals.
 
-Flags added test skips/quarantines, added lint/typecheck/coverage suppressions,
-tautological or net-deleted test assertions, narrowed test-runner filters, and
-edits to CI/lint/gate configuration files.
+Flags:
+- deleted or de-discovered (renamed away from test patterns) test files
+- net-dropped test definitions (deleted tests or tests renamed so the runner skips them)
+- added test skips, xfails, ignores, or focus-only filters
+- added lint, typecheck, or coverage suppressions
+- tautological assertions, net-dropped assertions, strong->weak assertion downgrades,
+  and loosened numeric tolerances (places decreased or delta/tol/atol/rtol increased)
+- edits to CI, lint, typecheck, or gate configuration files
+
+Note: always scan the full lane/branch range (<base>..<head>), not just the last commit.
+Static signals are a structural tripwire—pair with reviewer inspection for semantic weakenings.
 
 Usage:
   astack-check-gates [COMMIT_OR_RANGE] [--repo DIR] [--staged] [--working] [--json]
@@ -11,7 +19,7 @@ Usage:
 Exit codes:
   0 = no gate-loosening signals found
   1 = gate-loosening signals found (requires lead countersign, contract reset, or dedicated gate fix)
-  2 = invalid repository, commit, or usage error
+  2 = invalid repository, commit/range, or error
 """
 from __future__ import annotations
 
@@ -26,7 +34,7 @@ from pathlib import Path
 
 @dataclass
 class Finding:
-    category: str  # "test-skip" | "lint-suppression" | "weakened-assertion" | "gate-config-edit"
+    category: str  # "deleted-test-file" | "dropped-test" | "test-skip" | "lint-suppression" | "weakened-assertion" | "gate-config-edit"
     file: str
     line: int
     reason: str
@@ -85,6 +93,33 @@ _ASSERTION_LINE_RE = re.compile(
     r"^\s*assert\b|\bself\.assert[A-Z]\w*\s*\(|\bexpect\s*\(|\bassert_(eq|ne|matches)!\s*\(|\bassert!\s*\(|\bt\.(Fatal|Fatalf|Error|Errorf)\s*\("
 )
 
+_STRONG_ASSERT_RE = re.compile(
+    r"\bself\.assert(?:Equal|AlmostEqual|DictEqual|ListEqual|SetEqual|CountEqual|SequenceEqual|Raises|RaisesRegex|Regex)\s*\("
+    r"|\bassert_(?:eq|ne|matches)!\s*\("
+    r"|\.(?:toEqual|toStrictEqual|toBe|toMatchObject|toThrow|toBeCloseTo)\s*\("
+    r"|^\s*assert\s+.+\s*==\s*"
+)
+
+_WEAK_ASSERT_RE = re.compile(
+    r"\bself\.assert(?:IsNotNone|IsNone|True|False)\s*\("
+    r"|\.(?:toBeDefined|toBeTruthy|toBeFalsy)\s*\("
+    r"|\.not\.toBeNull\s*\("
+    r"|\bassert!\s*\([^)]*\.(?:is_some|is_ok)\s*\(\s*\)\s*\)"
+    r"|^\s*assert\s+[A-Za-z_][\w.]*\s+is\s+not\s+None\b"
+)
+
+_TEST_DEF_RE = re.compile(
+    r"^\s*(?:async\s+)?def\s+test_\w+\s*\("
+    r"|^\s*func\s+Test[A-Z]\w*\s*\("
+    r"|^\s*#\[(?:tokio::|async_std::)?test(?:\([^)]*\))?\]"
+    r"|^\s*(?:it|test)\s*\("
+)
+
+_PLACES_RE = re.compile(r"\bplaces\s*=\s*(\d+)\b|\.toBeCloseTo\s*\([^,]+,\s*(\d+)\s*\)")
+_TOL_RE = re.compile(
+    r"\b(delta|abs_tol|rel_tol|atol|rtol|eps|epsilon|tolerance)\s*=\s*([0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)"
+)
+
 _NARROW_FILTER_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\b(pytest|vitest|jest|mocha)\b.*\s(-k|--grep|--testNamePattern|--ignore)\b"), "added test filter/ignore flag"),
     (re.compile(r"\b(testPathIgnorePatterns|excludePathPatterns)\b"), "added test path ignore pattern"),
@@ -103,26 +138,161 @@ def _is_gate_config(path: str) -> bool:
     return any(p.search(path) for p in _GATE_CONFIG_PATTERNS)
 
 
+def _extract_places(line: str) -> list[int]:
+    vals: list[int] = []
+    for m in _PLACES_RE.finditer(line):
+        raw = m.group(1) or m.group(2)
+        if raw is not None:
+            vals.append(int(raw))
+    return vals
+
+
+def _extract_tols(line: str) -> list[tuple[str, float]]:
+    out: list[tuple[str, float]] = []
+    for m in _TOL_RE.finditer(line):
+        try:
+            out.append((m.group(1), float(m.group(2))))
+        except ValueError:
+            continue
+    return out
+
+
 def analyze_diff(diff_text: str) -> list[Finding]:
-    """Scan a unified git diff (with -U0 or normal context) for gate-tampering signals."""
+    """Scan a unified git diff (with -M rename detection) for gate-tampering signals."""
     findings: list[Finding] = []
+    old_file: str | None = None
     current_file: str | None = None
+    rename_from: str | None = None
     new_line = 0
     config_flagged: set[str] = set()
+    deleted_flagged: set[str] = set()
     test_removed_asserts: dict[str, tuple[int, str]] = {}
     test_added_asserts: dict[str, int] = {}
+    test_removed_defs: dict[str, tuple[int, str]] = {}
+    test_added_defs: dict[str, int] = {}
+
+    # Per-hunk tracking for strong->weak assertion downgrades and numeric tolerance loosenings
+    hunk_removed: list[str] = []
+    hunk_added: list[tuple[int, str]] = []
+    hunk_file: str | None = None
+
+    def flush_hunk() -> None:
+        nonlocal hunk_removed, hunk_added, hunk_file
+        if hunk_file and _is_test_file(hunk_file) and hunk_removed and hunk_added:
+            removed_strong = [ln for ln in hunk_removed if _STRONG_ASSERT_RE.search(ln)]
+            added_strong = [ln for _, ln in hunk_added if _STRONG_ASSERT_RE.search(ln)]
+            added_weak = [(no, ln) for no, ln in hunk_added if _WEAK_ASSERT_RE.search(ln)]
+            if len(removed_strong) > len(added_strong) and added_weak:
+                first_no, first_ln = added_weak[0]
+                findings.append(
+                    Finding(
+                        category="weakened-assertion",
+                        file=hunk_file,
+                        line=first_no,
+                        reason="replaced value assertion with weaker presence/truthiness assertion",
+                        snippet=first_ln.strip()[:120],
+                    )
+                )
+
+            # Check `places=N` / `toBeCloseTo(..., N)` precision reductions
+            old_places = [v for ln in hunk_removed for v in _extract_places(ln)]
+            new_places = [(no, ln, v) for no, ln in hunk_added for v in _extract_places(ln)]
+            if old_places and new_places:
+                max_old = max(old_places)
+                for no, ln, val in new_places:
+                    if val < max_old:
+                        findings.append(
+                            Finding(
+                                category="weakened-assertion",
+                                file=hunk_file,
+                                line=no,
+                                reason=f"loosened numeric precision (places {max_old} -> {val})",
+                                snippet=ln.strip()[:120],
+                            )
+                        )
+                        break
+
+            # Check tolerance increases (delta, abs_tol, rel_tol, atol, rtol, eps, tolerance)
+            old_tols: dict[str, float] = {}
+            for ln in hunk_removed:
+                for k, v in _extract_tols(ln):
+                    old_tols[k] = min(old_tols.get(k, v), v)
+            if old_tols:
+                for no, ln in hunk_added:
+                    for k, v in _extract_tols(ln):
+                        if k in old_tols and v > old_tols[k]:
+                            findings.append(
+                                Finding(
+                                    category="weakened-assertion",
+                                    file=hunk_file,
+                                    line=no,
+                                    reason=f"loosened numeric tolerance ({k} {old_tols[k]:g} -> {v:g})",
+                                    snippet=ln.strip()[:120],
+                                )
+                            )
+                            break
+        hunk_removed = []
+        hunk_added = []
 
     for raw in diff_text.splitlines():
         if raw.startswith("diff --git "):
+            flush_hunk()
+            old_file = None
             current_file = None
+            rename_from = None
+            hunk_file = None
             new_line = 0
+            continue
+        if raw.startswith("rename from "):
+            rename_from = raw[len("rename from "):].strip()
+            continue
+        if raw.startswith("rename to "):
+            rename_to = raw[len("rename to "):].strip()
+            if rename_from and _is_test_file(rename_from) and not _is_test_file(rename_to):
+                findings.append(
+                    Finding(
+                        category="deleted-test-file",
+                        file=rename_to,
+                        line=1,
+                        reason=f"renamed test file outside test discovery ({rename_from} -> {rename_to})",
+                        snippet=f"{rename_from} -> {rename_to}",
+                    )
+                )
+            continue
+        if raw.startswith("--- "):
+            src = raw[4:].strip()
+            if src != "/dev/null":
+                old_file = src[2:] if src.startswith("a/") else src
             continue
         if raw.startswith("+++ "):
             target = raw[4:].strip()
             if target == "/dev/null":
                 current_file = None
+                if old_file and old_file not in deleted_flagged:
+                    deleted_flagged.add(old_file)
+                    if _is_test_file(old_file):
+                        findings.append(
+                            Finding(
+                                category="deleted-test-file",
+                                file=old_file,
+                                line=1,
+                                reason="deleted entire test file",
+                                snippet=old_file,
+                            )
+                        )
+                    elif _is_gate_config(old_file):
+                        findings.append(
+                            Finding(
+                                category="gate-config-edit",
+                                file=old_file,
+                                line=1,
+                                reason="deleted CI, lint, test, or gate configuration file",
+                                snippet=old_file,
+                            )
+                        )
                 continue
             current_file = target[2:] if target.startswith("b/") else target
+            hunk_file = current_file
             if _is_gate_config(current_file) and current_file not in config_flagged:
                 config_flagged.add(current_file)
                 findings.append(
@@ -136,17 +306,20 @@ def analyze_diff(diff_text: str) -> list[Finding]:
                 )
             continue
         if raw.startswith("@@ "):
+            flush_hunk()
+            hunk_file = current_file
             if m := re.search(r"\+(\d+)", raw):
                 new_line = int(m.group(1))
             continue
-        if current_file is None:
-            continue
 
         if raw.startswith("+") and not raw.startswith("+++"):
+            if current_file is None:
+                continue
             content = raw[1:]
             line_no = new_line
             new_line += 1
             snippet = content.strip()[:120]
+            hunk_added.append((line_no, content))
 
             if _is_test_file(current_file):
                 for pat, reason in _SKIP_PATTERNS:
@@ -159,6 +332,8 @@ def analyze_diff(diff_text: str) -> list[Finding]:
                         break
                 if _ASSERTION_LINE_RE.search(content):
                     test_added_asserts[current_file] = test_added_asserts.get(current_file, 0) + 1
+                if _TEST_DEF_RE.search(content):
+                    test_added_defs[current_file] = test_added_defs.get(current_file, 0) + 1
             else:
                 for pat, reason in _NARROW_FILTER_PATTERNS:
                     if pat.search(content):
@@ -172,11 +347,33 @@ def analyze_diff(diff_text: str) -> list[Finding]:
 
         elif raw.startswith("-") and not raw.startswith("---"):
             content = raw[1:]
-            if _is_test_file(current_file) and _ASSERTION_LINE_RE.search(content):
-                prev_count, first_snip = test_removed_asserts.get(current_file, (0, content.strip()[:120]))
-                test_removed_asserts[current_file] = (prev_count + 1, first_snip)
+            if current_file is not None:
+                hunk_removed.append(content)
+                if _is_test_file(current_file):
+                    if _ASSERTION_LINE_RE.search(content):
+                        prev_count, first_snip = test_removed_asserts.get(current_file, (0, content.strip()[:120]))
+                        test_removed_asserts[current_file] = (prev_count + 1, first_snip)
+                    if _TEST_DEF_RE.search(content):
+                        prev_d, first_d = test_removed_defs.get(current_file, (0, content.strip()[:120]))
+                        test_removed_defs[current_file] = (prev_d + 1, first_d)
         elif not raw.startswith("\\"):
             new_line += 1
+
+    flush_hunk()
+
+    # Flag test files where test functions/cases were removed or renamed out of discovery
+    for path, (removed, first_snip) in sorted(test_removed_defs.items()):
+        added = test_added_defs.get(path, 0)
+        if removed > added:
+            findings.append(
+                Finding(
+                    category="dropped-test",
+                    file=path,
+                    line=1,
+                    reason=f"net drop in runnable test definitions ({removed} removed, {added} added — deleted or renamed out of discovery)",
+                    snippet=first_snip,
+                )
+            )
 
     # Flag test files where assertions were removed without equivalent replacements
     for path, (removed, first_snip) in sorted(test_removed_asserts.items()):
@@ -198,13 +395,13 @@ def analyze_diff(diff_text: str) -> list[Finding]:
 def diff_for_target(repo: Path, target: str | None, *, staged: bool, working: bool) -> tuple[str | None, str | None]:
     """Return (diff_text, error_message)."""
     if staged:
-        res = _git(repo, "diff", "--cached", "--unified=0")
+        res = _git(repo, "diff", "--cached", "-M", "--unified=0")
         return (res.stdout, None) if res.returncode == 0 else (None, res.stderr.strip() or "git diff --cached failed")
     if working or not target:
-        res = _git(repo, "diff", "HEAD", "--unified=0")
+        res = _git(repo, "diff", "HEAD", "-M", "--unified=0")
         return (res.stdout, None) if res.returncode == 0 else (None, res.stderr.strip() or "git diff HEAD failed")
     if ".." in target:
-        res = _git(repo, "diff", "--unified=0", target)
+        res = _git(repo, "diff", "-M", "--unified=0", target)
         return (res.stdout, None) if res.returncode == 0 else (None, res.stderr.strip() or f"git diff {target} failed")
 
     # Single commit SHA: diff against first parent (or empty tree for root commit)
@@ -214,13 +411,15 @@ def diff_for_target(repo: Path, target: str | None, *, staged: bool, working: bo
     sha = rev.stdout.strip()
     parents = _git(repo, "rev-list", "--parents", "-n", "1", sha).stdout.split()[1:]
     base = parents[0] if parents else _git(repo, "hash-object", "-t", "tree", "--stdin", stdin="").stdout.strip()
-    res = _git(repo, "diff", "--unified=0", base, sha)
+    res = _git(repo, "diff", "-M", "--unified=0", base, sha)
     return (res.stdout, None) if res.returncode == 0 else (None, res.stderr.strip() or f"git diff {base} {sha} failed")
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Flag potential gate-gaming or gate-loosening edits in a git diff or commit.")
-    parser.add_argument("target", nargs="?", help="commit SHA or git diff range (e.g. origin/main..HEAD); defaults to working tree vs HEAD")
+    parser = argparse.ArgumentParser(
+        description="Flag potential gate-gaming or gate-loosening edits in a git diff range (<base>..<head>) or commit."
+    )
+    parser.add_argument("target", nargs="?", help="git diff range (preferred: <base>..<head>) or commit SHA; defaults to working tree vs HEAD")
     parser.add_argument("--repo", default=".", help="git repository path (default: .)")
     parser.add_argument("--staged", action="store_true", help="inspect staged index changes")
     parser.add_argument("--working", action="store_true", help="inspect working tree changes against HEAD")
@@ -243,7 +442,7 @@ def main(argv=None) -> int:
         return 1 if findings else 0
 
     if not findings:
-        print("GATES CLEAN: no skipped tests, lint suppressions, weakened assertions, or gate-config edits detected.")
+        print("GATES CLEAN: no deleted/dropped tests, skips, lint suppressions, weakened assertions, or gate-config edits detected.")
         return 0
 
     print(f"GATE SIGNALS ({len(findings)}): review required — countersign in RULES.md, isolate genuine gate fixes, or reject & reset contract if gamed:")

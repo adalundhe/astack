@@ -37,6 +37,6 @@ Break a request into tasks that one agent each can complete and verify, ordered 
 
 Re-plan if failures share an external root cause, a task needs splitting, or unexpected prerequisite work emerges. Never silently expand a task's scope instead.
 
-**Guard the task contract:** the acceptance criteria and tests in a task are the whole bar—workers must neither invent extra unasked gates nor game existing ones. Check diffs with `astack-check-gates` (or `astack-verify-merge --strict-gates`); if a worker games a gate, reset the contract (revert the gamed change, tighten the brief/tests, and dispatch a fresh worker). If a gate itself is genuinely wrong or broken, fix the gate in its own dedicated task/change rather than weakening it inside feature work.
+**Guard the task contract:** the acceptance criteria and tests in a task are the whole bar—workers must neither invent extra unasked gates nor game existing ones. Check full lane ranges with `astack-check-gates <base>..<head>` (or `astack-verify-merge <sha> --base <base> --strict-gates`) alongside **review**; if a worker games a gate, reset the contract (revert the gamed change, tighten the brief/tests, and dispatch a fresh worker). If a gate itself is genuinely wrong or broken, fix the gate in its own dedicated task/change rather than weakening it inside feature work.
 
 <!-- Adapts pstack's figure-it-out skill and its sequence-verifiable-units principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

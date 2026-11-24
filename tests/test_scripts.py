@@ -1063,6 +1063,99 @@ class CheckGatesTest(Scratch):
         self.assertTrue(strict_res.stdout.startswith("NOT VERIFIED:"))
         self.assertIn("GATE SIGNALS", strict_res.stdout)
 
+    def test_catches_earlier_lane_commit_deletions_renames_downgrades_tolerances_and_fails_closed(self):
+        # Set up a multi-commit lane: commit 1 adds a skip, commit 2 is clean
+        lane_base = git(self.repo, "rev-parse", "HEAD")
+        commit(
+            self.repo,
+            "tests/test_multi.py",
+            "import unittest\nclass M(unittest.TestCase):\n    @unittest.skip('later')\n    def test_x(self):\n        self.assertEqual(1, 1)\n",
+        )
+        clean_head = commit(self.repo, "clean.py", "VAL = 42\n")
+        git(self.repo, "push", "-q", "origin", "main")
+
+        # Checking full lane range via --base catches commit 1's skip even though clean_head itself is clean
+        ranged = run(
+            "astack-verify-merge", clean_head, "--base", lane_base, "--strict-gates",
+            "--repo", str(self.repo), cache=self.dir / "cache",
+        )
+        self.assertEqual(ranged.returncode, 1, ranged.stdout)
+        self.assertIn("test-skip", ranged.stdout)
+
+        # 1. Assertion downgrade: assertEqual -> assertIsNotNone
+        commit(
+            self.repo,
+            "tests/test_downgrade.py",
+            "import unittest\nclass D(unittest.TestCase):\n    def test_v(self):\n        self.assertEqual(1, 1)\n        self.assertAlmostEqual(1.0, 1.0, places=9)\n",
+        )
+        sha_down = commit(
+            self.repo,
+            "tests/test_downgrade.py",
+            "import unittest\nclass D(unittest.TestCase):\n    def test_v(self):\n        self.assertIsNotNone(1)\n        self.assertAlmostEqual(1.0, 1.0, places=1)\n",
+        )
+        res_down = run("astack-check-gates", sha_down, "--repo", str(self.repo), "--json")
+        self.assertEqual(res_down.returncode, 1, res_down.stdout)
+        reasons = [f["reason"] for f in json.loads(res_down.stdout)["findings"]]
+        self.assertTrue(any("weaker presence/truthiness" in r for r in reasons), reasons)
+        self.assertTrue(any("places 9 -> 1" in r for r in reasons), reasons)
+
+        # 2. Tolerance increase: abs_tol=1e-6 -> abs_tol=0.1
+        commit(self.repo, "tests/test_tol.py", "import math\ndef test_c():\n    assert math.isclose(1.0, 1.0, abs_tol=1e-6)\n")
+        sha_tol = commit(self.repo, "tests/test_tol.py", "import math\ndef test_c():\n    assert math.isclose(1.0, 1.0, abs_tol=0.1)\n")
+        res_tol = run("astack-check-gates", sha_tol, "--repo", str(self.repo), "--json")
+        self.assertEqual(res_tol.returncode, 1, res_tol.stdout)
+        self.assertTrue(any("abs_tol" in f["reason"] for f in json.loads(res_tol.stdout)["findings"]))
+
+        # 3. Entire test file deleted (+++ /dev/null must NOT drop the file!)
+        git(self.repo, "rm", "-q", "tests/test_tol.py")
+        git(self.repo, "commit", "-q", "-m", "delete test file")
+        sha_del = git(self.repo, "rev-parse", "HEAD")
+        res_del = run("astack-check-gates", sha_del, "--repo", str(self.repo), "--json")
+        self.assertEqual(res_del.returncode, 1, res_del.stdout)
+        self.assertIn("deleted-test-file", {f["category"] for f in json.loads(res_del.stdout)["findings"]})
+
+        # 4. Test function renamed so runner skips it (def test_v -> def _test_v)
+        sha_ren = commit(
+            self.repo,
+            "tests/test_downgrade.py",
+            "import unittest\nclass D(unittest.TestCase):\n    def _test_v(self):\n        self.assertIsNotNone(1)\n        self.assertAlmostEqual(1.0, 1.0, places=1)\n",
+        )
+        res_ren = run("astack-check-gates", sha_ren, "--repo", str(self.repo), "--json")
+        self.assertEqual(res_ren.returncode, 1, res_ren.stdout)
+        self.assertIn("dropped-test", {f["category"] for f in json.loads(res_ren.stdout)["findings"]})
+
+        # 5. Test file renamed out of test discovery (tests/test_downgrade.py -> helpers/downgrade_notes.py)
+        (self.repo / "helpers").mkdir()
+        git(self.repo, "mv", "tests/test_downgrade.py", "helpers/downgrade_notes.py")
+        git(self.repo, "commit", "-q", "-m", "rename test file away")
+        sha_mv = git(self.repo, "rev-parse", "HEAD")
+        res_mv = run("astack-check-gates", sha_mv, "--repo", str(self.repo), "--json")
+        self.assertEqual(res_mv.returncode, 1, res_mv.stdout)
+        self.assertIn("deleted-test-file", {f["category"] for f in json.loads(res_mv.stdout)["findings"]})
+
+        # 6. verify-merge FAILS CLOSED (exit 2, NOT 0) if astack-check-gates errors or is missing!
+        isolated_bin = self.dir / "broken-bin"
+        isolated_bin.mkdir()
+        shutil.copy2(BIN / "astack-verify-merge", isolated_bin / "astack-verify-merge")
+        broken_checker = isolated_bin / "astack-check-gates"
+        broken_checker.write_text("import sys\nprint('boom', file=sys.stderr)\nsys.exit(2)\n")
+        broken_checker.chmod(0o755)
+        fail_closed = subprocess.run(
+            [sys.executable, str(isolated_bin / "astack-verify-merge"), clean_head, "--strict-gates", "--repo", str(self.repo)],
+            capture_output=True, text=True, env={**os.environ, "XDG_CACHE_HOME": str(self.dir / "cache")},
+        )
+        self.assertEqual(fail_closed.returncode, 2, fail_closed.stdout + fail_closed.stderr)
+        self.assertTrue(fail_closed.stdout.startswith("NOT CHECKED:"), fail_closed.stdout)
+
+        # Also fail closed when astack-check-gates is missing entirely
+        broken_checker.unlink()
+        missing_checker = subprocess.run(
+            [sys.executable, str(isolated_bin / "astack-verify-merge"), clean_head, "--strict-gates", "--repo", str(self.repo)],
+            capture_output=True, text=True, env={**os.environ, "XDG_CACHE_HOME": str(self.dir / "cache")},
+        )
+        self.assertEqual(missing_checker.returncode, 2, missing_checker.stdout + missing_checker.stderr)
+        self.assertTrue(missing_checker.stdout.startswith("NOT CHECKED:"), missing_checker.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

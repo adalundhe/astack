@@ -37,7 +37,7 @@ Then:
 3. **Run the tests.** User-visible behavior must stay identical (**never-trade-functionality**).
 4. **Re-measure all baseline metrics (median and $\sigma$).**
    - **Sanity-check the gain:** verify the speedup stays within the Amdahl bound ($1/(1-f)$ where $f$ includes both active CPU work **and waiting**—locks, I/O, queueing, GC—from wall-clock profiles) and confirm outputs were genuinely computed.
-   - Keep the change only if it passes **benchmarking**'s dual acceptance bar—either a significant location win (95% Mann-Whitney U / bootstrap median CI) **or** a significant spread win (Brown–Forsythe test and/or 95% bootstrap CI on $\sigma_{\text{new}}/\sigma_{\text{base}} < 1$ or tail-spread ratio $< 1$, with median non-regressed)—without regressing other metrics, then recompute $\sigma$ on the new baseline for the next step.
+   - Keep the change only if it passes **benchmarking**'s matching acceptance test—a location win (95% Mann-Whitney U / bootstrap median CI), a broad dispersion win (spread-sized $n \ge 30\text{--}40+$ runs/arm passing Brown–Forsythe or BCa/studentized bootstrap on $\log(\sigma_{\text{new}}/\sigma_{\text{base}}) < 0$), or a rare-tail win (within-run $\text{p99}-\text{p50}$ computed over enough requests per run and passing the location test across runs), with median non-regressed and no regression on other metrics—then recompute $\sigma$ on the new baseline for the next step.
 5. **Commit or revert cleanly.** Commit each kept win on its own with before/after median and $\sigma$ in the commit message so later regressions can be bisected/reverted individually. Revert failed attempts completely.
 6. **Log the attempt** and repeat.
 

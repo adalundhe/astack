@@ -39,7 +39,9 @@ def resolve(repo, ref):
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def changes(repo, sha):
+def changes(repo, sha, base_ref=None):
+    if base_ref:
+        return git(repo, "diff", "--stat", f"{base_ref}..{sha}").stdout.rstrip()
     parents = git(repo, "rev-list", "--parents", "-n", "1", sha).stdout.split()[1:]
     base = parents[0] if parents else git(repo, "hash-object", "-t", "tree", "--stdin", stdin="").stdout.strip()
     return git(repo, "diff", "--stat", base, sha).stdout.rstrip()
@@ -59,27 +61,34 @@ def run_check(repo, tip, command):
     return code, str(log)
 
 
-def gate_signals(repo, sha):
+def gate_signals(repo, sha, base_ref=None):
+    """Run astack-check-gates across <base>..<sha> (or <sha>); fail closed on checker errors."""
     checker = Path(__file__).resolve().parent / "astack-check-gates"
     if not checker.is_file():
-        return []
+        return None, f"missing gate checker script: {checker}"
+    target = f"{base_ref}..{sha}" if base_ref else sha
     res = subprocess.run(
-        [sys.executable, str(checker), sha, "--repo", str(repo), "--json"],
+        [sys.executable, str(checker), target, "--repo", str(repo), "--json"],
         capture_output=True, text=True,
     )
     if res.returncode not in (0, 1):
-        return []
+        detail = res.stderr.strip() or res.stdout.strip() or f"exit {res.returncode}"
+        return None, f"astack-check-gates failed (exit {res.returncode}): {detail}"
     try:
         import json
-        return json.loads(res.stdout).get("findings", [])
-    except Exception:
-        return []
+        payload = json.loads(res.stdout)
+        if not isinstance(payload, dict) or not isinstance(payload.get("findings"), list):
+            return None, "astack-check-gates returned malformed JSON payload"
+        return payload["findings"], None
+    except Exception as exc:
+        return None, f"could not parse astack-check-gates output: {exc}"
 
 
 def main():
     parser = argparse.ArgumentParser(description="Verify that a claimed merge is on the target branch.")
     parser.add_argument("sha")
     parser.add_argument("--target", default="origin/main")
+    parser.add_argument("--base", help="base commit/ref of the lane (checks the full range BASE..SHA instead of only the final commit)")
     parser.add_argument("--repo", default=".")
     parser.add_argument("--check", help="command to run in a clean worktree of the target's tip")
     parser.add_argument("--strict-gates", action="store_true", help="fail verification (exit 1) if gate-loosening signals are detected")
@@ -101,6 +110,12 @@ def main():
     if not sha:
         print(f"NOT VERIFIED: {args.sha} is not a commit in {repo}")
         return 1
+    base_sha = None
+    if args.base:
+        base_sha = resolve(repo, args.base)
+        if not base_sha:
+            print(f"NOT CHECKED: base {args.base} is not a commit in {repo}")
+            return 2
     on_target = git(repo, "merge-base", "--is-ancestor", sha, tip)
     if on_target.returncode == 1:
         print(f"NOT VERIFIED: {sha[:12]} is not on {args.target} (tip {tip[:12]})")
@@ -109,7 +124,11 @@ def main():
         print(f"NOT CHECKED: {on_target.stderr.strip()}")
         return 2
 
-    signals = gate_signals(repo, sha)
+    signals, gate_err = gate_signals(repo, sha, base_ref=base_sha)
+    if gate_err is not None:
+        print(f"NOT CHECKED: {gate_err}")
+        return 2
+
     code = 0
     if args.check:
         code, detail = run_check(repo, tip, args.check)
@@ -132,8 +151,9 @@ def main():
     else:
         print(f"VERIFIED: {sha[:12]} is on {args.target} (tip {tip[:12]})")
     print("commit: " + git(repo, "show", "-s", "--format=%h %s (%an, %cI)", sha).stdout.strip())
-    print("changed, against its first parent:")
-    print(changes(repo, sha))
+    scope_desc = f"against {base_sha[:12]}:" if base_sha else "against its first parent:"
+    print(f"changed, {scope_desc}")
+    print(changes(repo, sha, base_ref=base_sha))
     if signals:
         print(f"GATE SIGNALS ({len(signals)}): inspect before accepting (countersign in RULES.md, isolate gate fix, or reset contract):")
         for s in signals:
