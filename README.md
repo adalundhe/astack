@@ -1,20 +1,19 @@
 # astack
 
-astack holds coding agents to a careful engineer's standard: small pieces of work, each proven; choices settled by measurement; code checked against clear rules; nothing claimed without evidence the person can rerun. Its lead runs a program of work as lanes: each lane is one deliverable with a clear definition of done, built by a worker within a hard time limit, while the lead checks in, verifies every merge, keeps a lane log, and brings the person only real decisions. Every skill also works on its own.
+astack makes coding agents work like the engineers you'd want on your team. They take one job at a time and prove it works. They make it work, then robust, then fast. They measure instead of guessing, try to break their own work before anyone else can, and make their own calls, writing down why. They come to you only when they truly need you.
 
-It works in Claude Code, Cursor and Codex. It is modeled on Cursor's [pstack](https://github.com/cursor/plugins/tree/main/pstack).
+It runs in Claude Code, Cursor and Codex, and grew out of Cursor's [pstack](https://github.com/cursor/plugins/tree/main/pstack).
 
-## The method
+## What we believe
 
-- **Lanes.** One deliverable each, with a stated point at which it is done.
-- **Order.** Make it work, then make it robust, then make it fast.
-- **No scope growth.** No extra units, no "if time allows". A side finding gets one line in the report and is left alone.
-- **A hard time limit.** At the wind-down point, a worker merges what is green, pushes the rest to its branch, reports losses first, and ends.
-- **Successors.** A new worker on the same lane, briefed with the original brief, every later directive, and the previous worker's report.
-- **The lead.** It checks in on a fixed schedule, verifies every merge itself, steers workers with short messages, and keeps the lane log.
-- **Autonomy, on the record.** Agents are free to explore, research, form hypotheses, try things, succeed, fail, learn and improve. They settle questions from the person's earlier decisions, the repository, outside research, an A/B or a proof of concept, and record every decision with what settled it. They don't ask for confirmation, for approval already given, or for what an A/B or a proof of concept can settle. Only what none of those settles reaches the person, such as a sign-in or an install as root, asked as a plain choice.
-- **Bugs.** A bug is real when a real scenario shows it: the query, the workload, the benchmark against competitors.
-- **Standing rules.** Decide by data, with a controlled A/B. Benchmarks are fair. No picked constants. Event-driven, not timers. Never trade functionality for speed. Tests assert behaviour. Plain words to the person.
+- **Work, then robust, then fast.** In that order, every time.
+- **Measure, don't guess.** Choices get settled by testing them. Numbers are learned or derived, never picked.
+- **Faster never means less.** A quicker version still does everything the slower one did.
+- **Cut before you add.** A good change often leaves less code. If the code can say it, a comment shouldn't.
+- **Prove it.** Check the real thing, and show the work in a way anyone can rerun.
+- **Leave it better.** If something broken is in your way, fix it, even if you didn't break it.
+- **Freedom, on the record.** Agents explore, try things, fail and learn. They write down every decision, and don't ask you to confirm what they can settle themselves.
+- **Keep it human.** Write code and words for the person reading them at 3am: impact first, plain, nothing they haven't seen.
 
 ## Install
 
@@ -25,11 +24,9 @@ It works in Claude Code, Cursor and Codex. It is modeled on Cursor's [pstack](ht
 /plugin install astack@astack
 ```
 
-Or from a shell: `claude plugin marketplace add adalundhe/astack`, then `claude plugin install astack@astack`. On Claude Code 2.1.275 or later, `/plugin install astack --marketplace adalundhe/astack` does both. Restart, or run `/reload-plugins`.
+Then restart, or run `/reload-plugins`. To pick up a new release: `claude plugin marketplace update astack`, then `claude plugin update astack@astack`.
 
-**Cursor**
-
-In Cursor, open **Customize**, choose **From GitHub Repository**, and enter `adalundhe/astack`.
+**Cursor:** open **Customize**, choose **From GitHub Repository**, and enter `adalundhe/astack`.
 
 **Codex**
 
@@ -40,148 +37,114 @@ codex plugin add astack@astack
 
 Then start a new session.
 
-## Set up
+## Get started
 
-Run setup once, and again whenever you want to change it:
+Set the clocks once: how long a worker may run, when it starts wrapping up, and how often the lead checks in. Unless you say otherwise, that's 60, 5 and 5 minutes.
 
-| Claude Code | Cursor | Codex |
-|---|---|---|
-| `/astack:setup` | `/astack-setup` | `$astack-setup` |
+```
+/astack:setup
+```
 
-It asks how many minutes a worker may run, how long before that limit it winds down, and how often the lead checks in. The defaults are 60, 5 and 5. It saves your answers to `~/.config/astack/settings.json`. In Codex, it also installs the worker agent, which Codex plugins can't ship.
-
-## Start a program
-
-| Claude Code | Cursor | Codex |
-|---|---|---|
-| `/astack:lead` | `/astack-lead` | `$astack-lead` |
-
-Follow it with the program: the goal, how it is measured, the lanes you know of, and where merges go.
+Then give the lead a goal: what you want, how you'll know it's done, and where merges go.
 
 ```
 /astack:lead Make the export pipeline 10x faster at p99 on the 10 GB sample, with byte-identical output,
-measured against the current release on the same machine and client. Lanes I know of: streaming writer,
-parallel compression. Merges go to main after lint and the tests a worker touched.
+measured against the current release on the same machine. Merges go to main after lint and tests.
 ```
 
-The lead restates the goal, lists the lanes, writes the program's rules and lane log under `~/.cache/astack/<program>/`, and starts a worker per lane. You hear from it only when a decision is yours. To change course, tell the lead; it logs your words and passes them on. For a view of running workers, their clocks and last commits, run `/astack:status` (Cursor `/astack-status`, Codex `$astack-status`).
+The lead plans the work, starts a worker for each piece, checks every merge itself, and keeps a log under `~/.cache/astack/<program>/`. You'll hear from it when something is genuinely yours to decide. `/astack:status` shows who's working on what.
 
-## What's inside
+In Cursor, these are `/astack-setup`, `/astack-lead` and `/astack-status`; in Codex, `$astack-setup`, `$astack-lead` and `$astack-status`. In Codex, setup also installs the worker agent, which Codex plugins can't ship.
 
-In Claude Code, run a skill as `/astack:<name>`. In Cursor it's `/<name>` and in Codex `$<name>`, except `lead`, `setup`, `status` and `review`, which take an `astack-` prefix there.
+## The skills
 
-**Running a program**
+Use any skill on its own, or let the lead and its workers reach for them as they go. Run one as `/astack:<name>` in Claude Code, `/<name>` in Cursor, or `$<name>` in Codex. In Cursor and Codex, `lead`, `setup`, `status` and `review` take an `astack-` prefix.
 
-| Part | What it does |
-|---|---|
-| `lead` | Runs a program as lanes: rules, briefs, workers, check-ins, merge checks, successors, the lane log, decisions. |
-| `worker` agent | Builds one lane within its time limit, decides for itself, and reports losses first. |
-| `reviewer` agent | Reviews one change by trying to break it the way its users would. |
-| `dagify` | Breaks a request into a graph of small tasks, each with criteria and tests, ordered to run in parallel. |
-| `workflow-this` | Turns a task graph into a workflow that runs itself, with explicit states, and resumes after a crash. |
-| `track-it` | Creates and manages issues and tickets for agent work in your tracker (GitHub, Jira, Linear or another); run by the lead. |
-| `review` | Sends reviewers to break a change, keeping only findings a rerun proves. |
-| `setup` | Sets the worker time limit, the wind-down point and the check-in interval. |
-| `status` | Shows running workers, their clocks and last commits, and questions waiting on you. |
+**Plan and run the work**
 
-**Pull requests**
+- `lead`: runs a program. It splits the work up, starts a worker for each piece, checks in, verifies every merge, and brings you only real decisions.
+- `dagify`: breaks a request into small tasks, each with criteria and tests, ordered so most can run at once.
+- `workflow-this`: turns that plan into a workflow that runs itself, and picks up where it left off after a crash.
+- `track-it`: keeps the work in your issue tracker.
+- `setup` and `status`: set the clocks, and see who's working on what.
 
-| Skill | What it does |
-|---|---|
-| `watch-pr` | Takes a PR to ready-to-merge: CI, every comment, a flag to you every 24 hours, hand-over at the time limit. |
-| `address-feedback` | Closes every finding and comment: fix it, answer it, or show it's wrong. |
-| `leave-it-better` | Fixes the broken tests, builds and checks you run into, in a separate PR. |
+**Ship it**
 
-**Understanding and explaining**
+- `watch-pr`: takes a pull request to ready-to-merge.
+- `address-feedback`: answers every review comment with a fix, an answer or evidence.
+- `leave-it-better`: fixes the broken things you trip over, in their own PR.
 
-| Skill | What it does |
-|---|---|
-| `play-it-back` | Restates what you want, one line each you can correct. |
-| `talk-to-me` | Explains an idea with the field's terms, a picture, a worked example and an analogy. |
-| `play-with-me` | Makes a small, throwaway demo, mockup or script so you can try an idea before it's built, and presents it unasked. |
-| `how-it-works` | Explains part of a system, every claim cited to the code. |
-| `show-the-states` | Draws how a system moves between states, what triggers each move, and how it fails. |
-| `wat` | Rephrases the last message clearly: impact and decisions first, no jargon or internal references. |
-| `rtfm` | Reads what already exists before asking you anything. |
-| `decisions-in-plain-words` | Brings you only what's yours to decide, as a plain choice with a recommendation. |
+**Review it**
 
-**Deciding and measuring**
+- `review`: sends reviewers to break the work. Only findings a rerun proves survive.
+- `adversarial-review`: how each reviewer does it: reproduce the problem, confirm the fix, then attack it like a user would.
+- `worrywart`: pushes back on a review point with evidence, not argument.
+- `blast-radius`: finds what a change could break beyond its diff.
 
-| Skill | What it does |
-|---|---|
-| `research` | Finds what's already known, ranked by how far it can be trusted, and cited. |
-| `deeper` | Rewrites a task to the standard of the best in its field, without growing it. |
-| `explore-the-limits` | Builds competing implementations and keeps the measured winner. |
-| `ab-test` | Settles a choice by measuring the options. |
-| `decide-by-data` | Chooses by measurement, never by argument. |
-| `benchmarking` | Writes and runs benchmarks the way tests are written: from the criteria, across the spectrum, against known noise. |
-| `fair-benchmarks` | Compares against other systems fairly. |
+**Write it well**
 
-**Proving it works**
+Each rule says what to start with, what to watch for, and when it doesn't fit.
 
-| Skill | What it does |
-|---|---|
-| `prove-it` | Checks results on the real thing, and backs claims with evidence you can rerun. |
-| `test-drive` | Gives a project a scripted way to use the real app as its users do. |
-| `every-case` | Formally verifies a promise that tests can't reach. |
-| `bugs-by-scenario` | Treats a bug as real only when a real scenario shows it. |
-| `tests-assert-behaviour` | The testing Principle: tests check behaviour users can observe. |
-| `full-spectrum-testing` | Writes a task's tests across the diamond and the full spectrum of failure. |
-| `blast-radius` | Finds what a change could break beyond its diff. |
+- `no-implicit-states`: make state machines explicit.
+- `no-hidden-flow-control`: no catch-alls; handle failures where they happen, or return them as values.
+- `no-hidden-config`: every setting visible, documented and tested.
+- `minimize-state-stores`: keep each piece of data in one place; caches have to earn theirs.
+- `check-your-boundaries`: parse outside data once, at the edge, then trust it.
+- `no-shared-writes`: give each writer its own state before reaching for a lock.
+- `safe-to-rerun`: run it twice or crash it halfway, and it still ends up right.
+- `no-bolt-ons`: design a new requirement in; don't bolt it on.
+- `yagni`: one path per job, no shims or leftovers.
+- `comment-cop`: if the code can say it, no comment.
+- `delight-users`: the user's experience beats the builder's convenience.
+- `no-picked-constants`: learn or derive every number.
+- `event-driven`: wake on events, not timers.
+- `never-trade-functionality`: faster never means less.
 
-**Improving code**
+**Make it better**
 
-| Skill | What it does |
-|---|---|
-| `clamber` | Improves performance toward a goal in small measured steps, each committed, and reverted if it regresses. |
-| `simplify-me` | Makes code you just wrote or are reviewing smaller, clearer and easier to test, without losing correctness or speed. |
-| `modularize` | Splits monolithic code into modules that each do one job, test alone and swap behind small interfaces, without needless abstraction. |
+- `simplify-me`: make what you just wrote smaller and clearer, without losing anything.
+- `modularize`: split monolithic code into modules that each do one job.
+- `clamber`: climb toward a performance goal in small, measured, committed steps.
+- `explore-the-limits`: build competing versions and keep the measured winner.
+- `deeper`: do the task the way the best in the field would, without making it bigger.
 
-**Review and rules**
+**Measure and prove**
 
-| Skill | What it does |
-|---|---|
-| `adversarial-review` | Reviews a change by trying to break it in its real setting, blockers first. |
-| `worrywart` | Refutes a wrong review point with evidence. |
-| `no-implicit-states` | State machines are explicit: named states, transitions in one place. |
-| `no-hidden-flow-control` | Failures are handled specifically or returned as typed values. |
-| `no-hidden-config` | Every setting is read in one place, documented and tested. |
-| `minimize-state-stores` | Each piece of data lives in one place; caches must be measured into existence. |
-| `check-your-boundaries` | Outside data is parsed once where it enters, then trusted. |
-| `no-shared-writes` | Concurrent writers each get their own state; locks are the last resort. |
-| `safe-to-rerun` | Operations end in the right state however often they run. |
-| `no-bolt-ons` | New requirements are designed in, not bolted on. |
-| `yagni` | One path per job: no shims, aliases or legacy paths. |
-| `comment-cop` | Code explains itself; comments keep only what code can't say. |
-| `delight-users` | The user's experience beats the builder's convenience. |
-| `no-picked-constants` | Limits, timeouts and sizes are learned or derived, never picked. |
-| `event-driven` | Work wakes on events, never on timers or polling. |
-| `never-trade-functionality` | A faster version still does everything the slower one did. |
+- `benchmarking`, `ab-test`, `decide-by-data` and `fair-benchmarks`: measure properly, then decide.
+- `tests-assert-behaviour` and `full-spectrum-testing`: test what users see, in every way it can break.
+- `prove-it`: check the real thing, and show your evidence.
+- `test-drive`: drive the real app the way its users do.
+- `every-case`: formally verify what tests can't reach.
+- `bugs-by-scenario`: a bug is real when a real scenario shows it.
+- `research`: find out what's already known before building.
 
-**Learning and records**
+**Talk it through**
 
-| Skill | What it does |
-|---|---|
-| `make-it-stick` | Records what worked and what failed with the conditions each held under; a success is a hypothesis for a matching situation, never a default. |
-| `automate-this` | Replaces repeated manual work with scripts and watchers. |
-| `create-adc` | Works out an architecture decision with you and records it as the project's next AD document. |
+- `play-it-back`: say back what you heard, so a misunderstanding costs a line, not a build.
+- `talk-to-me`: explain an idea with the right words, a picture, an example and an analogy.
+- `play-with-me`: make a small demo or mockup to try before anything gets built.
+- `how-it-works`: explain part of a system, every claim pointing at the code.
+- `show-the-states`: draw how a system moves between states, and how it fails.
+- `wat`: say that again, clearly.
+- `rtfm`: read what's already there before asking.
+- `decisions-in-plain-words`: decide what you can, and bring people only what's theirs.
 
-**Tools**
+**Learn**
 
-| Part | What it does |
-|---|---|
-| Templates | A program's `RULES.md` (rule 0 first), a worker's brief, the lane report and the lane log. |
-| `astack-verify-merge` | Verifies a claimed merge in one step: the commit is on the target, what it changed, and optionally a check on the target's tip. |
-| `astack-status` | Prints the status view, or one line with `--line`. |
-| Lane log hook | Stamps each lane log line with the UTC time as it is saved. |
-| Evals | Claude Code evals that check a worker winds down on time and reports losses first. |
+- `make-it-stick`: keep what worked and what failed, with the conditions each held under.
+- `automate-this`: script what repeats.
+- `create-adc`: work out an architecture decision, and write it down.
+
+**Agents:** `worker` builds one piece of a program within its time limit and reports what it lost first. `reviewer` reviews one change by trying to break it.
+
+**Under the hood:** templates for a program's rules, a worker's brief, its report and the lane log; `astack-verify-merge`, which checks a claimed merge in one step; `astack-status`; a hook that timestamps the lane log; and evals that check workers wind down on time and report losses first.
 
 ## Working on astack
 
-The source is at the repository root: `skills/`, `agents/`, `bin/`, `evals/`, and each tool's manifest, hook and wording in `packaging/`. `python3 scripts/build.py` writes the three packages under `harness/`; commit them with the source. `python3 -m unittest discover -s tests` runs the tests, which fail if `harness/` is out of date.
+Edit the source at the root (`skills/`, `agents/`, `bin/`, `evals/`, and each tool's packaging in `packaging/`), run `python3 scripts/build.py` to regenerate the three packages under `harness/`, and commit both. `python3 -m unittest discover -s tests` runs the tests, which fail if `harness/` is stale.
 
-To run the evals, which need a Claude Code login and use your plan: `claude plugin eval harness/claude-code --trust-plugin --scaffold --ablation none`. `--scaffold` lets each case put its `RULES.md` where the worker's brief points.
+The evals need a Claude Code login and use your plan: `claude plugin eval harness/claude-code --trust-plugin --scaffold --ablation none`.
 
-## Credits and license
+## Credits
 
-astack is MIT licensed; see [LICENSE](./LICENSE). It adapts parts of pstack by Lauren Tan under pstack's MIT license; [NOTICE.md](./NOTICE.md) names the files and carries that license.
+astack is MIT licensed ([LICENSE](./LICENSE)). It borrows good ideas from Lauren Tan's [pstack](https://github.com/cursor/plugins/tree/main/pstack), also MIT; [NOTICE.md](./NOTICE.md) lists what we adapted and carries its license.
