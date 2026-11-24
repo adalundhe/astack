@@ -66,7 +66,12 @@ Each adapted file ends with a one-line notice that points here.
 
 ## mattpocock/skills
 
-`skills/create-adc/SKILL.md` adapts the `grilling` skill of [mattpocock/skills](https://github.com/mattpocock/skills), as modified in adalundhe/mp-skills: the design tree, one evidenced exchange per decision, the ledger, specs the person accepts, and weighted research. That repository is distributed under this license:
+Two astack files adapt [mattpocock/skills](https://github.com/mattpocock/skills):
+
+- `skills/create-adc/SKILL.md` adapts its `grilling` skill, as modified in adalundhe/mp-skills: the design tree, one evidenced exchange per decision, the ledger, specs the person accepts, and weighted research.
+- `skills/rearchitect/SKILL.md` adapts its `improve-codebase-architecture` skill: scoping by where the code changes most, the friction to look for, the deletion test, candidate cards with before-and-after diagrams and a recommendation strength, and not re-suggesting what a recorded decision ruled out.
+
+That repository is distributed under this license:
 
 ```
 MIT License
@@ -92,4 +97,4 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-The adapted file ends with a one-line notice that points here.
+Each adapted file ends with a one-line notice that points here.

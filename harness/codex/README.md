@@ -112,6 +112,7 @@ Each of these says where to start, what to look for, and when it doesn't apply.
 
 - `simplify-me`: shrinks and clarifies code you just wrote, keeping it as correct and as fast.
 - `modularize`: splits a large file, package or codebase into modules that each do one job.
+- `rearchitect`: finds where a codebase's structure makes it hard to change or test, ranks the fixes with before-and-after diagrams, and starts on the best one.
 - `clamber`: improves a performance metric step by step, committing each gain and reverting each regression.
 - `explore-the-limits`: builds competing implementations and keeps whichever measures best.
 - `deeper`: rewrites a task to the standard the best in the field would hold it to, without adding scope.
