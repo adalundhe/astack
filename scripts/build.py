@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "harness"
 PACKAGING = ROOT / "packaging"
 DOCS = ("README.md", "LICENSE", "NOTICE.md")
-RENAMED = ("lead", "setup", "status")
+RENAMED = ("lead", "setup", "status", "review")
 TOOLS = {
     "claude-code": {"prefixed": False, "invoke": "/astack:", "agent": "claude-code"},
     "cursor": {"prefixed": True, "invoke": "/", "agent": "cursor"},
@@ -86,7 +86,7 @@ class Translator:
                 text = text.replace(source, target)
                 self.used.add(source)
         invoke = TOOLS[self.tool]["invoke"]
-        text = re.sub(r"/astack:(lead|setup|status)\b", lambda match: f"{invoke}astack-{match.group(1)}", text)
+        text = re.sub(r"/astack:(" + "|".join(RENAMED) + r")\b", lambda match: f"{invoke}astack-{match.group(1)}", text)
         return text.replace("astack:worker", "astack-worker")
 
     def check(self, path, text):
