@@ -1,35 +1,36 @@
 ---
 name: delight-users
-description: "Choose the user's experience over the builder's convenience, where the user is whoever consumes the work: end user, API caller, operator, next maintainer. Use when designing, writing or reviewing anything someone will use."
+description: "Design and audit work from the consumer's side (end user, API caller, operator, or maintainer): clear feedback, actionable errors, complete states, good defaults, and ergonomic APIs. Use when designing, building, or reviewing user-facing work."
 ---
 
 # Delight users
 
-Put the user's experience ahead of the builder's convenience.
+Prioritize the consumer's experience over implementation convenience.
 
 ## Start with
 
-1. **Know who the user is:** whoever consumes the work, whether the person using the product, the engineer calling the API, the operator running it, or the next maintainer. Judge from their side, and state impact in their terms.
-2. **Build everything the person asked for, polished, and nothing they didn't** (**never-trade-functionality**).
-3. **Get the details right:** feedback for every action, errors that say what to do next, empty, loading and failure states, sensible defaults, transitions, alignment, spacing.
-4. **Prototype first:** a throwaway mockup or a small lab before the real build, presented to the person as you go (**play-with-me**).
-5. **Tighten the core loop:** what users do most is the fastest, clearest thing in the product.
+1. **Identify the consumer:** whoever uses the output—end user, API caller, operator, or next maintainer. Evaluate from their perspective and describe impact in their terms.
+2. **Deliver the full request cleanly**—polished, complete, and without unrequested extras (**never-trade-functionality**).
+3. **Sweat the details:** visible feedback for every action, errors that explain what failed and what to do next, explicit empty/loading/failure states, sensible defaults, and clean layout/copy.
+4. **Prototype early:** build a quick throwaway demo or harness before the full implementation and share it proactively (**play-with-me**).
+5. **Tighten the core loop:** make the most frequent user action the fastest and clearest path.
 
 ## Watch for
 
-- actions with no feedback; errors that don't say what happened or what to do next; missing empty, loading or failure states;
-- defaults that make most users configure what they never needed to; options nobody asked for;
-- APIs that are easy to call wrong: unclear names, long lists of positional arguments, surprising behaviour;
-- the most common task taking more steps than it needs;
-- inconsistent wording, alignment and spacing.
+- actions with no feedback, or errors that don't say what went wrong or how to fix it;
+- missing empty, loading, or failure states;
+- defaults that force most users to configure things manually, or options nobody asked for;
+- error-prone APIs (vague names, long positional argument lists, surprising behavior);
+- unnecessary steps in the most common workflow;
+- inconsistent wording, alignment, or spacing.
 
-**The test:** would a user meeting this for the first time know what happened, and what to do next?
+**The test:** would someone encountering this for the first time know what happened and what to do next?
 
 ## When it doesn't fit
 
-- following the platform's or the project's design conventions, even where another choice looks nicer;
-- a detail no user ever meets;
-- a choice the person made, on record;
-- an approach the evidence here favours: when unsure, try both and measure (**ab-test**), and say why you chose it.
+- matching platform or project conventions even when another style looks nicer;
+- internal details no consumer encounters;
+- an explicit recorded choice by the person;
+- an alternative backed by measurements (**ab-test**), with the reasoning noted.
 
 <!-- Adapts pstack's experience-first principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

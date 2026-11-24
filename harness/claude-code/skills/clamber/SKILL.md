@@ -1,46 +1,46 @@
 ---
 name: clamber
-description: "Improve performance toward a goal in small, measured steps: CPU, memory (layout, page faults, cache use), disk, network, concurrency, binary or package size, bytes over the wire, or any metric named. Baseline everything, change one thing at a time, commit each gain, revert each regression. Use when a large performance gain is needed."
+description: "Iteratively improve performance (CPU, memory, I/O, network, concurrency, or size) in small measured steps: baseline everything, change one thing at a time, commit gains, revert regressions. Use when significant optimization is needed."
 ---
 
 # Clamber
 
-Improve performance toward a goal in small steps, each measured, committed, and reverted if it regresses.
+Improve performance toward a target in small, measured steps—committing each gain and reverting anything that regresses.
 
 ## Before the first step
 
-1. **Work, then robust, then fast.** Optimize only code that's correct and tested. The tests pass before and after every step (**tests-assert-behaviour**).
-2. **Set the goal:** each metric to improve, its target, and how it's measured. CPU time; memory (peak, allocations, layout, page faults, cache misses); disk reads, writes and churn; network calls and bytes over the wire; throughput and contention under concurrency; binary or package size; or whatever the person or the work names.
-3. **Reproduce the problem** with a realistic workload: the data size, history, state and concurrency users actually have. If nothing reproduces it, fix that first.
-4. **Baseline everything** (**benchmarking**): every metric that matters, not only the target, so a gain in one can't hide a loss in another. Record the noise, the environment and the commands, and prove the harness can see a change.
-5. **Profile and trace** to find where the time, memory, I/O and bytes actually go.
-6. **Start a log** of every attempt: the idea, the change, before and after, the tests, and whether it was kept.
+1. **Work, then robust, then fast.** Only optimize code that already works and passes its tests. Tests must pass before and after every step (**tests-assert-behaviour**).
+2. **Define the target.** Specify each metric to improve, the target number, and how it's measured (CPU, peak memory/allocations/cache misses/page faults, disk I/O, network calls/wire bytes, concurrent throughput/contention, binary/package size, or any requested metric).
+3. **Reproduce realistically.** Use realistic data sizes, history, state, and concurrency. If you can't reproduce the bottleneck, fix the workload first.
+4. **Baseline every important metric** (**benchmarking**), not just the primary target, so a win in one metric can't hide a regression in another. Record noise, environment, and commands, and verify the harness detects regressions.
+5. **Profile and trace** to see where time, memory, I/O, or bytes actually go.
+6. **Keep an experiment log** of every attempt: hypothesis, change, before/after numbers, test status, and kept/reverted outcome.
 
 ## Each step
 
-Take the biggest remaining cost and ask these in strict order, acting on the first with a yes:
+Pick the largest remaining bottleneck and ask these in strict order, acting on the first "yes":
 
-1. **Can we not do the work at all?**
+1. **Can we skip the work entirely?**
 2. **Can we do less of it?**
-3. **Can we do it more efficiently?** Fewer CPU cycles and allocations, better memory layout and cache use, fewer page faults, less disk churn, fewer bytes; SIMD and vectorized code once the plain version is proven correct.
-4. **Can we do it later, or elsewhere?**
-5. **Can we do it in parallel?**
+3. **Can we do it more efficiently?** Fewer CPU cycles and allocations, better cache/memory layout, fewer page faults, less disk churn, fewer bytes; SIMD/vectorization only after the plain version is proven correct.
+4. **Can we defer it or move it off the hot path?**
+5. **Can we parallelize it?**
 
 Then:
 
-1. **Name the mechanism:** "defer X off the startup path, because it blocks the first response", not "try caching something".
-2. **Make one change.** Don't stack untested changes.
-3. **Run the tests.** Nothing users get may change (**never-trade-functionality**).
-4. **Measure every baseline metric.** Keep the change only if the target moves past the noise and nothing else gets worse.
-5. **Commit each kept change on its own,** with its numbers in the message, so a regression found later can be reverted alone. Revert a change that doesn't hold, in full.
-6. **Log it,** kept or reverted, and go again.
+1. **State the mechanism:** e.g. "defer X off startup because it blocks first response", not "try caching".
+2. **Make one isolated change.** Don't stack untested ideas.
+3. **Run the tests.** User-visible behavior must stay identical (**never-trade-functionality**).
+4. **Re-measure all baseline metrics.** Keep the change only if the target improves beyond noise without regressing other metrics.
+5. **Commit or revert cleanly.** Commit each kept win on its own with numbers in the commit message so later regressions can be bisected/reverted individually. Revert failed attempts completely.
+6. **Log the attempt** and repeat.
 
-When several independent ideas are waiting, try them in parallel, each in its own worktree (**ab-test**).
+If you have several independent ideas, test them in parallel in separate worktrees (**ab-test**).
 
 ## Finish
 
-- **Push past the first plateau:** try another category, combine near misses, reread the source, try something bolder. If small steps stall well short of the goal, the design may be the limit: build and measure alternatives (**explore-the-limits**).
-- **Stop** when the goal is met, or when what remains can't be reached without trading functionality; put that to the person as a decision, with numbers. Don't lower the goal to meet it.
-- **Report:** each metric from baseline to final, the steps kept and reverted, the log, what limits the result now, and the next idea worth trying (**prove-it**).
+- **Break through plateaus.** If incremental tweaks stall well short of the goal, try another optimization category, combine near misses, reread the hot path, or prototype alternative architectures (**explore-the-limits**).
+- **Know when to stop.** Stop when you hit the target. Before concluding further gains require trading functionality, run **research-this** and **explore-the-limits** to verify no compliant design exists; only then present the best compliant result, what limits it, and the trade-off with numbers to the person (**never-trade-functionality**, **decisions-in-plain-words**). Never relax the goal to declare victory.
+- **Report:** baseline vs. final for every metric, steps kept and reverted, the full log, the current bottleneck, and the best next lead (**prove-it**).
 
 <!-- Adapts pstack's Hillclimb playbook (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

@@ -1,19 +1,19 @@
 ---
 name: deeper
-description: "Make a task deeper, not bigger: the same deliverable, done as the best in its field would, from the rawest material, proven by something outside the work. Use before briefing or starting work that would otherwise get the convenient version."
+description: "Tighten a task brief before starting so it uses primary sources, domain tools, and external proof instead of taking shortcuts, without expanding scope. Use before briefing or starting work."
 ---
 
 # Deeper
 
-Rewrite a task so it's done the way the best in its field would do it, without adding scope.
+Rewrite a task so it's executed at expert quality without adding scope.
 
 Answer four questions, then rewrite the task:
 
-1. **What would the best practitioner do** that the task doesn't ask for: which checks, edge cases and standards?
-2. **What raw material would they start from:** the source data, primary documents, real system or spec, not a summary or a wrapper?
-3. **Which methods and tools** would they use, by name?
-4. **What outside the work would prove it right:** a reference implementation, a standard test suite, a spec, published data, a real user's workflow? Never the agent's say-so (**prove-it**).
+1. **Expert bar:** what checks, edge cases, and standards would a top domain practitioner include that the task didn't explicitly ask for?
+2. **Primary material:** what raw source should this start from (source data, primary docs, spec, real system) instead of a summary or wrapper?
+3. **Domain methods and tools:** which established techniques and tools apply, by name?
+4. **External proof:** what outside the implementation proves it right (a reference implementation, conformance test suite, specification, published dataset, or real user workflow) rather than the agent's own say-so (**prove-it**)?
 
-The rewrite keeps the deliverable and the done-when, and adds no scope. Any choice an experiment can settle is settled by one (**ab-test**), reporting what was observed and chosen. Choices no experiment can settle, such as product direction or taste, follow the person's earlier decisions, and go to the person only when none applies.
+Keep the original deliverable and done-when without growing scope. Settle anything testable by experiment (**ab-test**) and report the result. For untestable calls (product direction or taste), follow earlier decisions and escalate only when none apply.
 
 <!-- Adapts pstack's sharpen skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

@@ -1,82 +1,82 @@
 ---
 name: research-this
-description: "Research a question inside the work (code, data, logs, docs, past records) and outside it (standards, papers, official docs, the web): quote every source, check the quotes, and grade each finding A to F the same way every time. Use before a decision the repository can't settle, when a claim needs evidence, and whenever you present what you found."
+description: "Research a question across internal sources (code, logs, data, docs) and external sources (specs, papers, official docs, web), verify quotes against their citations, and grade each finding A–F. Use before unsettled decisions, before accepting a functionality trade-off, or when claims need graded evidence."
 ---
 
 # Research this
 
-Find out what's known about a question, quote where you found it, check the quotes, and grade every finding.
+Investigate a question across internal and external sources, quote every source, verify each quote in place, and grade every finding A–F consistently.
 
 ## Look inside and outside
 
-1. **Frame the question:** the decision it serves, and what answer would change it.
-2. **Search inside:** code, data, logs, traces and metrics, documents, pictures and recordings on the machines you work on, and past records such as earlier conversations, plans, CI runs and deployments.
-3. **Search outside:** standards and official docs, papers (arXiv, Semantic Scholar, Crossref, PubMed), books, news, blogs and forums.
-4. **Cover both sides.** Research is done only with sources from inside and outside, or a stated reason why one side has none.
-5. **Split the search** across subagents, one per strand, and collect the competing implementations worth building and measuring.
+1. **Frame the question:** state the decision or suspected limit this serves and what finding would change your approach. When hitting a performance or design wall, explicitly ask how other systems hit the target without sacrificing functionality or guarantees.
+2. **Search inside:** code, measurements, data, logs, traces, metrics, docs, media on your machines, and past records (earlier conversations, plans, CI runs, deployments).
+3. **Search outside:** standards and official docs, peer-reviewed papers (arXiv, Semantic Scholar, Crossref, PubMed), books, preprints/news, blogs, and forums.
+4. **Cover both sides.** Research isn't complete without both internal and external sources—or an explicit reason why one side has none.
+5. **Parallelize lookups:** when subagents are available, fan out independent strands to read-only subagents, collecting viable competing implementations to prototype and measure (**explore-the-limits**, **ab-test**) alongside any proven limits.
 
 ## Record what you find
 
-- **Each source:** its kind (from the table below) and exactly where it is: a file and its lines, a URL and its section, a DOI, a record's ID, or, for a measurement, the command you ran. Add its author, date, the machine it's on, and its origin (who stands behind it, when several sources share one, like a vendor's docs and its blog) where you know them. Mark it out of date if it is, for this question.
-- **Each finding:** one claim, with its citations: the source, the exact words quoted, and where they are. Say when a claim is your inference rather than something a source states.
-- **Counterclaims:** each source that argues against a finding, or, if you have doubts but no source, how strong they are: strong, moderate or weak.
+- **Each source:** record its kind (from the table below) and exact location: `file:line`, URL and section, DOI, record ID, or the exact measurement command run. Include author, date, host machine, and origin (shared authority across multiple sources, such as a vendor's docs and blog) when known. Flag out-of-date sources for this question.
+- **Each finding:** one concrete claim with its citations (source, exact quoted text, and location). Explicitly mark inferred claims that go beyond what the source directly states.
+- **Counterclaims:** list any source arguing against a finding; if you have doubts without a source, rate them `strong`, `moderate`, or `weak`.
 
 ## Check the quotes
 
-Look for each quote where its citation says it is. It counts as found if its words appear there in order, ignoring spacing, case, curly versus straight quotes and dashes, and punctuation at either end; `...` stands for words left out. What you can't read (a PDF, a page drawn by scripts or behind a sign-in, a file on a machine you can't reach) stays unchecked, with the reason.
+Verify every quote at its cited location. A quote counts as **found** if its words appear in order (ignoring whitespace, case, curly vs. straight quotes/dashes, and edge punctuation; `...` marks omitted words). Anything you can't inspect directly (PDFs, JS-rendered or gated pages, unreachable files) stays **unchecked** with the reason noted.
 
 ## Grade each finding
 
-How far a source is taken at its word:
+Source trust weights:
 
-| Inside | | Outside | |
-|---|---|---|---|
-| a measurement (a command run, and its output) | 0.95 | a standard or specification | 0.9 |
-| code | 0.9 | a peer-reviewed paper | 0.85 |
-| data | 0.8 | a product's own docs | 0.85 |
-| logs, traces, metrics | 0.8 | a book | 0.75 |
-| a document (README, design, notes) | 0.7 | a preprint, news | 0.6 |
-| past records (conversations, plans, runs) | 0.65 | a blog, a wiki | 0.5 |
-| pictures, video, sound | 0.6 | a forum, Q&A, an issue | 0.4 |
-| | | a vendor on its own product | 0.35 |
+| Inside | Weight | Outside | Weight |
+|---|---:|---|---:|
+| measurement (command run + output) | 0.95 | standard or specification | 0.9 |
+| code | 0.9 | peer-reviewed paper | 0.85 |
+| data | 0.8 | product's own docs | 0.85 |
+| logs, traces, metrics | 0.8 | book | 0.75 |
+| document (README, design, notes) | 0.7 | preprint, news | 0.6 |
+| past records (conversations, plans, runs) | 0.65 | blog, wiki | 0.5 |
+| pictures, video, sound | 0.6 | forum, Q&A, issue | 0.4 |
+| | | vendor on its own product | 0.35 |
 | | | any other web page | 0.3 |
 | | | social media | 0.25 |
 
-An out-of-date source counts 0.75 of its weight.
+Multiply any out-of-date source's weight by `0.75`.
 
-How much a citation counts:
+Citation verification multipliers:
 
-| The citation | Counts |
-|---|---|
-| its quote found where it says | 1.0 |
-| a quote and where it is, not checked | 0.75 |
-| a quote without where it is, not checked | 0.65 |
-| a picture or other non-text file, present | 0.7 |
-| a link or a path only | 0.5 |
+| Citation check | Multiplier |
+|---|---:|
+| quote found where cited | 1.0 |
+| quote + location, unchecked | 0.75 |
+| quote without location, unchecked | 0.65 |
+| image or non-text file, present | 0.7 |
+| link or path only | 0.5 |
 | nothing to follow | 0.2 |
-| looked for where it says, and not there | 0.3 |
-| a dead link or a missing file | 0.1 |
+| checked where cited, not found | 0.3 |
+| dead link or missing file | 0.1 |
 
-Then, for each finding:
+Compute each finding's score:
 
-1. **Each citation lends** its source's weight times what the citation counts.
-2. **Sources with one origin count once,** at their strongest: one site, one file, one DOI, or an origin you named. Independent origins add up: support is 1 minus the product of (1 minus each origin's strongest).
-3. **An inferred claim** keeps 0.8 of its support.
-4. **Counterclaims weigh the same way** by their own sources; with none, strong is 0.6, moderate 0.35 and weak 0.15. Together, against is 1 minus the product of (1 minus each).
-5. **Score** is support × (1 − 0.8 × against) × 100, rounded.
+1. **Per-citation contribution:** `source_weight × citation_multiplier`.
+2. **Deduplicate by origin:** multiple citations sharing one origin (same site, file, DOI, or named origin) count once at their highest value. Combine independent origins as `support = 1 − ∏(1 − origin_max)`.
+3. **Discount inferences:** if the claim is inferred rather than directly stated, multiply `support` by `0.8`.
+4. **Combine counterclaims:** score sourced counterclaims the same way; for unsourced doubts, use `strong = 0.6`, `moderate = 0.35`, `weak = 0.15`. Combine as `against = 1 − ∏(1 − c)`.
+5. **Final score:** `round(support × (1 − 0.8 × against) × 100)`.
 
 | Grade | Score | Confidence |
 |---|---|---|
-| A | 85 and up | high |
-| B | 70 to 84 | good |
-| C | 50 to 69 | moderate |
-| D | 30 to 49 | low |
-| F | below 30 | very low |
+| A | 85+ | high |
+| B | 70–84 | good |
+| C | 50–69 | moderate |
+| D | 30–49 | low |
+| F | < 30 | very low |
 
-For example, one product doc, quoted and found, is an A (0.85 × 1.0 = 85). The same quote, unchecked, is a C (0.85 × 0.75 = 64). A blog post linked without a quote is an F (0.5 × 0.5 = 25).
+Examples: one product doc with a verified quote scores **A** (`0.85 × 1.0 = 85`); the same quote unchecked scores **C** (`0.85 × 0.75 = 64`); a blog link with no quote scores **F** (`0.5 × 0.5 = 25`).
 
 ## Present it
 
-Give each finding with its grade, its score and why ("2 independent sources (code, a standard); 2 of 2 quotes found where cited"), its quotes and how each check came out, and its counterclaims; then the sources, numbered. Never present a claim without its sources and its grade.
+Report each finding with its grade, score, and one-line rationale (e.g. `"2 independent sources (code, standard); 2 of 2 quotes verified"`), its quotes and verification status, and any counterclaims, followed by numbered sources. Never present a research claim without its sources and grade.
 
-Where kiln is available, record the research there (`research_start`, `research_add`, `research_get`): it checks the quotes and grades the findings for you, the same way.
+When `kiln` is available, record findings through it (`research_start`, `research_add`, `research_get`), which checks quotes and computes grades identically.

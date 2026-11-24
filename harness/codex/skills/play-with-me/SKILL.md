@@ -1,17 +1,17 @@
 ---
 name: play-with-me
-description: "Make a small, throwaway mockup, example, script or demo that lets the person try an idea or a design before it's built for real, and present it without waiting to be asked. Use freely, whenever showing beats describing: proposing a design, comparing options, presenting work in progress."
+description: "Build a small throwaway mockup, script, or demo so the person can try a design or idea before full implementation, proactively. Use whenever showing beats describing."
 ---
 
 # Play with me
 
-Make something small the person can try: a mockup, an example, a short script, a demo. Not the implementation. Make one whenever showing beats describing, and present it without waiting to be asked.
+Build a quick, throwaway demo (mockup, sample script, CLI run, or prototype) so the person can try an idea before you build it for real. Offer one proactively whenever showing beats describing.
 
-1. **Pick what it should show:** the design, behaviour or trade-off that's easier to see than to describe.
-2. **Build the smallest thing that shows it:** a clickable mockup for a screen, a short script calling a proposed API, a few commands for a CLI, a sample run with sample data for a flow.
-3. **Fake the rest, and say what's fake.**
-4. **Make it start with one command,** locally or somewhere the person approved, touching no real data and sending nothing outside.
-5. **Try it yourself first.**
-6. **Present it:** what it shows, how to start it, and what to try.
-7. **Keep working on everything else** while they try it; their reactions steer what comes next.
-8. **Keep it out of the real code.** Once the real thing is built, delete the demo or keep it as an example.
+1. **Pick the focus:** isolate the UX, API shape, or trade-off that's easier to try than explain.
+2. **Build the smallest thing that demonstrates it:** a clickable UI mockup, a short script exercising a proposed API, sample CLI invocations, or a sample data run.
+3. **Stub the rest** and state explicitly what's mocked.
+4. **Make it runnable in one command** locally (or in an approved environment), touching no real data and making no external calls.
+5. **Run it yourself first** to confirm it works cleanly.
+6. **Share it concisely:** what it shows, the command to run it, and what to try.
+7. **Keep moving on unblocked work** while waiting for reactions; let feedback guide the real implementation.
+8. **Keep it out of production code.** Once the real version lands, delete the prototype (or promote it cleanly to an example).

@@ -44,7 +44,7 @@ The adapted files, and what each adapts from pstack (versions 0.15.36 to 0.15.48
 | `skills/deeper/SKILL.md` | `skills/sharpen/SKILL.md` (deeper, not bigger: what the best practitioner would do, the rawest material, their methods and tools, outside evidence; experiments settle what they can). |
 | `skills/make-it-stick/SKILL.md` | `skills/reflect/SKILL.md` (what to look for in a transcript; the transcript is data; read the destination first) and `skills/principle-encode-lessons-in-structure/SKILL.md` (structure over instructions). |
 | `skills/how-it-works/SKILL.md` | `skills/how/SKILL.md` (a read-only explanation for an engineer new to the area). |
-| `skills/play-it-back/SKILL.md` | `skills/in-your-own-words/SKILL.md` (restate the person's goal and problem). |
+| `skills/run-it-back/SKILL.md` | `skills/in-your-own-words/SKILL.md` (restate the person's goal and problem). |
 | `skills/test-drive/SKILL.md` | `skills/create-verification-skill/SKILL.md` and `skills/maintain-verification-skill/SKILL.md` (the drive skill's sections and proof standards, the feature map, proving the skill once, the upkeep pass). |
 | `skills/every-case/SKILL.md` | `skills/create-formal-verification-skill/SKILL.md` and `skills/maintain-formal-verification-skill/SKILL.md` (choosing the target and the tool, the qualities of a check, the confirmed commit, the upkeep pass). |
 | `skills/show-the-states/SKILL.md` | `skills/statechart/SKILL.md` (states and steps in the reader's words, conditions in brackets, marked rules, shortest failure paths, what may be merged or left out). |

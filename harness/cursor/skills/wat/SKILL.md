@@ -1,16 +1,16 @@
 ---
 name: wat
-description: "Rephrase your last message or output clearly and concisely: impact, decisions and critical insight first, with no jargon, internal state or meta-references. Use when the person or another agent says /wat."
+description: "Rewrite the last message so it leads with the bottom line and cuts jargon, internal state, and meta-commentary while preserving facts and numbers. Use when someone says /wat."
 ---
 
 # Wat
 
-Rephrase your last message or output clearly and concisely.
+Rewrite your last message so it's short, direct, and immediately understandable.
 
-1. **Lead with what matters:** the impact, the decision the reader has to make and what it rests on, or the critical insight. A loss or a risk comes first.
-2. **Drop jargon, internal state and meta-references:** task numbers, internal names, your own process, remarks about the conversation itself, and anything the reader hasn't seen. Name each thing by what it does.
-3. **Explain any term the reader may not know** in a few words where it first appears, or leave it out.
-4. **Keep it short:** short sentences, everyday words, one idea each.
-5. **Keep every fact, number and decision,** and whether each claim was measured, inferred or guessed.
+1. **Lead with what matters:** user impact, the decision needed and what it rests on, or the key finding. Put losses and risks first.
+2. **Cut jargon, internal state, and meta-references:** drop task IDs, internal filenames/identifiers, process narration, comments about the conversation itself, and unintroduced context. Refer to things by what they do.
+3. **Define or drop specialized terms** inline in a few words where first used.
+4. **Write plainly:** short sentences, everyday words, one point per sentence.
+5. **Keep all facts intact:** preserve every number, decision, and whether each claim was measured, inferred, or guessed.
 
-Reply with the rephrased message only. If another agent's message is the unclear one, send it back to them with /wat.
+Reply with only the rewritten message. If another agent's message is unclear, send it back with `/wat`.

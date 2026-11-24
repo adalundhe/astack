@@ -1,17 +1,17 @@
 ---
 name: fair-benchmarks
-description: "Compare against other systems fairly: same client, same platform, every side tuned as it ships. Use before running, reporting or trusting any benchmark against a competitor or another implementation."
+description: "Keep cross-system benchmarks fair: identical client, platform, and concurrency, release/production tuning on all sides, error checking, and alternating runs. Use before running or trusting competitor benchmarks."
 ---
 
 # Fair benchmarks
 
-Compare against other systems fairly: the same platform and the same client for every system.
+Compare systems on an equal footing: same platform, same load driver, and production tuning on every side.
 
-- One driver for every system, with the same concurrency, batching, pacing and timeouts. Each system may speak its own protocol inside it.
-- Same machine, OS, disk and filesystem. Containers for all or for none.
-- Tune every side as it ships: release builds, production settings. A side left on defaults loses to its configuration.
-- Count errors and check answers. Refused or wrong requests are often the fastest.
-- Alternate the runs, repeat until you know the noise, record the machine's load, and discard runs made under someone else's load.
-- Record the client, platform, versions, settings and command with the numbers. Without them, no one can check the result.
+- **Same load driver:** one client for every system with identical concurrency, batching, pacing, and timeouts (each system may use its native protocol inside the driver).
+- **Same hardware and OS:** same machine, disk, and filesystem; either containerize all systems or none.
+- **Shipped production tuning:** release builds and documented production settings for every side. Leaving a competitor on debug or unconfigured defaults invalidates the comparison.
+- **Verify responses and count errors:** refused or corrupted responses are often the fastest.
+- **Control noise:** alternate runs round by round, repeat until noise is characterized, log host load, and discard runs affected by external load.
+- **Record full reproducibility details:** driver, hardware, versions, configs, and exact commands alongside the numbers.
 
 <!-- Adapts pstack's benchmark-checklist skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

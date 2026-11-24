@@ -1,36 +1,36 @@
 ---
 name: safe-to-rerun
-description: "Make every state-changing operation end in the right state however often it runs and wherever a previous run stopped. Use when writing or reviewing commands, migrations, deploy and lifecycle steps, jobs, retries and processing loops."
+description: "Make state-changing operations idempotent and crash-recoverable so rerunning or stopping halfway still ends in the right state. Use when writing or reviewing commands, migrations, deploy steps, jobs, or retries."
 ---
 
 # Safe to rerun
 
-Make operations end in the right state however often they run, and wherever a previous run stopped.
+Make state-changing operations end in the right state regardless of how many times they run or where a previous run crashed.
 
 ## Start with
 
-1. **Work from the state that exists,** not what the last run meant to do: read it, compare with the goal, apply only the difference.
-2. **Make leftovers recognisable.** Whatever a run leaves behind (a lock, a temporary file, a half-written record, a claimed job) lets the next run tell it's stale, wherever the last run stopped.
-3. **Write, then rename into place,** so no reader sees half a file. Changes that belong together commit together, or not at all.
-4. **Give retried requests an identity,** such as an idempotency key, so a repeat is recognised, not applied twice.
-5. **Test it:** run it twice; kill it at every step, rerun, and check the end state (**full-spectrum-testing**). If the end state depends on where it stopped, add a step that reconciles it.
+1. **Converge from current state,** not what a previous run was supposed to do: inspect current state, diff against the target, and apply only what's missing.
+2. **Make leftovers detectable as stale.** Any artifact a run leaves behind (lock file, temp file, partial record, claimed job) must include enough metadata (owner, PID, lease/expiry, checksum) for the next run to recognize and clean up crashed state.
+3. **Write atomically:** write to a temporary file then rename into place so readers never see partial files. Commit multi-step changes in a transaction or all-or-nothing step.
+4. **Give retried requests an identity** (e.g. an idempotency key) so retries are deduplicated instead of applied twice.
+5. **Test crash recovery:** run the operation twice, kill it at each intermediate step, rerun, and assert the final state (**full-spectrum-testing**). If outcome depends on crash point, add reconciliation.
 
 ## Watch for
 
-- steps that assume a clean start: creating without checking what exists, appending what a rerun appends again, migrations with no record of what ran;
-- files written in place, and multi-step changes with no transaction;
-- leftovers nothing can recognise as stale: a lock file with no owner or expiry, a temporary file, a claimed job with no lease;
-- retried requests with no identity, which charge, send or create twice;
-- progress tracked only in memory.
+- steps assuming a clean slate (creating without checking existence, blindly appending duplicates, untracked migrations);
+- in-place file rewrites or multi-step updates lacking transactions;
+- unrecognizable leftovers (lock files without owner/expiry, orphaned temp files, claimed jobs without leases);
+- retried side-effecting requests with no idempotency key (double charges, duplicate emails/rows);
+- progress tracked only in volatile memory.
 
-**The test:** what happens if this runs twice, or stops at any line and runs again?
+**The test:** what happens if this runs twice, or gets killed at any line and run again?
 
 ## When it doesn't fit
 
 - read-only operations;
-- operations meant to repeat, where each run is a new request with its own identity, such as placing a new order or sending a message again on purpose;
-- an approach the evidence here favours: when unsure, try both and measure (**ab-test**), and say why you chose it.
+- operations intentionally creating distinct actions per call (each with its own unique request identity, e.g. placing a separate order);
+- an alternative backed by measurements (**ab-test**), with the trade-off documented.
 
-**Showing it:** run it twice, then kill it at each step and rerun, and show the wrong end state: a duplicate row, a half-written file, a stuck lock, a double charge.
+**Showing it:** run it twice, or kill it mid-run and rerun, and show the corrupted result (duplicate row, half-written file, stuck lock, double charge).
 
 <!-- Adapts pstack's make-operations-idempotent principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

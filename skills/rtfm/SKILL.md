@@ -1,19 +1,19 @@
 ---
 name: rtfm
-description: "Read what already exists before consulting the person: what they gave you, the project's docs and code, the environment around the work, and reference material. Use first, every time you're about to ask the person anything, say you're blocked or unsure, ask for help with a decision, or say you lack context."
+description: "Check the user's message, repo docs/code/history, local environment, and official tool docs before asking questions or claiming to be blocked. Use before asking the person anything."
 ---
 
 # RTFM
 
-Read what already exists before asking the person anything.
+Read what's already available before asking the person anything.
 
-Before you ask anything, claim you're blocked, call something unclear, or say you lack context, read, in this order:
+Before asking a question, declaring yourself blocked, calling a requirement unclear, or claiming you lack context, check in order:
 
-1. **What the person gave you:** the request and its thread, your brief, RULES.md, their earlier decisions in the program's log, and every document, paper or example they shared.
-2. **The project:** its README, docs, architecture decisions, contributor and agent guides, the code around the question, its tests, and its history (the commits, pull requests and issues that touched it).
-3. **The environment:** configuration, scripts, CI definitions, what is installed and running, and the logs and output already on hand.
-4. **References:** the official documentation of every tool and library involved, and reference examples.
+1. **What you were already given:** the prompt and thread, your brief, `RULES.md`, earlier decisions in the lane log, and any attached docs or examples.
+2. **The repository:** README, docs, architecture decisions, contributor/agent guides, relevant source and tests, and git/PR/issue history for the area.
+3. **The local environment:** configs, scripts, CI workflows, installed/running services, and existing logs or outputs.
+4. **Official references:** documentation and examples for the tools and libraries involved.
 
-Then try what you read: run the command, read the source, call the API.
+Then actually test what you read—run the command, inspect the source, call the API.
 
-Ask only if nothing settles it, and say what you read and tried (**decisions-in-plain-words**). A question the material answered was asked too soon.
+Only ask if nothing above resolves it, and include what you already checked and tried (**decisions-in-plain-words**). Don't ask anything the existing material already answers.

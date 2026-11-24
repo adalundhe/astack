@@ -1,75 +1,75 @@
 ---
 name: create-adc
-description: "Work out an architecture decision with the person, one evidenced decision at a time, and write it up as the project's next architecture decision document of record (AD-N). Use when the person asks to create, write or grill an architecture decision, an ADC or an AD."
+description: "Work through an architecture decision with the person one evidenced question at a time and write it up as the next AD-N document. Use when asked to draft, review, or grill an architecture decision (ADC/AD)."
 ---
 
 # Create ADC
 
-Work out an architecture decision with the person, then record it as the project's next architecture decision: what was decided, why, what it costs, and how to check it.
+Work out an architecture decision with the person one step at a time, then publish it as the project's next architecture decision document (`AD-<N>`): what was decided, why, what it costs, and how to verify it.
 
 ## The design tree
 
-Map the subject as a tree: each decision branches into the decisions that hang off it. Enter what is already settled first, with its receipts: the person's earlier decisions, existing ADs, and anything research or an A/B (**ab-test**) has answered. Then work the open branches, the one with the most riding on it first.
+Map the problem as a dependency tree where each decision branches into downstream choices. Fill in what's already settled first, with citations: earlier decisions, existing ADs, and anything answered by research or an A/B (**ab-test**). Work open branches highest-impact first.
 
 ## One exchange per decision
 
-Send one exchange per decision, then wait for the answer:
+Send one focused exchange per decision, then wait for the answer:
 
-- **The decision**, plainly, and why it matters now.
-- **The evidence**, with numbers.
-- **Your recommendation**, or the credible options side by side, argued from practical impact (latency added, failures removed, code avoided), saying which you favour and why.
+- **The decision** in plain terms and why it matters now.
+- **The evidence** with concrete numbers or citations.
+- **Your recommendation** (or credible options side by side), argued from practical impact (latency, failure modes removed, code avoided), stating which option you favor and why.
 
-A decision you can't evidence yet goes back to research, not to the person. Small independent questions may share an exchange; a load-bearing decision goes alone.
+If you don't have solid evidence yet, go research it instead of asking. Small independent questions may share an exchange; load-bearing decisions go one at a time.
 
 ## Show, don't tell
 
-Plain words and short sentences, with every term of art defined where it first appears. Demonstrate instead of asserting:
+Use short sentences and define domain terms where they first appear. Demonstrate trade-offs instead of asserting adjectives:
 
-- a difference between options: one concrete scenario walked through each, showing where they split and what each costs there;
-- a downside: the failure, played out;
-- a benefit: the cost it removes or the failure it survives, played out;
-- a conflict: both decisions colliding in one walked scenario.
+- **Difference between options:** walk one concrete scenario through both and show where they diverge and what each costs.
+- **Downside:** play out the concrete failure.
+- **Benefit:** show the specific cost removed or failure survived.
+- **Conflict:** walk one scenario where two decisions collide.
 
-An adjective with no example ("simpler", "fragile", "scalable") is a claim still owed its demonstration.
+Any bare adjective ("simpler", "fragile", "scalable") needs a concrete example.
 
 ## Reconcile every answer
 
-Keep a ledger of the costs accepted with each settled decision. When an answer lands, check it against the ledger for:
+Maintain a running ledger of costs accepted with each settled decision. After each answer, check the ledger for:
 
-- **contradictions** with a settled decision;
-- **compounding costs**, each fine alone, together over a budget.
+- **contradictions** with an already-settled decision;
+- **compounding costs** that look fine individually but exceed a budget together.
 
-A conflict becomes the next exchange, both decisions named and the joint cost measured. Then grow the tree: enter the decisions the answer now needs, such as lifecycle, states, failure and retry, monitoring and migration. Finding a gap is your job.
+Turn any conflict into the next exchange, naming both decisions and their combined cost. Then expand the tree with new decisions the answer implies (lifecycle, states, failure/retry, monitoring, migration). Surfacing gaps is your job.
 
 ## Settling a decision
 
-A chosen direction is not yet settled. Draft its spec for the person to correct:
+Choosing a direction doesn't settle a branch. Draft a concrete spec for the person to review or adjust:
 
-- an implementation example in the project's stack, small enough to review;
-- test cases, each with the failure it catches;
-- acceptance criteria, exacting and checkable: a bound, a behaviour under a named condition, an invariant.
+- a small implementation sketch in the project's stack;
+- specific test cases and the failures each catches;
+- checkable acceptance criteria (bounds, behavior under named conditions, invariants).
 
-A decision is settled when the person accepts its spec. Feedback that reopens the direction reopens the branch.
+A branch is settled only once the person accepts its spec. Feedback that changes direction reopens the branch.
 
 ## Evidence
 
-Research every substantial decision before you argue it, with subagents while the person weighs the current exchange. In order of weight: peer-reviewed work; books and academic texts; engineering reports from companies operating at scale, each one workload's data point; then the local repository, configuration and measurements. Scrutinize the person's own data like any other source. When numbers would move a decision, get them with **ab-test**.
+Research every major decision before arguing it—spawn read-only subagents while waiting on the current exchange. Weigh sources in order: peer-reviewed papers, textbooks, scale engineering reports (noting each reflects a single workload), then the local repo, config, and measurements. Scrutinize the person's own numbers with the same skepticism. When benchmarks would move a decision, run **ab-test**.
 
-Every recommendation and every pushback carries receipts: a measurement, a bound, a citation, a production number. Say plainly when the evidence is thin.
+Back every recommendation and pushback with concrete evidence (a measurement, bound, citation, or production figure), and state plainly when evidence is thin.
 
-## What you optimize
+## What to optimize
 
-Correctness, then robustness, then efficiency, all weighed against size: every component must pay for itself. Name mechanisms concretely (the data structure, the lock, the message) before coining terms for them. Push back with receipts when the evidence disagrees with the person, and prove them right with receipts when it agrees. Change a recommendation only when you can name what changed. The decisions are the person's: record an overrule as theirs, with their reasoning.
+Optimize correctness, then robustness, then efficiency, weighed against complexity: every added component must earn its keep. Name concrete mechanisms (the data structure, lock, or message) before inventing terminology. Push back with evidence when the data disagrees with the person, and confirm with evidence when it agrees. Change your recommendation only when you can name what new fact changed it. The person makes the final call—if they overrule your recommendation, record their decision and reasoning.
 
 ## The document of record
 
-1. **Format.** Follow the project's own: read its newest few ADs, often in `docs/architecture/AD_<N>.md`. If it has none, use `template.md` beside this file, in `docs/architecture/`.
-2. **Number.** Take the next unused number across the folder and every document that cites AD numbers. A published number never changes; if yours is taken while you draft, take the next free one before publishing.
-3. **Draft as you go** in `AD_<N>.draft.md` in the working folder, with the tree: each settled decision with its spec and ledger entry, each open branch and where it stands, research in flight. A later session resumes from it.
-4. **Done** when no branch is open: every decision settled with an accepted spec or deferred by the person, every load-bearing one tested against an alternative, nothing assumed. Summarize the design and ask the person to confirm it.
-5. **Publish** on their confirmation: Status Accepted with the date; the settled specs in Decision; the ledger in Costs accepted; the rejected alternatives and why; the acceptance criteria, tests and evidence. Then delete the draft.
-6. **As built.** When the decision is built, set Status to Built with the date, and add As built (what was really built, aspect by aspect) and Verification (the checks that prove it). Later changes go in dated addenda.
+1. **Format:** match the project's existing ADs (commonly `docs/architecture/AD_<N>.md`). If none exist, use `template.md` beside this file under `docs/architecture/`.
+2. **Numbering:** claim the next unused number across the folder and any documents citing AD numbers. Published numbers never change; if your number is taken while drafting, bump to the next free one before publishing.
+3. **Draft incrementally** in `AD_<N>.draft.md` in the working folder: track the tree, settled specs, cost ledger, open branches, and in-flight research so a later session can resume cleanly.
+4. **Confirm when done:** once every branch is settled with an accepted spec (or explicitly deferred), every load-bearing choice has been weighed against alternatives, and nothing is assumed, summarize the whole design and ask for confirmation to publish.
+5. **Publish** on confirmation: set Status to `Accepted (<date>)`, copy settled specs into `Decision`, the ledger into `Costs accepted`, rejected alternatives with reasons, acceptance criteria, tests, and evidence, then delete the draft.
+6. **Track as-built state:** once implemented, update Status to `Built (<date>)` and add `As built` (actual implementation aspect by aspect) and `Verification` (checks proving it). Record later changes in dated addenda.
 
-Building it is separate work: its acceptance criteria become the done-whens of the lanes that build it (`/astack:lead`).
+Implementation is separate work: the AD's acceptance criteria become the done-when checks of the lanes that build it (`/astack:lead`).
 
 <!-- Adapts the grilling skill of mattpocock/skills, as modified in adalundhe/mp-skills (MIT, Copyright (c) 2026 Matt Pocock). See NOTICE.md. -->

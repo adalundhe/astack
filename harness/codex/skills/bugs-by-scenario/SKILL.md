@@ -1,14 +1,14 @@
 ---
 name: bugs-by-scenario
-description: "A failing test or suspected bug is real only when a real scenario shows it: the query, the workload or the benchmark against competitors. Use on a failing test, a list of failures or a suspected bug, before spending time on a fix."
+description: "Confirm a failing test or suspected bug with a realistic user scenario (and check whether main already fails) before fixing it. Use on failing tests, failure lists, or suspected bugs."
 ---
 
-# Bugs are proven by scenarios
+# Bugs by scenario
 
-Confirm a bug with a real scenario before fixing it: the query, the workload, or the benchmark against competitors, run the way a user runs it.
+Confirm a bug with a real user scenario (workflow, query, workload, or benchmark run the way a user runs it) before spending time fixing it.
 
-- Run the scenario. If it misbehaves, write a test that fails for the reason a user sees, then fix the cause.
-- If it behaves, write one line and move on.
-- Run the failure on main first. If main fails too, it isn't yours: note it, and fix it only if it blocks you.
-- A list of failures is never a deliverable.
-- "Hard to test" is no excuse. Make the behaviour observable, and write the test that fails on the old code.
+- Run the real scenario. If it misbehaves, write a failing test that captures what the user sees, then fix the root cause.
+- If the real scenario works fine, log a one-line note and move on.
+- Test the failure on `main` first. If `main` already fails, it isn't caused by your change: note it, and fix it only if it blocks your work.
+- A list of failing tests is never a deliverable.
+- "Hard to test" isn't an excuse—make the behavior observable and write a test that fails before the fix.

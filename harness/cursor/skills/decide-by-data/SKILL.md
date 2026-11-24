@@ -1,12 +1,12 @@
 ---
 name: decide-by-data
-description: "Choose between designs, implementations or settings by measuring them, never by argument. Use when picking one approach over another, when asked which is better, or before putting a design question to the person."
+description: "Settle choices between designs, implementations, or configs by measuring them instead of arguing. Use when comparing approaches or before escalating a design question."
 ---
 
 # Decide by data
 
-Choose between designs, implementations or settings by measuring them (**ab-test**).
+Settle choices between designs, implementations, or settings by measuring them (**ab-test**), not by debating them.
 
-- Measure at the extremes the claim covers, and force each option's failure modes.
-- Once the data is in, decide yourself, and delete the losers in the same change.
-- The person decides only a trade the data can't settle (**never-trade-functionality**).
+- Measure across the extremes the claim covers and trigger each option's failure modes.
+- Once the measurements are in, make the call yourself and delete the losing variants in the same change.
+- Only escalate to the person when the decision involves a trade-off data can't settle (**never-trade-functionality**).

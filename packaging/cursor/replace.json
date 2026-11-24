@@ -29,8 +29,8 @@
       "2. **Ask**, showing the current value first, with Cursor's question tool:"
     ],
     [
-      "5. **Install what this tool needs.** Nothing in Claude Code: the plugin ships the worker agent and the hook.",
-      "5. **Install what this tool needs.** Nothing in Cursor: the plugin ships the worker agent and the hook."
+      "5. **Install what this tool needs.** Nothing in Claude Code: the plugin ships the agents and the hook.",
+      "5. **Install what this tool needs.** Nothing in Cursor: the plugin ships the agents and the hook."
     ],
     [
       "Run `astack-status`. It reads the newest lane log under `~/.cache/astack/`; pass a program folder to read another.",

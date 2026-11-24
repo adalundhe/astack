@@ -1,31 +1,31 @@
 ---
 name: never-trade-functionality
-description: "A faster version must do everything the slower one did: no stale, approximate, late or missing results, no weaker guarantees. Use when writing or reviewing a speedup or memory cut, or before proposing a lean, deferred or approximate variant."
+description: "Ensure optimizations keep exact results, freshness, durability, error visibility, and features—researching compliant approaches before claiming any trade-off is unavoidable. Use when optimizing or proposing approximate/deferred variants."
 ---
 
 # Never trade functionality for speed
 
-A faster version does everything the slower one did: every value as exact and as fresh, every guarantee as strong, every failure as visible.
+A faster implementation must still do everything the slower one did: same accuracy, freshness, guarantees, and visible errors.
 
 ## Start with
 
-1. **Find speed in this order** (**clamber**): skip work that isn't needed, do less of it, do it more efficiently, do it elsewhere or later, do it in parallel.
-2. **Keep robustness:** add no new way to stall, lose data or crash.
-3. **Make the plain path fast before adding a cache** (**minimize-state-stores**).
-4. **Show that nothing reads what you leave out.** Don't assume it.
-5. **If a target can't be met with everything intact,** report the best number that keeps everything, and what limits it.
-6. **If speed truly needs a trade, don't make it:** put it to the person as a decision, with numbers (**decisions-in-plain-words**).
+1. **Optimize in order** (**clamber**): eliminate unnecessary work, do less work, do it more efficiently, defer or move it off the hot path, parallelize it.
+2. **Keep robustness intact:** don't introduce new ways to stall, lose data, or crash.
+3. **Speed up the uncached path first** before reaching for a cache (**minimize-state-stores**).
+4. **Prove unused work is actually unused** before removing it—never assume.
+5. **Research before accepting a trade-off:** if you seem unable to hit the target without dropping functionality or guarantees, run **research-this** first to find how other systems, algorithms, or architectures achieve the goal *without* compromising, and test viable candidates (**explore-the-limits**, **ab-test**).
+6. **Escalate only proven limits:** if **research-this** and measurement confirm no compliant design can hit the target, report the best compliant result, the concrete bottleneck or fundamental limit, what you researched and tested, and only then present the trade-off with numbers to the person (**decisions-in-plain-words**).
 
 ## Watch for
 
-Writes acknowledged before they're safe; checks or validation turned off; stale, approximate, sampled or truncated results; dropped fields or features; errors swallowed to save time; lower precision; work deferred where users then see the gap.
+Acknowledging writes before durability; disabling validation or checks; stale, approximate, sampled, or truncated outputs; silently dropped fields or features; swallowed errors; reduced precision; or deferred work whose delay users observe.
 
-**The test:** does every user still get every value, as exact and as fresh, with every guarantee and every error?
+**The test:** does every user still get the same values, freshness, guarantees, and error behavior?
 
 ## When it doesn't fit
 
-- removing work that nothing reads, once that's shown;
-- a trade the person decided, on record with its numbers;
-- an approximation the requirement asks for, such as an estimate or a progress indicator.
+- removing work proven to have no readers;
+- a trade-off proven unavoidable after **research-this** and explicitly approved by the person with numbers;
+- an approximation explicitly requested by the spec (e.g. an estimate or progress indicator).
 
-**Showing it:** run the old and new versions on the same inputs, failures and edge cases included, and compare what users get.
+**Showing it:** run old and new implementations on identical inputs—including edge cases and failure modes—and diff what users observe.

@@ -1,19 +1,19 @@
 ---
 name: track-it
-description: "Create and manage issues and tickets for agent work in the person's tracker (GitHub, Jira, Linear or another). Run by the lead. Use when the person wants the work tracked."
+description: "Create and maintain issues for lanes in the project's tracker (GitHub, Jira, Linear, etc.) without duplicates, updating states on events and closing with proof. Run by the lead when tracking is requested."
 ---
 
 # Track it
 
-Create and manage issues and tickets for agent work.
+Create and keep issues up to date in the project's issue tracker.
 
-The lead does this, since it owns the plan. Workers report to the lead and don't touch the tracker.
+Only the lead updates the tracker; workers report to the lead and don't edit tickets directly.
 
-1. **Find the tracker.** Use the one the person named. Otherwise, use the one the project already uses; commit messages, PR links and branch names usually show it (**rtfm**). If the project has none, ask the person which to use, and keep working in the meantime.
-2. **Use the person's access:** the tracker's CLI, API or a connected tool, already signed in. If it isn't signed in, ask them to sign in.
-3. **Use the tracker's own structure.** For example, the goal becomes an epic, project or milestone; each task becomes an issue or story; and dependencies become "blocked by" links. Follow the project's existing templates and labels.
-4. **Write each issue from its task** (**dagify**): a title that states the result, the description, the acceptance criteria and the tests, and links to the plan.
-5. **Check before creating.** Search for an existing issue first, and keep a list of which task maps to which issue, so running this again updates issues instead of duplicating them (**safe-to-rerun**).
-6. **Update issues when things happen:** in progress when work starts, in review when the PR opens, done when it merges, and blocked with the reason (**event-driven**).
-7. **Close each issue with proof:** what changed, the PR, and how you checked it's done (**prove-it**). If a task is split or re-planned, say so on the issue rather than deleting it.
-8. **Notify only the person,** or whoever they ask you to.
+1. **Identify the tracker:** use what the person specified, or infer it from repo conventions (commit messages, PR links, branch names—**rtfm**). If none exists, ask which tracker to use while continuing unblocked work.
+2. **Use existing credentials:** use the tracker's authenticated CLI, API, or connected tool. If not logged in, ask the person to sign in.
+3. **Match project structure:** map goals to epics/milestones, tasks to issues/stories, and dependencies to "blocked by" links, following existing templates and labels.
+4. **Populate issues from the task plan** (**dagify**): outcome-oriented title, description, acceptance criteria, test plan, and link to the plan.
+5. **Avoid duplicates:** search existing issues first and keep a task-to-issue mapping so reruns update existing tickets instead of creating copies (**safe-to-rerun**).
+6. **Sync on state transitions:** move issues on real events—in progress on start, in review when PR opens, done on verified merge, blocked with reason (**event-driven**).
+7. **Close with proof:** record what changed, the PR/SHA, and how done-when was verified (**prove-it**). If a task is split or re-planned, note that on the ticket instead of deleting it.
+8. **Limit notifications** to the person (or anyone they explicitly ask to include).

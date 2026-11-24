@@ -1,46 +1,52 @@
 ---
 name: every-case
-description: "Formally verify a promise where bugs cost most and tests reach least (concurrency, retries, state machines, protocols, parsers, unsafe code), and keep the verification true as the code changes. Use when tests can't reach the ordering, input or size that breaks a promise, or after verified code changes."
+description: "Set up and maintain formal verification (TLA+, code verifiers, or generated checks) for concurrency, state machines, protocols, parsers, or unsafe code, and replay counterexamples on real code. Use when tests can't cover dangerous orderings or inputs, or after verified code changes."
 ---
 
 # Every case
 
-Formally verify that code keeps a promise in every case, and keep the verification in step with the code.
+Formally verify high-stakes invariants where normal tests fall short, and keep the verification in sync as the code evolves.
 
-Find the project's verify skills: project skills that run a model checker, prover or verifier on named code. None for this area: create one. One: keep it true.
+Check whether the project already has a `verify-<area>` skill for this area. If not, create one; if it does, keep it in sync.
 
 ## Create
 
-1. **Pick the target from the code,** starting where the person pointed: a promise whose break harms users, in cases tests rarely reach. The strongest target, not the easiest.
-2. **Let the question pick the tool** (**research-this**: what do others use?):
-   - Can steps happen in a bad order? A model checker on a small model of the design; TLA+ is a common choice in any language.
-   - Does the code hold for every input (memory safety, overflow, a data structure's invariant)? A verifier that runs on the code.
-   - No verifier for this language? Generated inputs against the real code, rather than a hand-written model, which would prove the model instead of the code.
-   - Must it hold at every size? A proof.
+1. **Pick a high-value target** starting where the person pointed: a safety or correctness guarantee whose failure hurts users in cases tests rarely hit. Pick the strongest invariant, not the easiest one.
+2. **Match the tool to the question** (**research-this** standard options first):
+   - **Bad interleavings or ordering:** model checker on a tight model of the design (e.g. TLA+).
+   - **Per-input invariants (memory safety, overflow, data-structure invariants):** a verifier that runs directly on the code.
+   - **No verifier for the language:** generated/property-based inputs against the real code rather than a disconnected hand-written model.
+   - **Must hold at arbitrary scale:** a formal proof.
 
-   Prefer what the project's developers can install and run, and say why you chose it.
-3. **Hold it to these:**
-   - **True to the code:** every part maps to code a reviewer can open; one atomic step in the code is one step in the model; names come from the repo.
-   - **Able to fail:** each property is shown failing on a broken variant, such as a removed check or a reordered step.
-   - **Findings stay findings:** report the counterexample; never weaken the property or the model to pass. The fix is its own change, starting from a failing test.
-   - **Honest about scope:** what's verified, under which bounds and assumptions, and what's left out.
-   - **Readable without the tool:** each property, and the harm of breaking it, in one plain sentence; each counterexample as a short list of steps in the code's words.
-   - **Cheap to rerun:** one command, a pinned tool version, fast enough for every relevant change.
-4. **Show the behaviour** when someone must judge it (**show-the-states**), from the checker's state graph (TLC writes one as DOT), with each bug as the shortest path to it.
-5. **Replay each counterexample on the real code,** as a test or live reproduction, one step per model step. If it doesn't reproduce, the model is wrong until shown otherwise.
-6. **Write the verify skill,** `verify-<area>`, in your tool's project skills folder. From it alone, the next agent can tell whether a change touches verified code, run the check, tell a real bug from a modelling error, and update the verification for an intended change. Record the code each check covers and the commit it was last confirmed against.
-7. **Prove it:** follow the skill as the next agent would, on a scratch change that breaks the property in the real code. It must catch the break. Drop the change and confirm the check is back where it started.
+   Prefer tools the project's developers can install and run locally, and state why you picked it.
+3. **Hold the verification to these standards:**
+   - **Faithful to the code:** every element maps to real code a reviewer can inspect; atomic steps match; names match the repo.
+   - **Proven able to fail:** demonstrate each property failing against a deliberately broken variant (removed check, reordered step).
+   - **Never weaken properties to pass:** report counterexamples as real findings; fixes go in a separate change starting from a failing test.
+   - **Explicit scope:** document what is verified, exact bounds/assumptions, and what's excluded.
+   - **Readable without the tool:** state each property and its user impact in one plain sentence, and translate counterexamples into plain code-level steps.
+   - **Cheap to rerun:** one command, pinned tool version, fast enough to run on relevant changes.
+4. **Visualize failures and state spaces** when review needs it (**show-the-states**), using checker output (e.g. TLC's DOT graph) and highlighting shortest paths to bugs.
+5. **Replay every counterexample on real code** as a test or live repro, step for step. If a step can't happen in real code, the model is wrong until proven otherwise.
+6. **Write a project skill (`verify-<area>`)** in the project's skills folder so the next agent can tell whether a diff touches verified code, run the check, distinguish real bugs from modeling drift, and update the check for intentional changes. Record covered files and the last confirmed commit SHA.
+7. **Prove the skill works:** follow it cold against a scratch mutation that breaks the invariant in real code, confirm it catches the break, then revert the mutation and confirm green again.
 
 ## Keep it true
 
-After changes that touched verified code without rechecking it. Edit only the verification (models, harnesses, properties, the verify skill), never product code. Each check ends **in sync**, **updated**, **bug** (the verification matches the code, and the code breaks the property) or **blocked**; it can be both updated and bug.
+Use when verified code changed without updating verification. Edit only verification artifacts (models, harnesses, properties, verify skill)—never product code. Every check ends as **in sync**, **updated**, **bug** (verification matches code, code violates property), or **blocked** (a check can be both **updated** and **bug**).
 
-1. **Collect each check:** property, covered code, bounds, assumptions, command, and last confirmed commit. If none is recorded, use the last commit that changed the verification, and say so.
-2. **Run it as it is.** A pass means the old description still holds, not that the code is right.
-3. **Read every change to covered code** since then, including renamed, split or moved code, and new code touching guarded state. Classify each: no effect on what the model describes (judged against the model, not the commit message); the model no longer matches the code; the promise changed on purpose (cite the docs, tests, changelog or commit that says so); or the promise may be broken.
-4. **Update from the code, not from the result.** Write the update before rerunning. Change a property only for a promise changed on purpose, recording old wording, new wording and evidence. Keep the bounds, and report any you had to reduce.
-5. **Rerun and judge.** A pass: break the new code the way the property guards against, confirm the check catches it, drop the break. A failure: replay it on the real code step by step. A step that can't happen means the verification is wrong: fix it, and say what was wrong. If every step can happen, it's a bug: give the steps, the harm in one sentence, and the commit that introduced it.
-6. **Update the verify skill:** coverage, commands, bounds, assumptions, and the confirmed commit, unmoved for a blocked check. Then follow it once as the next agent would.
-7. **Report each check:** outcome, commits read, what changed and why, the rerun and the break that proved it can still fail, each bug in plain words, and what's still uncovered. Say which failures were drift and which were bugs; a check that passed before the update and fails after was passing on a stale description. Ship verification updates apart from any fix.
+1. **Gather check metadata:** property, covered code, bounds, assumptions, command, and last confirmed commit (fall back to the last commit touching the verification if unrecorded, and note it).
+2. **Run as-is first.** Passing only proves the old model held—not that the current code is right.
+3. **Inspect every commit touching covered code** since the confirmed commit (including renames, moves, splits, and new callers touching guarded state). Classify each change:
+   - no effect on modeled behavior (judged from code, not commit messages);
+   - model no longer matches code (drift);
+   - invariant changed intentionally (cite docs, tests, changelog, or commit);
+   - invariant may be broken.
+4. **Update the verification from the code before rerunning.** Only change a property for an intentional spec change (recording old wording, new wording, and citation). Preserve bounds, or explicitly report any reduction.
+5. **Rerun and validate:**
+   - **If it passes:** inject a temporary bug violating the property, confirm the check catches it, then revert the mutation.
+   - **If it fails:** replay the counterexample on real code step by step. An impossible step means model error—fix it and explain the discrepancy. A valid trace is a real bug—report steps, one-sentence user harm, and the introducing commit.
+6. **Update the `verify-<area>` skill** (coverage, commands, bounds, assumptions, and confirmed commit—leaving the commit unmoved if blocked), then run through it once as the next agent would.
+7. **Report clearly:** outcome per check, commits reviewed, updates made, mutation check confirming it still fails on breaks, any bugs in plain language, and remaining gaps. Distinguish model drift from real bugs, and ship verification updates separately from product fixes.
 
 <!-- Adapts pstack's create-formal-verification-skill and maintain-formal-verification-skill skills (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

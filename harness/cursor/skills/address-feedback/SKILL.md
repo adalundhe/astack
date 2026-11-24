@@ -1,20 +1,20 @@
 ---
 name: address-feedback
-description: "Close every review finding and PR comment, from people or agents: fix it, answer it, or show it's wrong, blockers first, replying on each. Use when a reviewer returns findings, or comments arrive on your PR."
+description: "Resolve every review finding and PR comment from humans or agents by fixing, answering, or disproving it, blockers first, replying on every thread. Use when review findings or PR comments arrive."
 ---
 
 # Address feedback
 
-Fix, answer or refute every review finding and PR comment, and reply to each.
+Close every review finding and PR comment by fixing it, answering it, or disproving it, and reply on every thread.
 
-1. **Gather everything:** the reviewer's findings, or every comment and review on the PR, from people and agents alike.
-2. **Work blockers first,** then suggestions, then nits. Nits count too.
-3. **Try each one before you act.** Run its reproduction, or set up the case it describes.
-   - **It's real:** fix it, starting from the reproduction as a failing test (**bugs-by-scenario**). A rule finding is fixed the way the rule's Start with section suggests, or answered with evidence that this context calls for something else (**worrywart**).
-   - **It's a question:** answer it. If the code made someone ask, change the code so it doesn't: a better name or a test, not a comment.
-   - **It's wrong:** show it with evidence (**worrywart**).
-   - **Only the person can decide it,** such as a product call or giving up functionality: ask them directly, with your recommendation, and keep going on the rest.
-4. **Reply on each thread:** what you changed and the commit, or your evidence, or your answer. Resolve a thread only after that, never silently.
-5. **Send it back for review,** and repeat until it comes back clear.
+1. **Collect everything:** all reviewer findings, or every comment and review on the PR from both humans and agents.
+2. **Work blockers first,** then suggestions, then nits. Don't skip nits.
+3. **Verify each item before acting.** Run its reproduction or set up the case it describes.
+   - **Real issue:** turn the reproduction into a failing test, then fix the cause (**bugs-by-scenario**). For a coding-rule finding, either apply the rule's `Start with` guidance or show why this context warrants an exception (**worrywart**).
+   - **Question:** answer it clearly. If confusing code caused the question, clarify the code with better naming or a test rather than adding an explanatory comment.
+   - **Wrong or overstated:** refute it with evidence (**worrywart**).
+   - **Needs a human call** (such as a product trade-off or dropping functionality): ask the person directly with your recommendation, and keep working on the rest.
+4. **Reply on every thread:** cite the fix and commit SHA, share your evidence, or give your answer. Only resolve a thread after replying—never silently.
+5. **Re-request review** and repeat until it comes back clear.
 
-If the work keeps coming back with new rounds of feedback, tell whoever assigned it (the lead, in Go mode) so they can add help.
+If the same work keeps coming back with new rounds of feedback, escalate to whoever assigned it (or the lead, in an astack program) so they can adjust the plan or add help.

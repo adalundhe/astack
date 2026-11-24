@@ -1,40 +1,39 @@
 ---
 name: prove-it
-description: "Check every result on the real thing, not a proxy, back every claim with the strongest evidence you can reach, challenge claims (your own or another agent's) that rest on less, and show the person the work in a form they can run themselves. Use before calling anything done, whenever you or another agent relies on a claim, when you report a decision or a result, and when you challenge a claim or are challenged."
+description: "Verify claims against the real artifact (not proxies), rank evidence on the trust ladder, challenge weak claims, and provide runnable proof. Use before calling work done or reporting/challenging any claim."
 ---
 
 # Prove it
 
-Check results on the real thing, back every claim with evidence, and show the person how to check it.
+Verify results on the real system, back claims with the strongest evidence available, and give the person a way to rerun the proof.
 
-## Check the real thing
+## Verify the real thing
 
-Verify every result on the thing itself: run the feature, read the actual value, inspect the diff. A proxy proves nothing: a file's timestamp, an agent's report, cached output, "it compiles". When a check fails, or passes too easily, suspect how you looked before you suspect the system. Script the check so anyone can rerun it, and keep its output where the person can see it.
+Check the actual artifact: run the feature, inspect the real output, read the actual diff. Proxies prove nothing (file timestamps, another agent's summary, cached output, "it compiles"). If a check fails unexpectedly—or passes suspiciously easily—audit the check itself before assuming the system is broken or fixed. Script checks so anyone can rerun them, and keep outputs accessible.
 
-Each result is verified, not verified, or inconclusive. Inconclusive is not a pass, and a negative result is reported, never hidden.
+Classify every verification as **verified**, **not verified**, or **inconclusive**. Never treat inconclusive as a pass, and report negative results openly.
 
 ## The trust ladder
 
-From least to most trusted:
+From weakest to strongest evidence:
 
-1. Your own understanding, or another agent's.
-2. Your own implementation.
-3. Existing code you didn't write and haven't run.
-4. A reference or industry-leading implementation, and data from our own benchmarking or A/B.
-5. Proven industry-standard reference data, leading well-cited research, foundational literature.
+1. Your own (or another agent's) reasoning or memory.
+2. Unverified code you just wrote, or results backed only by mocks/proxies.
+3. Existing code or docs you read without running.
+4. Running the real system—tests, benchmarks, A/B comparisons, or reference implementations.
+5. Published reference datasets, peer-reviewed research, and foundational specifications.
 
-Take every claim as high as you can, and say where it stopped. To challenge a claim, yours or another agent's, ask which rung it stands on, and bring evidence from a higher one.
+Push every claim as high up the ladder as practical and state which rung it rests on. Challenge weak claims (yours or another agent's) by asking which rung they stand on and bringing evidence from a higher one.
 
-## Showing the work
+## Show your work
 
-Never assume the person knows what you're thinking. Return, in this order:
+Don't assume the person shares your context. Present findings in order:
 
-1. the problem, restated;
-2. the working hypothesis or solution;
-3. what it is, briefly;
-4. the logic, and the steps you took;
-5. the data and results: profiles, traces, benchmarks.
+1. **Problem:** brief restatement of what you investigated.
+2. **Hypothesis or solution:** what you tested or built, concisely.
+3. **Method:** the reasoning and concrete steps taken.
+4. **Evidence:** raw data, outputs, profiles, traces, or benchmarks.
 
-Give them something to run themselves: a script, a runnable tool, a mockup, an example or a small lab that shows the result. Do this for what failed, as well as for what worked.
+Include something the person can run directly (a command, script, minimal repro, or demo)—for failures as well as successes.
 
 <!-- Adapts pstack's prove-it-works principle and the verdicts of its figure-it-out skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

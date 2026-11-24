@@ -1,25 +1,24 @@
 ---
 name: modularize
-description: "Break monolithic code (a codebase, package, file or function) into modules that each do one job, test alone and swap behind a small explicit interface, without needless abstraction and in the codebase's own style. Use when code is too big to change safely, or when asked to split it up."
+description: "Split monolithic packages, files, or functions into single-purpose modules behind narrow interfaces in the repo's style, without needless abstraction. Use when code is too large or tangled to change safely."
 ---
 
 # Modularize
 
-Split monolithic code into modules that each do one job and can be tested and replaced alone, with no more structure than that needs.
+Split monolithic code into single-purpose modules that can be tested and swapped independently, without adding unnecessary layers.
 
-1. **Map what it does** (**how-it-works**): its jobs, the data each one owns, who calls what, and where state lives (**show-the-states**).
-2. **Pin its behaviour first:** tests from the outside that pass before the split and must pass, unchanged, after it (**tests-assert-behaviour**).
-3. **Find the seams.** Group code by the job it does and the data it owns, not by technical layer. Where data crosses between groups is an interface. Shared mutable state and hidden states between groups are coupling to remove first (**minimize-state-stores**, **no-shared-writes**, **no-implicit-states**).
-4. **Cut each module to do one job:** it owns its data, exposes a small explicit interface of functions and types, and hides the rest. Dependencies point one way, with no cycles. Logic stays in plain functions; I/O stays in a thin shell (**check-your-boundaries**).
-5. **Make modules swappable through their interface,** not through layers. A replacement implements the same functions and types. Add a formal interface, trait or protocol only at a real boundary (I/O, another service, a second implementation that exists), and prefer composition to inheritance.
-6. **Keep the codebase coherent:** follow its existing layout, naming, error handling and patterns, and name each module for its job in the domain's words. Don't introduce a new architectural style for one corner of it.
-7. **Move in steps,** one module at a time, each ending green, with callers moved in the same change and no compatibility shims (**yagni**). Keep behaviour changes out of the moves. Where speed matters, show it unchanged (**benchmarking**).
-8. **Check the result:** the pinning tests pass unchanged, each module has its own tests through its interface, the dependency graph has no cycles, and the total code shrank or held. Draw the modules and their dependencies in Mermaid for the review.
+1. **Map current responsibilities** (**how-it-works**): list each job, the data it owns, call graph, and where state lives (**show-the-states**).
+2. **Pin behavior first:** add external behavior tests that pass before the split and must stay green unchanged afterward (**tests-assert-behaviour**).
+3. **Cut along domain seams, not technical layers.** Group code by the job it performs and the data it owns. Untangle shared mutable state and hidden state machines between groups first (**minimize-state-stores**, **no-shared-writes**, **no-implicit-states**).
+4. **Keep each module tight:** one job, owned data, a small explicit interface of functions and types, internals hidden, acyclic one-way dependencies. Keep core logic in plain functions and I/O in a thin outer shell (**check-your-boundaries**).
+5. **Swap via clean signatures, not extra wrapper layers.** Only introduce formal traits/interfaces/protocols at real boundaries (I/O, external services, or an existing second implementation), and prefer composition over inheritance.
+6. **Match the repo's conventions:** keep existing folder layout, naming, error handling, and domain terminology. Don't introduce a new architectural style in one corner.
+7. **Move incrementally,** one module at a time, staying green at each step. Update callers in the same change with no compatibility shims (**yagni**), keep behavior changes separate, and confirm performance hasn't regressed where it matters (**benchmarking**).
+8. **Verify the split:** pinning tests pass unchanged, each module has tests through its interface, dependencies are acyclic, and total code stayed flat or shrank. Include a Mermaid dependency diagram for review.
 
-For anything larger than one module's move, plan the moves as a graph first (**dagify**).
+For splits larger than moving one module, plan the sequence as a task graph first (**dagify**).
 
 **Don't split:**
-
-- by size alone: a long file that does one job, such as a table, a generated file or a transition table, stays whole;
-- one idea across several files, which makes it harder to follow;
-- to add an interface with a single implementation and no boundary behind it.
+- purely by line count (a long single-purpose file like a lookup or transition table belongs together);
+- one cohesive idea across multiple files where splitting hurts readability;
+- just to introduce a single-implementation interface with no real boundary behind it.

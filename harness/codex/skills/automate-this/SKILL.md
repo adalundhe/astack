@@ -1,17 +1,17 @@
 ---
 name: automate-this
-description: "Replace repeated tool calls, manual commands and watching by hand with a script, a skill, a tool or a watcher, and keep bulk output out of the context, so agent time and attention go to reasoning. Use when you catch yourself running the same commands again, when a search or output would flood the context, re-checking CI or another agent, or tending an environment by hand."
+description: "Replace repeated manual commands, polling, and noisy searches with scripts, watchers, or subagents to keep bulk output out of context. Use when repeating commands, watching CI or agents, or flooding context with raw output."
 ---
 
 # Automate this
 
-Replace repeated manual work, such as rerunning commands or watching CI, with scripts, tools and watchers.
+Replace repeated manual commands, polling, and environment chores with scripts, watchers, and subagents.
 
-- **Watch with a watcher.** For CI, a test run, a pull request or another agent's progress, start one command in the background that waits for the event (a finished run, an exit code, a new comment, a passing test) and returns. Never re-check by hand (**event-driven**).
-- **Script what repeats.** A sequence you've run twice becomes a script, its inputs as arguments, with a clear exit code.
-- **Keep the environment up with automation:** setup, cleanup and health checks as scripts, not remembered steps.
-- **Make it reusable:** put it where the next agent will find it, in the project's scripts folder, or as a skill when it's a method.
-- **Keep the context for reasoning.** Bulk work (a search across many files, a long log, a large output) goes to a subagent or a script that returns only the conclusion, or what failed. Read the part of a file you need, and never paste raw output where its conclusion will do.
-- **Keep it honest:** a script exits non-zero when what it checks fails, and says why in one line.
+- **Use watchers instead of polling.** For CI, long test runs, PRs, or another agent's progress, start one background command that waits for the event (completion, exit code, new comment) and returns (**event-driven**). Don't re-check by hand.
+- **Script anything you run twice.** Turn repeated command sequences into a parameterized script with clear exit codes.
+- **Automate environment chores.** Put setup, cleanup, and health checks in scripts instead of relying on manual steps.
+- **Make it reusable.** Save project scripts in the repo's scripts folder, or capture reusable workflows as a skill.
+- **Keep bulk output out of context.** Send wide searches, long logs, and heavy command output to a subagent or filter script that returns only conclusions or failures. Read only the file sections you need.
+- **Fail loudly.** Scripts exit non-zero when a check fails and print a one-line reason.
 
 <!-- Adapts pstack's guard-the-context-window principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

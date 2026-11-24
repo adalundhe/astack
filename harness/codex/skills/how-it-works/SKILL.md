@@ -1,18 +1,18 @@
 ---
 name: how-it-works
-description: "Explain how part of a system works, or where a change belongs: the mental model first, then the parts and flow, every claim cited to a file and line and marked run or read. Use before changing unfamiliar code, and for \"how does X work\" or \"where should this live\"."
+description: "Give a read-only, file-and-line-cited walkthrough of part of a codebase (mental model, components, flow, state, gotchas), marking claims as run vs. read. Use before editing unfamiliar code or answering 'how does X work' / 'where should this live'."
 ---
 
 # How it works
 
-Explain how part of a system works, with every claim cited to the code.
+Explain how part of a system works with every claim cited to exact files and lines.
 
-If the question could mean more than one thing, say which you're answering and go on.
+If the question is ambiguous, state which interpretation you're answering and proceed.
 
-1. **Read what's written first** (**rtfm**): docs, architecture decisions, READMEs.
-2. **Explore read-only,** in a subagent when the area is large, so the answer comes back and the file dumps don't.
-3. **Run the claims that matter:** a test, a trace, a log line, a call in a scratch copy. Mark each claim run or read (**prove-it**).
-4. **Write for a capable engineer new to the area:** what it does for its users; its main parts and what each owns; how a request, event or call flows through them; where state lives and what changes it; what surprises people, and why. Cite a file and line for each claim, explain terms where they first appear, and show as well as tell (**talk-to-me**): a diagram, the states (**show-the-states**), one example end to end.
-5. **For "where should this live",** show where things of that kind already live and which way the dependencies point, then answer.
+1. **Check existing docs first** (**rtfm**): READMEs, docs, and architecture decisions.
+2. **Explore read-only**—use a subagent for large areas so raw file dumps stay out of the main context.
+3. **Verify critical claims by running code** (a test, trace, log line, or scratch command) and label each claim as **run** or **read** (**prove-it**).
+4. **Write for an engineer new to this area:** what it does for users; main components and what each owns; end-to-end request/event flow; where state lives and what mutates it; and surprising behavior or gotchas. Cite `file:line` for each claim, define unfamiliar terms inline, and include a diagram (**talk-to-me**, **show-the-states**) plus one concrete end-to-end example.
+5. **For "where should this live":** show where analogous code already lives and which way dependencies point, then give a clear recommendation.
 
 <!-- Adapts pstack's how skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

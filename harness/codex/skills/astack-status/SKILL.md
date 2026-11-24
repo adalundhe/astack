@@ -1,12 +1,12 @@
 ---
 name: astack-status
-description: "Show an astack program's running workers, their clocks and last commits, its lanes, and the questions waiting on the person. Use for $astack-status, or when the person asks how the program or its workers are doing."
+description: "Show an astack program's active workers, timers, latest commits, lane states, and open questions. Use for $astack-status or when asked how a program is progressing."
 ---
 
 # Status
 
 Run `astack-status` from this package's `bin/` folder, two folders up from this file. It reads the newest lane log under `~/.cache/astack/`; pass a program folder to read another.
 
-Show its output as it is. Then add one plain line for anything that needs the person: a worker past its limit, or a question waiting.
+Show its output verbatim, then add one plain line flagging anything needing attention (a worker past its limit or an open question).
 
-`astack-status --line` prints a one-line summary, for a status bar.
+Use `astack-status --line` for a one-line status-bar summary.

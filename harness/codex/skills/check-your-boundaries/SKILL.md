@@ -1,38 +1,38 @@
 ---
 name: check-your-boundaries
-description: "Parse outside data into the program's own types once, where it enters, and trust those types inside. Use when writing or reviewing code that reads requests, arguments, config, environment, files, rows or replies, or that adds validation."
+description: "Parse and validate external data into domain types once at the boundary, then trust those types inside. Use when writing or reviewing code handling requests, CLI args, config, env vars, files, DB rows, or API replies."
 ---
 
 # Check your boundaries
 
-Parse outside data into the program's own types where it enters, and trust those types inside.
+Parse external data into the program's own types once where it enters, then trust those types inside.
 
 ## Start with
 
-1. **Parse at the boundary.** Requests, CLI arguments, config, environment variables, files, database rows and replies from other services each pass through one parse step that returns the program's own type, or a typed error (**no-hidden-flow-control**).
-2. **Trust the types inside:** no re-validation, and no defensive null checks on what a type guarantees. If a check seems needed inside, the type is too loose: tighten it.
-3. **Give easily swapped values their own types,** such as two kinds of ID or two units sharing a primitive, when mixing them up is a real failure. Check them once, where they're made.
-4. **Derive types from the schema that owns the shape** (an API definition, a database schema, a protocol file), rather than a second copy by hand.
-5. **Keep logic in plain functions,** free of framework and transport types, behind a thin shell whose types stay out of the core.
+1. **Parse at the edge.** Run requests, CLI arguments, config, environment variables, files, database rows, and external API replies through one parse step that returns a domain type or a typed error (**no-hidden-flow-control**).
+2. **Trust types inside.** Don't repeat validation or add defensive null checks for guarantees the type already enforces. If internal code feels like it needs a check, tighten the type.
+3. **Distinguish swappable primitives.** Wrap values that share a primitive type (such as two kinds of IDs or different units) in distinct types when mixing them up causes real bugs, and validate once at construction.
+4. **Derive types from the source schema.** Generate or derive types from the owning schema (API spec, database schema, protocol definition) instead of maintaining a hand-written copy.
+5. **Keep core logic pure.** Keep framework and transport types in a thin outer shell so core logic operates on plain domain types and functions.
 
 ## Watch for
 
-- the same validation or null check repeated on data that already crossed a boundary;
-- raw outside data (dictionaries, JSON objects, environment strings, request objects, database rows) passed deep into the code;
-- framework or transport types in the signatures of core logic;
-- hand-written types copying a schema that exists;
-- functions taking several values of one primitive type that are easy to swap;
-- business logic inside handlers, controllers or framework callbacks.
+- repeated validation or null checks on data that already crossed a boundary;
+- raw external payloads (dicts, JSON blobs, env strings, HTTP request objects, DB rows) passed deep into core logic;
+- framework or transport types appearing in core function signatures;
+- hand-written types duplicating an existing schema;
+- functions accepting multiple easily swapped parameters of the same primitive type;
+- business logic embedded in route handlers, controllers, or framework callbacks.
 
-**The test:** is this data crossing a boundary right now? If not, it shouldn't need checking. If so, this is where it's parsed, once.
+**The test:** is this data crossing a boundary right now? If yes, parse it once here. If not, the code shouldn't need to re-validate it.
 
 ## When it doesn't fit
 
-- a check where data enters another trust domain, such as before a write to another system, against that system's contract;
-- input checks in a library's public API, which is a boundary for its callers;
-- an assertion of an invariant the type system can't express, made once where the value is built;
-- an approach the evidence here favours: when unsure, try both and measure (**ab-test**), and say why you chose it.
+- validating data leaving your system for another trust domain against that system's contract;
+- input validation on a library's public API (which is a boundary for its callers);
+- a single construction-time assertion for an invariant the type system can't express;
+- an alternative backed by measurements (**ab-test**), with the trade-off documented.
 
-**Showing it:** send malformed input through the real entry point and show it getting past the edge.
+**Showing it:** send malformed input through the real entry point and show it getting past the boundary.
 
 <!-- Adapts pstack's boundary-discipline and type-system-discipline principles (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

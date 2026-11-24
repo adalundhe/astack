@@ -1,35 +1,35 @@
 ---
 name: minimize-state-stores
-description: "Keep each piece of data in one place; add a cache, copy or long-lived state only when a measurement shows you need it. Use when writing or reviewing code that caches, copies or keeps state."
+description: "Keep one source of truth for each piece of data; add caches, copies, or long-lived state only when measurements justify them. Use when writing or reviewing caching, denormalization, or stateful code."
 ---
 
 # Minimize state stores
 
-Keep each piece of data in one place. Add a cache or a copy only when a measurement shows you need it.
+Keep one source of truth for every piece of data. Only introduce caches, copies, or long-lived state when measurements prove they're needed.
 
 ## Start with
 
-1. **Keep one original** for each piece of data, and compute the rest when needed.
-2. **Keep state as local as possible:** a function before a request, a request before a process, a process before anything shared. Avoid global mutable state.
-3. **Fix slow code before caching around it** (**benchmarking**).
-4. **Add a cache only when a measurement shows the need,** and then give it one owner, invalidation when the original changes, a size limit with eviction, only the staleness users accept, and a measured hit rate. Test it empty, stale, full, under a burst of misses, and after a restart.
+1. **Keep one source of truth** and compute derived values on demand.
+2. **Keep state as narrow as possible:** local variable before request scope, request before process, process before shared state. Avoid mutable globals.
+3. **Optimize the slow path before caching around it** (**benchmarking**).
+4. **Build justified caches properly:** when measurements prove a cache is needed, give it a single owner, invalidation on source updates, a bounded size with eviction, explicit staleness limits accepted by users, and a measured hit rate. Test it empty, stale, full, under miss bursts, and across restarts.
 
 ## Watch for
 
-- caches: memoized functions, in-memory maps and LRUs, Redis and the like, HTTP and CDN caches, cached query results;
-- copies: the same data in two places, such as a denormalized column, a materialized view or a local copy of another service's data;
-- stored results: counts, totals, flags and summaries that could be computed when needed;
-- long-lived state: globals, module-level variables, singletons that collect state, state kept wider than where it's used;
-- side stores: temp files, local databases or scratch stores that quietly became the source of truth.
+- unmeasured caches (memoization, in-memory maps/LRUs, Redis, HTTP/CDN or query caches);
+- duplicated data (denormalized columns, materialized views, local mirrors of another service's data);
+- stored summaries (counts, totals, flags) that could be computed directly;
+- overly broad state (globals, module-level mutables, stateful singletons);
+- scratch files, temp tables, or local stores quietly turning into sources of truth.
 
 **The test:** if you deleted this store, what would users measurably lose?
 
 ## When it doesn't fit
 
-- a cache a measurement justified, built as in Start with;
-- the store of record itself, and state the work inherently holds, such as a user's session or a buffer while streaming;
-- a copy that is the product, such as a backup, a replica for availability or an export the person asked for, with its sync explicit;
-- a memo of a pure function inside one computation, bounded by it and unable to go stale;
-- an approach the evidence here favours: when unsure, try both and measure (**ab-test**), and say why you chose it.
+- a measurement-justified cache built per `Start with`;
+- the primary store of record or inherent runtime state (e.g. an active session or streaming buffer);
+- an explicit product copy (backups, availability replicas, requested exports) with documented sync semantics;
+- a pure-function memo scoped strictly to a single computation that cannot go stale;
+- an alternative backed by measurements (**ab-test**), with the trade-off documented.
 
-**Showing it:** change the original and read the copy, or run it under load and watch the store grow.
+**Showing it:** mutate the source of truth and read stale data from the copy, or run under load and show unbounded memory/storage growth.

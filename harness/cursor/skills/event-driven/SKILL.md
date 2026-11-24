@@ -1,34 +1,34 @@
 ---
 name: event-driven
-description: "Wake work on the event that unblocks it, never on a timer, sleep or polling loop. Use when writing or reviewing code that waits, retries, refreshes or loops, or when a tick, poll or sleep sits on a hot path."
+description: "Wake work on the event that unblocks it instead of timers, sleeps, or polling loops. Use when writing or reviewing waiting, retry, refresh, or polling code, or agent wait loops."
 ---
 
 # Event-driven, not timers
 
-Wake work on the event that unblocks it, not on a timer or a poll.
+Trigger work from the event that unblocks it rather than a timer, sleep, or polling loop.
 
 ## Start with
 
-1. **Wait on the event that unblocks the work:** a channel, a condition, a future, a notification, a file watch, a webhook.
-2. **If there's no event to wake on,** make the producer send one.
-3. **Learn deadlines and timeouts;** don't pick them (**no-picked-constants**).
-4. **Keep it replayable:** for a given input and seed, events happen in the same order.
-5. **Agents too** wait for the notice that a run or a worker finished, rather than polling (**automate-this**).
+1. **Wait directly on the unblocking event:** a channel, condition variable, future/promise, notification, file watcher, or webhook.
+2. **Add an event if none exists:** have the producer emit one rather than polling it.
+3. **Derive or adapt timeouts and deadlines** instead of hardcoding them (**no-picked-constants**).
+4. **Keep event ordering replayable:** identical inputs and seeds should produce identical event order.
+5. **Apply this to agent workflows too:** wait for completion notifications from runs or workers instead of polling by hand (**automate-this**).
 
 ## Watch for
 
-- sleeps, fixed delays and tickers on paths that wait for something else;
-- polling loops: check, sleep, check again;
-- retry loops with a fixed backoff, waiting for something to appear;
-- timers that refresh state on a schedule instead of on change;
-- agents re-checking CI, a run or another agent by hand.
+- `sleep`, fixed delays, or tickers on paths waiting for another task;
+- polling loops (`check -> sleep -> check`);
+- fixed-backoff retry loops waiting for a resource to appear;
+- scheduled refresh timers where change notifications exist;
+- agents manually re-checking CI, builds, or other agents.
 
-**The test:** what event is this waiting for, and why isn't it waking on that event?
+**The test:** what event is this actually waiting for, and why isn't it waking on that event?
 
 ## When it doesn't fit
 
-- time that is the point: deadlines, timeouts, heartbeats, and schedules the person set, such as a nightly job;
-- a retry after a failure, timed by what the other side says, such as its `Retry-After`;
-- polling a system you can't change that offers no event, at the rate it documents, said in the code.
+- inherently time-based work: deadlines, timeouts, heartbeats, and explicit schedules (e.g. a nightly job);
+- retries after failure paced by the server's signal (e.g. `Retry-After`);
+- polling an external system you don't control that exposes no event mechanism, at its documented rate (noted in code).
 
-**Showing it:** measure the latency the timer adds or the work it does while idle, or show a change the poll misses, with a controlled clock.
+**Showing it:** measure added latency or wasted idle work from the timer, or demonstrate a state change missed between polls using a controlled clock.

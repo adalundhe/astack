@@ -1,19 +1,19 @@
 ---
 name: watch-pr
-description: "Take reviewed work through its pull request: open it, wait on CI and feedback without checking by hand, fix what fails, address every comment, flag the person every 24 hours it stays open, hand over at the time limit, and tell the lead when it is ready to merge. Use once a reviewer has cleared your work, and when you take over another worker's PR."
+description: "Take reviewed code through its PR: open it, monitor CI and comments via background watchers, fix failures, resolve every comment, ping if open 24h, hand off at time limit, and report when merge-ready. Use once review clears or when taking over a PR."
 ---
 
 # Watch a PR
 
-Take a pull request to ready-to-merge, then hand it to the lead.
+Shepherd a pull request to merge-ready state without merging it yourself.
 
-Ready means CI fully green, every comment from people and agents addressed, and every required approval in. The lead merges it.
+Merge-ready means CI is green, every human and agent comment is resolved, and all required approvals are in.
 
-1. **Open it** only after a reviewer clears the work: no blockers, and every suggestion and nit fixed, answered, or refuted (**worrywart**). Describe it in plain words: the problem, what changed, how it was tested, and how to check it.
-2. **Keep its marker.** In the program folder, `watch/<PR number>.md` holds the PR's link, branch and head commit, its CI state, each comment and its status, when it opened, and when the next flag is due. Update it at every event: the next worker picks up from it.
-3. **Wait on events, not by hand.** Run a watcher in the background that returns when CI finishes, a comment or review arrives, or the next flag falls due (**automate-this**). Never spend turns re-checking.
-4. **When CI fails,** fix it. If the failure isn't yours (main already broken, a failed scan, a dependency, a flaky check), fix it anyway, as its own PR (**leave-it-better**), and keep this one moving.
-5. **When feedback arrives,** address it at once (**address-feedback**): fix it, answer it, or refute it with evidence. Every comment ends resolved.
-6. **Every 24 hours** it stays open, flag the person: a comment on the PR that mentions them and says what it waits on, and a line in the program's log.
-7. **At your time limit,** bring the marker up to date, tell the lead where the PR stands, and end. The lead's next worker continues from the marker.
-8. **When it's ready,** tell the lead and stop. Never merge it yourself: the lead merges.
+1. **Open the PR** only after review clears: zero blockers, and every suggestion/nit fixed, answered, or refuted (**worrywart**). Write a clear description: problem, what changed, how it was tested, and how to verify it.
+2. **Maintain a handoff marker.** In the program folder, keep `watch/<PR number>.md` updated on every event with PR URL, branch, head SHA, CI status, each comment's status, open timestamp, and next 24h ping time so a successor can pick up cold.
+3. **Watch on events, not manual polling.** Run a background watcher that returns when CI finishes, a comment/review arrives, or the next reminder comes due (**automate-this**). Don't burn turns polling by hand.
+4. **Fix CI failures.** If the failure is preexisting (broken `main`, failing scan, broken dependency, flaky check), fix its root cause in a separate PR (**leave-it-better**) while keeping this PR moving.
+5. **Address feedback promptly** (**address-feedback**): fix, answer, or refute with evidence until every thread is resolved.
+6. **Flag if stuck 24 hours:** every 24h the PR stays open, comment mentioning the person with what it's waiting on and log a line in `LANES.md`.
+7. **Hand off cleanly at wind-down:** update the marker file, report exact PR status, and stop so a successor can continue seamlessly.
+8. **Stop when merge-ready:** notify the lead (or the person, if running standalone) and stop. Never merge the PR yourself.

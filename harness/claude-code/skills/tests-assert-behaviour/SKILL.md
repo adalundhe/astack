@@ -1,41 +1,41 @@
 ---
 name: tests-assert-behaviour
-description: "The testing Principle: tests check correctness, meaning behaviour a user can observe, never implementation, machine state or timing; isolated, deterministic, across the full spectrum, diamond-shaped. Use when writing, changing, fixing, reviewing or keeping a test, and when a test flakes."
+description: "Keep tests asserting user-observable behavior—not internals, machine state, or timing—isolated, deterministic, red-first, and diamond-shaped. Use when writing, reviewing, or fixing flaky tests."
 ---
 
 # Tests assert behaviour
 
-A test checks correctness: what the code's users can observe. Never its implementation, the machine's state, or how long it took.
+Tests verify user-observable correctness—never internal implementation details, machine state, or wall-clock timing.
 
 ## Start with
 
-1. **Assert behaviour, not implementation:** outputs, state a user can see, errors, and the work done. A refactor that keeps behaviour keeps the tests green.
-2. **Assert correctness, not conditions.** Nothing depends on load, core count, scheduling luck or elapsed time. Prove that work stays bounded by counting it (rows, allocations, syscalls, requests) as inputs grow.
-3. **Isolate:** each test builds its own state and leaves none behind. Only the ordered steps of one integration or end-to-end scenario share state.
-4. **Make it deterministic:** randomness, faults and time come from a seed or a controlled clock, so any failure replays.
-5. **Cover the full spectrum:** failure modes, bad input, edge cases, races, deadlock and livelock where concurrency exists, fuzzing and injected faults, as well as the happy path (**full-spectrum-testing**).
-6. **Shape it like a diamond:** a few chosen unit tests, a rich and fast integration layer, and thorough but carefully chosen end-to-end tests. Most behaviour is proven in the integration layer.
-7. **Red first:** a test for a fix or a feature fails on the code before it.
-8. **Measure speed, never assert it:** with **benchmarking**, not in a test.
-9. **Treat a flaky test as a bug,** in the test or the code: find which, and never retry it to green.
+1. **Assert observable behavior:** outputs, visible state, errors, and bounded work. Behavior-preserving refactors should keep tests green.
+2. **Stay independent of hardware and load.** Never depend on core count, scheduling luck, or elapsed wall time. Verify complexity bounds by counting work (rows, allocations, syscalls, requests) as input scales.
+3. **Isolate state:** every test sets up and tears down its own state (only ordered steps within a single integration or E2E scenario share state).
+4. **Stay deterministic:** drive randomness, faults, and time from explicit seeds or controlled clocks so every failure replays cleanly.
+5. **Test beyond the happy path:** cover failure modes, bad inputs, edge cases, concurrency/races/deadlocks, fuzzing, and injected faults (**full-spectrum-testing**).
+6. **Use a test diamond:** selective unit tests, a fast comprehensive integration layer (where most behavior is proven), and targeted end-to-end tests.
+7. **Go red first:** confirm new tests fail before the fix or feature lands.
+8. **Benchmark speed separately:** measure performance via **benchmarking**, never assert latency inside unit/integration tests.
+9. **Fix flakes at the root:** a flaky test is a bug in the test or product code—find which and fix it instead of retrying to green.
 
 ## Watch for
 
-- assertions on private functions, internal calls, mock call counts or the shape of internal data;
-- assertions on timing, speed, core count or load, and sleeps that wait for something to happen;
-- tests that share state, depend on order, or fail when run alone or in parallel;
-- unseeded randomness, real clocks or a real network deciding the result;
-- happy paths only: no failure, edge, race or fault cases;
-- retries, quarantines or skips hiding a flaky test;
-- tests that already passed on the code before the fix they claim to cover.
+- assertions on private functions, internal call sequences, mock invocation counts, or internal struct shapes;
+- assertions on elapsed time, speed, or host load, and `sleep` calls waiting for async state;
+- tests sharing state, depending on run order, or failing alone or under parallelism;
+- unseeded randomness, real wall clocks, or live external networks deciding pass/fail;
+- happy-path-only coverage with no failure, edge, concurrency, or fault tests;
+- retry wrappers, skips, or quarantines masking flakes;
+- tests that already passed before the bug fix they claim to verify.
 
-**The test:** would this test fail if the behaviour broke, and keep passing if only the implementation changed?
+**The test:** would this fail if user-visible behavior broke, and keep passing if only internal implementation changed?
 
 ## When it doesn't fit
 
-- counting work (rows, allocations, requests) to prove it stays bounded: that's behaviour;
-- waiting with a timeout as a failsafe, without asserting speed;
-- mocking an outside system at a production boundary, rather than our own internals;
-- pinning the shape of a public interface, which is behaviour to its callers.
+- counting work (rows, allocations, queries) to prove algorithmic bounds—that's observable behavior;
+- generous safety timeouts that prevent infinite hangs without asserting performance;
+- mocking external third-party systems at a production boundary (not internal modules);
+- pinning a public library/API contract, which *is* behavior to its callers.
 
-**Showing it:** break the code and watch the test stay green; refactor without changing behaviour and watch it fail; run it alone, in parallel, or under load.
+**Showing it:** break the behavior and watch the test stay green; refactor internals without changing behavior and watch it fail; run the test solo, in parallel, or under load.

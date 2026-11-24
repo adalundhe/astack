@@ -1,30 +1,30 @@
 ---
 name: no-picked-constants
-description: "Every limit, size, threshold, timeout, rate or interval the system acts on is learned or derived, never picked. Use when writing, reviewing or proposing such a number."
+description: "Avoid hardcoded arbitrary limits, timeouts, batch sizes, or thresholds; derive them from cited specs/OS limits or adapt them at runtime. Use when writing, reviewing, or proposing behavioral constants."
 ---
 
 # No picked constants
 
-We don't use arbitrary constants. Values are learned at runtime or derived from a cited source.
+Don't hardcode arbitrary behavioral constants. Learn load-dependent values at runtime or derive fixed limits from a cited source.
 
 ## Start with
 
-1. **Learn values that depend on the machine or the load** at runtime, and keep learning as conditions change. A value measured once and frozen is still picked.
-2. **Derive facts from a cited source,** such as a protocol field, an OS limit read at runtime or a specification, and cite it in the code.
-3. **Bound by the resource, not a round number:** a queue by the memory it uses, not by 4,096 entries.
-4. **With no data yet, say so,** and say how to get it. Never fill the gap with a guess, and never offer the person a menu of numbers.
+1. **Adapt machine- or load-dependent values at runtime** as conditions change. Measuring once and freezing a magic number is still a picked constant.
+2. **Derive fixed limits from a cited source** (protocol spec, runtime OS/hardware limit, RFC) and cite that source in code.
+3. **Bound by the actual resource, not an arbitrary count:** e.g. cap a queue by memory bytes rather than `4096` entries.
+4. **If you lack data, say so** and state how to measure it—don't guess a number or offer an arbitrary menu of numbers.
 
 ## Watch for
 
-Numbers that decide behaviour: limits, sizes, batch and pool sizes, thresholds, timeouts, retry counts, backoff, rates, intervals, percentages. Round numbers and powers of two are the usual tell, as are the same number repeated in several places and defaults with no source.
+Behavior-driving numbers: limits, buffer/batch/pool sizes, thresholds, timeouts, retry counts, backoff multipliers, rates, intervals, percentages. Suspicious tells: round numbers, arbitrary powers of two, identical constants copied across files, and undocumented defaults.
 
-**The test:** where did this number come from, and would it still be right on another machine, under another load, at another size?
+**The test:** where did this number come from, and will it still hold on different hardware, heavier load, or larger inputs?
 
 ## When it doesn't fit
 
-- a setting the person chooses, such as how long to keep history, with a sensible, documented default they can change (**no-hidden-config**);
-- a fact derived from a cited source, cited in the code;
-- mathematical and physical constants, and unit conversions;
-- a test's inputs and seeds.
+- user-configurable settings (e.g. retention period) with a sensible documented default (**no-hidden-config**);
+- constants derived from a cited external source;
+- mathematical/physical constants and unit conversions;
+- deterministic test inputs and seeds.
 
-**Showing it:** run it where the number stops fitting: another machine, a heavier load, a larger input (**benchmarking**).
+**Showing it:** run the code where the picked constant breaks down—different hardware, heavier load, or larger inputs (**benchmarking**).

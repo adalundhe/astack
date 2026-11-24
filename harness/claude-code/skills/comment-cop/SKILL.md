@@ -1,34 +1,34 @@
 ---
 name: comment-cop
-description: "Keep only the comments code can't replace, and make the code explain the rest. Use when writing or reviewing code, before handing work to review, or when asked to clean up comments."
+description: "Strip comments that narrate or excuse the code, keeping only what code can't express (API contracts, external constraints, legal headers, issue links). Use when writing, reviewing, or cleaning up comments."
 ---
 
 # Comment cop
 
-Remove comments the code already explains, and keep the few it can't.
+Remove comments that the code already explains (or should explain), and keep only what code can't express.
 
 ## Start with
 
-1. **Make the code say it:** a clear name, a smaller function, a type.
-2. **Remove a workaround rather than excusing it** in a comment (**yagni**), or fix what it worked around.
-3. **When code surprises, change the code** until it doesn't, rather than explaining it.
+1. **Make the code self-explanatory** through clearer names, smaller functions, and tighter types.
+2. **Delete workarounds** instead of excusing them in comments (**yagni**), or fix the underlying cause.
+3. **Fix surprising code** until it reads naturally, rather than leaving a comment apologizing for it.
 
 ## Watch for
 
-- narration of what the next lines do;
-- banners, section dividers and commented-out code;
-- history ("changed for X", "used to be Y"), which version control already keeps;
-- a comment excusing a workaround;
-- a comment that contradicts the code: that's a bug, so find out which one is right.
+- comments narrating what the next lines obviously do;
+- ASCII banners, section dividers, and commented-out code;
+- change history ("changed for X", "used to be Y")—that belongs in git;
+- comments justifying avoidable workarounds;
+- comments that contradict the code (treat as a bug and find out which is right).
 
-**The test:** could a rename, a smaller function or a type say this instead?
+**The test:** could a better name, smaller function, or stronger type say this instead?
 
 ## When it doesn't fit
 
 - license and legal headers;
-- the contract of a public API;
-- a constraint from outside the code, such as a vendor's bug, a protocol's rule or a platform's quirk, with a link to its source;
-- a link to the issue or specification behind a choice the code can't explain;
-- a lint suppression that says why the rule is wrong for that line.
+- public API contracts and docstrings;
+- external constraints (vendor bugs, protocol quirks, OS limitations) with a link to the source;
+- links to issues, specs, or ADs explaining a non-obvious decision;
+- lint suppressions explaining why the rule doesn't apply to that line.
 
 <!-- Adapts pstack's comment-sicko agent and no-comments skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->
