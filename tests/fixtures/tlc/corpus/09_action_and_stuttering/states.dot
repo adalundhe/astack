@@ -1,1 +1,0 @@
-strict digraph DiskGraph { subgraph cluster_graph { color="white"; } }

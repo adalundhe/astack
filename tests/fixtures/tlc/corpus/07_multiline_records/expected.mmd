@@ -1,7 +1,8 @@
 stateDiagram-v2
-    state "/\ cfg = [host |-> 'a\'b', path |-> 'c\\d'], /\ items = {1, 2, 3}" as s0
-    state "/\ cfg = [host |-> 'a\'b', path |-> 'c\\e'], /\ items = {1, 2, 3, 4} [VIOLATION: PathSafe]" as s1
+    state "cfg = [host |-> 'alpha', path |-> '/tmp/a', retries |-> 0, ok |-> TRUE]" as s0
+    state "cfg = [host |-> 'alpha', path |-> '/etc/bad', retries |-> 3, ok |-> FALSE] [VIOLATION: PathSafe]" as s1
     [*] --> s0
-    s0 --> s1: Mutate
+    s0 --> s1: Corrupt
+    s1 --> s1: Stay
     classDef violation fill:#fee,stroke:#c00,stroke-width:2px
     class s1 violation

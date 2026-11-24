@@ -1,0 +1,65 @@
+{
+  "replace": [
+    [
+      "; the templates are in `${CLAUDE_SKILL_DIR}/templates/`.",
+      "; the templates are in `templates/`, beside this file."
+    ],
+    [
+      "5. Schedule a check-in every `check_in_minutes` with `CronCreate` (or `/loop`). A worker's end wakes you; drift and the clock don't.",
+      "5. Schedule a check-in every `check_in_minutes` using `schedule` (cron/timer). A worker's end wakes you; drift and the clock don't."
+    ],
+    [
+      "3. Spawn it with `subagent_type: \"astack:worker\"` in the background, passing the brief and `roles.worker` (`model`, `effort`) from settings when set.",
+      "3. Spawn it with `invoke_subagent` using `TypeName: \"astack-worker\"` (or `astack-dispatch run --role worker` when cross-harness), passing the brief and `roles.worker` (`provider`, `model`, `effort`, optional `harness`) from settings when set."
+    ],
+    [
+      "spawn `subagent_type: \"astack:worker\"` in the background with a brief naming `Deliverable`, `Done when`, `Writable paths`, checks, the astack skills path `${CLAUDE_SKILL_DIR}/..`, and `roles.worker` (`provider`, `model`, `effort`, optional `harness`) from settings when set (or dispatch via `astack-dispatch run --role worker` when cross-harness or cross-provider). Never substitute `general-purpose`.",
+      "spawn with `invoke_subagent` (`TypeName: \"astack-worker\"`, or `astack-dispatch run --role worker` when cross-harness or cross-provider) with a brief naming `Deliverable`, `Done when`, `Writable paths`, checks, the astack skills folder (`..` from this skill), and `roles.worker` (`provider`, `model`, `effort`, optional `harness`) from settings when set. Never substitute an unconfigured generic agent."
+    ],
+    [
+      "spawn `subagent_type: \"astack:reviewer\"` in the background with the scope/diff, assigned vector, stated intent, reproduction folder, `${CLAUDE_SKILL_DIR}/..`, and the assigned `reviewer_pool` entry (`provider`, `model`, `effort`, optional `harness`) from settings (or dispatch via `astack-dispatch run` when cross-harness or cross-provider; report any unreachable model rather than substituting). Never substitute `general-purpose`.",
+      "spawn with `invoke_subagent` (`TypeName: \"astack-reviewer\"` when Antigravity supports that model natively, or `astack-dispatch run --role reviewer --system-prompt-file <agents/astack-reviewer.md>` when cross-harness or cross-provider; report any unreachable model rather than substituting) with the scope/diff, assigned vector, stated intent, reproduction folder, the astack skills folder (`..` from this skill), and the assigned `reviewer_pool` entry (`provider`, `model`, `effort`, optional `harness`) from settings. Never substitute an unconfigured generic agent."
+    ],
+    [
+      "Spawn each reviewer with `subagent_type: \"astack:reviewer\"` in the background (never substitute `general-purpose`), passing its worktree/diff scope (with uncommitted edits copied in), assigned vector, stated intent, reproduction folder, astack `skills/` path (`${CLAUDE_SKILL_DIR}/..`, so it can read **adversarial-review** and every applicable coding rule directly), and its assigned `reviewer_pool` entry (`provider`, `model`, `effort`, optional `harness`) from `~/.config/astack/settings.json` (using the host subagent tool when the host supports that model natively, or `astack-dispatch run --settings <settings> --provider <p> --model <m> [--effort <e>] [--harness <h>] --vector <v> --cwd <worktree> --out <report>` for cross-harness / cross-provider models via `claude`, `codex`, `agy`, `cursor`/`agent`, `devin`, `pi`, `gemini`, or a custom CLI; report any unreachable model rather than substituting).",
+      "Spawn each reviewer blindly in parallel with `invoke_subagent` (`TypeName: \"astack-reviewer\"` when Antigravity supports that model natively) or `astack-dispatch run --settings <settings> --provider <p> --model <m> [--effort <e>] [--harness <h>] --vector <v> --cwd <worktree> --system-prompt-file <agents/astack-reviewer.md> --out <report>` across any installed harness (`claude`, `codex`, `agy`, `cursor`/`agent`, `devin`, `pi`, `gemini`, or custom CLI), passing its worktree/diff scope (with uncommitted edits copied in), assigned vector, stated intent, reproduction folder, and astack `skills/` path (`..` from this skill, so it can read **adversarial-review** and every applicable coding rule directly). Never substitute an unconfigured generic agent, and report any unreachable model rather than substituting."
+    ],
+    [
+      "if it doesn't, stop it with `TaskStop` and start a successor from its branch.",
+      "if it doesn't, stop it with `manage_subagents` (`kill`) and start a successor from its branch."
+    ],
+    [
+      "Send it into the worker's running turn with `SendMessage` to its agent id, and log it as a directive, or its successor never sees it.",
+      "Send it into the worker's running turn with `send_message` to its conversation id, and log it as a directive, or its successor never sees it."
+    ],
+    [
+      "The astack hook stamps each line with the time as it is saved, so never write a time from memory.",
+      "The bundled Antigravity `hooks.json` stamps each line with the time as it is saved (or run `astack-stamp <LANES.md>` manually if hooks are disabled), so never write a time from memory."
+    ],
+    [
+      "- Ask outright, as a plain choice with your pick (**decisions-in-plain-words**), using `AskUserQuestion`, and keep working on everything else.",
+      "- Ask outright, as a plain choice with your pick (**decisions-in-plain-words**), using `ask_question` (or in your reply), and keep working on everything else."
+    ],
+    [
+      "2. **Ask**, showing current values first, using `AskUserQuestion`:",
+      "2. **Ask**, showing current values first, using `ask_question` (or in your reply):"
+    ],
+    [
+      "5. **Install what this tool needs.** Nothing in Claude Code: the plugin ships the agents and the hook. Check reachability of every approved model in `reviewer_pool` with `astack-dispatch check-pool --host claude`: Claude Code's `Agent` tool selects models by alias (`opus`, `sonnet`, `haiku`), so those dispatch natively via `subagent_type: \"astack:reviewer\"`; pinned version IDs (e.g. `claude-opus-4-6`) and cross-provider / cross-harness models dispatch via `astack-dispatch run` (`claude`, `codex`, `agy`, `cursor-agent`/`agent`, `devin`, `pi`, `gemini`, or custom CLI); report any approved model reachable through neither as unreachable rather than letting **review** silently substitute another model.",
+      "5. **Install the agents and verify reachability.** The Antigravity plugin ships `astack-lead`, `astack-worker`, `astack-reviewer`, and `astack-researcher` plus root `hooks.json`; run `astack-tools install-agents --harness antigravity` (or `--harness all` to also sync Codex/Cursor/Devin/Pi agents with your saved `roles` and `reviewer_pool`) to install customized global agents into `~/.gemini/config/agents/`. Check reachability of every approved model in `reviewer_pool` with `astack-dispatch check-pool --host agy`: models supported natively dispatch via `invoke_subagent` (`TypeName: \"astack-reviewer\"`), and cross-harness / cross-provider models dispatch via `astack-dispatch run` (`claude`, `codex`, `agy`, `cursor-agent`/`agent`, `devin`, `pi`, `gemini`, or custom CLI); report any approved model reachable through neither as unreachable rather than letting **review** silently substitute another model."
+    ]
+  ],
+  "forbid": [
+    "astack:",
+    "SendMessage",
+    "TaskStop",
+    "CronCreate",
+    "AskUserQuestion",
+    "subagent_type",
+    "${CLAUDE_",
+    "disallowedTools",
+    "Claude Code",
+    "on your PATH",
+    "/loop"
+  ]
+}

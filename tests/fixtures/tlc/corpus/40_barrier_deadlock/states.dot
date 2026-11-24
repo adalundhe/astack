@@ -1,0 +1,16 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+-3137937913534607406 [label="/\\ w1 = \"run\"\n/\\ w2 = \"run\"",style = filled]
+-3137937913534607406 -> -1237722483551657022 [label="W1Arrive",color="black",fontcolor="black"];
+-1237722483551657022 [label="/\\ w1 = \"wait\"\n/\\ w2 = \"run\""];
+-3137937913534607406 -> -7203478830487817000 [label="W2Crash",color="black",fontcolor="black"];
+-7203478830487817000 [label="/\\ w1 = \"run\"\n/\\ w2 = \"crashed\""];
+-1237722483551657022 -> -636169993284491788 [label="W2Crash",color="black",fontcolor="black"];
+-636169993284491788 [label="/\\ w1 = \"wait\"\n/\\ w2 = \"crashed\""];
+-7203478830487817000 -> -636169993284491788 [label="W1Arrive",color="black",fontcolor="black"];
+{rank = same; -3137937913534607406;}
+{rank = same; -7203478830487817000;-1237722483551657022;}
+}
+}

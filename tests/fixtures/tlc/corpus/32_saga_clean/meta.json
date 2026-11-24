@@ -1,0 +1,7 @@
+{
+  "module": "SagaClean",
+  "exit_code": 0,
+  "states": 6,
+  "transitions": 8,
+  "violations": []
+}

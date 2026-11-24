@@ -1,0 +1,10 @@
+stateDiagram-v2
+    state "/\ aborted = FALSE, /\ shipped = FALSE, /\ charged = FALSE" as s0
+    state "/\ aborted = FALSE, /\ shipped = FALSE, /\ charged = TRUE" as s1
+    state "/\ aborted = TRUE, /\ shipped = FALSE, /\ charged = TRUE [VIOLATION: NoOrphanCharge]" as s2
+    [*] --> s0
+    s0 --> s1: Charge
+    s1 --> s2: AbortWithoutRefund
+    s2 --> s2: Stay
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s2 violation

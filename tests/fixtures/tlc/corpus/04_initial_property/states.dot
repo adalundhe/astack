@@ -1,1 +1,4 @@
-strict digraph DiskGraph { subgraph cluster_graph { color="white"; } }
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";

@@ -55,8 +55,19 @@ def paths_from_hook(event):
     """The files a hook event touched: an edited file's path, or LANES.md paths named in a shell command."""
     tool_input = event.get("tool_input") or {}
     cwd = Path(event.get("cwd") or os.getcwd())
-    found = [event.get("file_path"), tool_input.get("file_path"), tool_input.get("path")]
-    command = tool_input.get("command") or event.get("command") or ""
+    found = [
+        event.get("file_path"),
+        tool_input.get("file_path"),
+        tool_input.get("path"),
+        tool_input.get("Path"),
+        tool_input.get("TargetFile"),
+    ]
+    command = (
+        tool_input.get("command")
+        or tool_input.get("CommandLine")
+        or event.get("command")
+        or ""
+    )
     try:
         words = shlex.split(command)
     except ValueError:

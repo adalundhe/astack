@@ -1,0 +1,23 @@
+{
+  "module": "MultiInvDeadlock",
+  "exit_code": 1,
+  "states": 4,
+  "transitions": 3,
+  "violations": [
+    {
+      "kind": "invariant",
+      "name": "SmallX",
+      "hops": 2
+    },
+    {
+      "kind": "invariant",
+      "name": "SmallY",
+      "hops": 2
+    },
+    {
+      "kind": "deadlock",
+      "name": "Deadlock",
+      "hops": 2
+    }
+  ]
+}

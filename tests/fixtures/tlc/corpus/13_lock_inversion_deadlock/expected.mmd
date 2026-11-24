@@ -1,0 +1,14 @@
+stateDiagram-v2
+    state "/\ l1 = 'free', /\ l2 = 'free'" as s0
+    state "/\ l1 = 't1', /\ l2 = 'free'" as s1
+    state "/\ l1 = 'free', /\ l2 = 't2'" as s2
+    state "/\ l1 = 't1', /\ l2 = 't2' [VIOLATION: Deadlock]" as s3
+    [*] --> s0
+    s0 --> s1: T1TakeL1
+    s0 --> s2: T2TakeL2
+    s1 --> s0: T1TakeL2
+    s1 --> s3: T2TakeL2
+    s2 --> s3: T1TakeL1
+    s2 --> s0: T2TakeL1
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s3 violation

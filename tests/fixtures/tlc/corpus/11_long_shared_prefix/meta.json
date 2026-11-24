@@ -1,0 +1,13 @@
+{
+  "module": "LongSharedPrefix",
+  "exit_code": 1,
+  "states": 2,
+  "transitions": 2,
+  "violations": [
+    {
+      "kind": "invariant",
+      "name": "YZero",
+      "hops": 1
+    }
+  ]
+}

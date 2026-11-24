@@ -1,10 +1,18 @@
 strict digraph DiskGraph {
-  -10 [label="/\\ x = 0", style = filled];
-  -11 [label="/\\ x = 1"];
-  -12 [label="/\\ x = 2"];
-  -13 [label="/\\ x = 3"];
-  -10 -> -11 [label="Inc", color="black"];
-  -11 -> -12 [label="Inc", color="black"];
-  -12 -> -13 [label="Inc", color="black"];
-  -13 -> -10 [label="Reset", color="black"];
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+-851346386273236668 [label="x = 0",style = filled]
+-851346386273236668 -> -1832504683440126728 [label="Inc",color="black",fontcolor="black"];
+-1832504683440126728 [label="x = 1"];
+-1832504683440126728 -> -3363348417358163396 [label="Inc",color="black",fontcolor="black"];
+-3363348417358163396 [label="x = 2"];
+-3363348417358163396 -> -4329025610334707840 [label="Inc",color="black",fontcolor="black"];
+-4329025610334707840 [label="x = 3"];
+-4329025610334707840 -> -851346386273236668 [label="Reset",color="black",fontcolor="black"];
+{rank = same; -851346386273236668;}
+{rank = same; -1832504683440126728;}
+{rank = same; -3363348417358163396;}
+{rank = same; -4329025610334707840;}
+}
 }

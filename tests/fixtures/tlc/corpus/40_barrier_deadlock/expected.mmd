@@ -1,0 +1,12 @@
+stateDiagram-v2
+    state "/\ w1 = 'run', /\ w2 = 'run'" as s0
+    state "/\ w1 = 'wait', /\ w2 = 'run'" as s1
+    state "/\ w1 = 'run', /\ w2 = 'crashed'" as s2
+    state "/\ w1 = 'wait', /\ w2 = 'crashed' [VIOLATION: Deadlock]" as s3
+    [*] --> s0
+    s0 --> s1: W1Arrive
+    s0 --> s2: W2Crash
+    s1 --> s3: W2Crash
+    s2 --> s3: W1Arrive
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s3 violation

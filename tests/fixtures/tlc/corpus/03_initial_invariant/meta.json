@@ -1,6 +1,8 @@
 {
+  "module": "InitInvariantBad",
+  "exit_code": 1,
   "states": 1,
-  "transitions": 0,
+  "transitions": 1,
   "violations": [
     {
       "kind": "invariant",

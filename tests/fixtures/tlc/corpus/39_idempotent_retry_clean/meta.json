@@ -1,0 +1,7 @@
+{
+  "module": "IdempotentRetryClean",
+  "exit_code": 0,
+  "states": 3,
+  "transitions": 3,
+  "violations": []
+}

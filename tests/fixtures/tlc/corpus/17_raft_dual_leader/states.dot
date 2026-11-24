@@ -1,0 +1,15 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+3909043703766597997 [label="leaders = {}",style = filled]
+3909043703766597997 -> 6810561995784572661 [label="ElectN1",color="black",fontcolor="black"];
+6810561995784572661 [label="leaders = {\"n1\"}"];
+6810561995784572661 -> -9089843289213306656 [label="StaleVoteElectN2",color="black",fontcolor="black"];
+-9089843289213306656 [label="leaders = {\"n1\", \"n2\"}"];
+-9089843289213306656 -> -9089843289213306656 [label="Stay",color="black",fontcolor="black"];
+{rank = same; 3909043703766597997;}
+{rank = same; 6810561995784572661;}
+{rank = same; -9089843289213306656;}
+}
+}

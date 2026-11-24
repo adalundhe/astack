@@ -1,9 +1,0 @@
-strict digraph DiskGraph {
-  1 [label="/\\ holder = \"a\"\n/\\ epoch = 1\n/\\ stale_write = FALSE", style = filled];
-  2 [label="/\\ holder = \"none\"\n/\\ epoch = 1\n/\\ stale_write = FALSE"];
-  3 [label="/\\ holder = \"b\"\n/\\ epoch = 2\n/\\ stale_write = FALSE"];
-  4 [label="/\\ holder = \"b\"\n/\\ epoch = 2\n/\\ stale_write = TRUE"];
-  1 -> 2 [label="ExpireA", color="black"];
-  2 -> 3 [label="GrantB", color="black"];
-  3 -> 4 [label="UnfencedWriteA", color="black"];
-}

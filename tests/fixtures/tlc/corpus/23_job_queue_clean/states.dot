@@ -1,0 +1,22 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+-2565612268422888417 [label="st = \"queued\"",style = filled]
+-2565612268422888417 -> -1039204764677626998 [label="Claim",color="black",fontcolor="black"];
+-1039204764677626998 [label="st = \"running\""];
+-1039204764677626998 -> 2514548072430951583 [label="Ack",color="black",fontcolor="black"];
+2514548072430951583 [label="st = \"succeeded\""];
+-1039204764677626998 -> 281662330401745843 [label="TransientErr",color="black",fontcolor="black"];
+281662330401745843 [label="st = \"retrying\""];
+2514548072430951583 -> 2514548072430951583 [label="Terminal",color="black",fontcolor="black"];
+281662330401745843 -> -1039204764677626998 [label="Retry",color="black",fontcolor="black"];
+281662330401745843 -> -3701068003700964812 [label="Exhaust",color="black",fontcolor="black"];
+-3701068003700964812 [label="st = \"dlq\""];
+-3701068003700964812 -> -3701068003700964812 [label="Terminal",color="black",fontcolor="black"];
+{rank = same; -2565612268422888417;}
+{rank = same; -1039204764677626998;}
+{rank = same; 281662330401745843;2514548072430951583;}
+{rank = same; -3701068003700964812;}
+}
+}

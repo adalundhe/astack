@@ -1,0 +1,18 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+-983045747425199729 [label="/\\ holder = \"a\"\n/\\ epoch = 1\n/\\ stale_write = FALSE",style = filled]
+-983045747425199729 -> 7779460288952761849 [label="ExpireA",color="black",fontcolor="black"];
+7779460288952761849 [label="/\\ holder = \"none\"\n/\\ epoch = 1\n/\\ stale_write = FALSE"];
+7779460288952761849 -> 8185417106453133033 [label="GrantB",color="black",fontcolor="black"];
+8185417106453133033 [label="/\\ holder = \"b\"\n/\\ epoch = 2\n/\\ stale_write = FALSE"];
+8185417106453133033 -> 1907228620986738173 [label="UnfencedWriteA",color="black",fontcolor="black"];
+1907228620986738173 [label="/\\ holder = \"b\"\n/\\ epoch = 2\n/\\ stale_write = TRUE"];
+1907228620986738173 -> 1907228620986738173 [label="Stay",color="black",fontcolor="black"];
+{rank = same; -983045747425199729;}
+{rank = same; 7779460288952761849;}
+{rank = same; 8185417106453133033;}
+{rank = same; 1907228620986738173;}
+}
+}

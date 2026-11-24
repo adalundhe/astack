@@ -1,0 +1,10 @@
+stateDiagram-v2
+    state "x = 0 [VIOLATION: TemporalProperty]" as s0
+    state "x = 1" as s1
+    [*] --> s0
+    s0 --> s1: Advance
+    s0 --> s0
+    s1 --> s1: Stay
+    s1 --> s1
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s0 violation

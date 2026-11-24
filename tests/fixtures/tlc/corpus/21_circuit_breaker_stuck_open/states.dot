@@ -1,0 +1,14 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+1325519356002779001 [label="cb = \"closed\"",style = filled]
+1325519356002779001 -> -1765051650638204238 [label="Trip",color="black",fontcolor="black"];
+-1765051650638204238 [label="cb = \"open\""];
+1325519356002779001 -> 1325519356002779001 [style="dashed"];
+-1765051650638204238 -> -1765051650638204238 [label="RejectCall",color="black",fontcolor="black"];
+-1765051650638204238 -> -1765051650638204238 [style="dashed"];
+{rank = same; 1325519356002779001;}
+{rank = same; -1765051650638204238;}
+}
+}

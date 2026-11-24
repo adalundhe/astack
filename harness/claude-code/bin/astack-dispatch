@@ -1,0 +1,824 @@
+#!/usr/bin/env python3
+"""Dispatch reviewers or workers across agent harnesses and check reviewer_pool reachability.
+
+Supports Claude Code (`claude`), Codex (`codex`), Antigravity (`agy`), Cursor CLI (`cursor-agent`/`agent`),
+Devin CLI (`devin`), Pi (`pi`), Gemini CLI (`gemini`), and custom CLI command templates.
+
+Usage:
+  astack-dispatch harnesses [--json]
+  astack-dispatch check-pool [--settings PATH | --pool-json JSON] [--host HARNESS] [--json]
+  astack-dispatch run --provider PROVIDER --model MODEL [--effort EFFORT] [--harness HARNESS]
+                      [--cwd DIR] [--prompt TEXT | --prompt-file PATH] [--system-prompt-file PATH]
+                      [--role reviewer|worker] [--vector NAME] [--settings PATH]
+                      [--out PATH] [--receipt PATH] [--timeout SEC] [--dry-run] [--json]
+
+Exit codes:
+  0 = success (or all pool entries reachable for check-pool)
+  1 = target invocation failed (or one or more pool entries unreachable for check-pool)
+  2 = invalid input, unapproved model, or unavailable harness/CLI
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+
+@dataclass(frozen=True)
+class HarnessSpec:
+    name: str
+    binaries: tuple[str, ...]
+    providers: tuple[str, ...]  # ("*",) means multi-provider
+    description: str
+
+
+HARNESSES: dict[str, HarnessSpec] = {
+    "claude": HarnessSpec(
+        name="claude",
+        binaries=("claude",),
+        providers=("anthropic",),
+        description="Claude Code CLI",
+    ),
+    "codex": HarnessSpec(
+        name="codex",
+        binaries=("codex",),
+        providers=("openai", "*"),
+        description="OpenAI Codex CLI",
+    ),
+    "agy": HarnessSpec(
+        name="agy",
+        binaries=("agy", "antigravity"),
+        providers=("google", "*"),
+        description="Antigravity CLI",
+    ),
+    "cursor": HarnessSpec(
+        name="cursor",
+        binaries=("cursor-agent", "agent"),
+        providers=("cursor", "*"),
+        description="Cursor CLI (agent / cursor-agent)",
+    ),
+    "devin": HarnessSpec(
+        name="devin",
+        binaries=("devin",),
+        providers=("devin", "*"),
+        description="Devin CLI",
+    ),
+    "pi": HarnessSpec(
+        name="pi",
+        binaries=("pi",),
+        providers=("*",),
+        description="Pi coding agent CLI (multi-provider)",
+    ),
+    "gemini": HarnessSpec(
+        name="gemini",
+        binaries=("gemini",),
+        providers=("google",),
+        description="Gemini CLI",
+    ),
+}
+
+# Preferred default harness order when a pool entry omits `harness`.
+PROVIDER_DEFAULT_HARNESSES: dict[str, tuple[str, ...]] = {
+    "anthropic": ("claude", "pi", "cursor", "agy", "devin"),
+    "claude": ("claude", "pi"),
+    "openai": ("codex", "pi", "cursor", "agy", "devin"),
+    "codex": ("codex",),
+    "google": ("agy", "gemini", "pi", "cursor"),
+    "gemini": ("gemini", "agy", "pi"),
+    "cursor": ("cursor",),
+    "devin": ("devin",),
+    "pi": ("pi",),
+}
+
+CLAUDE_NATIVE_ALIASES = frozenset({"opus", "sonnet", "haiku", "default"})
+
+
+class DispatchError(ValueError):
+    """Typed boundary error for invalid arguments, settings, or unapproved models."""
+
+
+def _standard_bin_dirs() -> list[Path]:
+    dirs: list[Path] = []
+    if xdg_bin := os.environ.get("XDG_BIN_HOME"):
+        dirs.append(Path(xdg_bin).expanduser())
+    if os.name == "nt":
+        local_app = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
+        app_data = Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+        dirs.extend([
+            Path.home() / ".local" / "bin",
+            Path.home() / ".cargo" / "bin",
+            local_app / "Microsoft" / "WinGet" / "Links",
+            app_data / "npm",
+            Path.home() / "scoop" / "shims",
+        ])
+    else:
+        dirs.extend([
+            Path.home() / ".local" / "bin",
+            Path.home() / ".cargo" / "bin",
+            Path.home() / ".volta" / "bin",
+            Path.home() / ".bun" / "bin",
+            Path.home() / ".npm-global" / "bin",
+            Path.home() / ".asdf" / "shims",
+            Path.home() / ".local" / "share" / "mise" / "shims",
+            Path("/opt/homebrew/bin"),
+            Path("/usr/local/bin"),
+            Path("/home/linuxbrew/.linuxbrew/bin"),
+            Path("/usr/bin"),
+        ])
+        nvm_versions = Path.home() / ".nvm" / "versions" / "node"
+        try:
+            if nvm_versions.is_dir():
+                for ver_dir in sorted(nvm_versions.iterdir(), reverse=True):
+                    bin_sub = ver_dir / "bin"
+                    if bin_sub.is_dir():
+                        dirs.append(bin_sub)
+        except OSError:
+            pass
+    return dirs
+
+
+def _is_executable(path: Path) -> bool:
+    try:
+        if not path.is_file():
+            return False
+        return True if os.name == "nt" else os.access(path, os.X_OK)
+    except OSError:
+        return False
+
+
+def find_binary(names: tuple[str, ...], *, use_standard_dirs: bool = True) -> str | None:
+    for name in names:
+        if found := shutil.which(name):
+            return found
+    if not use_standard_dirs:
+        return None
+    exts = (".exe", ".cmd", ".bat", "") if os.name == "nt" else ("",)
+    for directory in _standard_bin_dirs():
+        for name in names:
+            for ext in exts:
+                candidate = directory / f"{name}{ext}"
+                if _is_executable(candidate):
+                    return str(candidate)
+    return None
+
+
+def detect_harnesses(*, use_standard_dirs: bool = True) -> dict[str, dict[str, Any]]:
+    """Detect all installed agent CLIs. Respects ASTACK_DISPATCH_STRICT_PATH=1 for isolated tests."""
+    if os.environ.get("ASTACK_DISPATCH_STRICT_PATH") == "1":
+        use_standard_dirs = False
+    detected: dict[str, dict[str, Any]] = {}
+    for name, spec in HARNESSES.items():
+        path = find_binary(spec.binaries, use_standard_dirs=use_standard_dirs)
+        if path:
+            detected[name] = {
+                "path": path,
+                "providers": list(spec.providers),
+                "description": spec.description,
+            }
+    return detected
+
+
+def default_settings_path() -> Path:
+    if xdg := os.environ.get("XDG_CONFIG_HOME"):
+        return Path(xdg).expanduser() / "astack" / "settings.json"
+    return Path.home() / ".config" / "astack" / "settings.json"
+
+
+def _non_empty_str(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise DispatchError(f"{field} must be a non-empty string")
+    return value.strip()
+
+
+def normalize_pool_entry(raw: Any, field: str = "entry") -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise DispatchError(f"{field} must be a JSON object")
+    provider = _non_empty_str(raw.get("provider"), f"{field}.provider")
+    model = _non_empty_str(raw.get("model"), f"{field}.model")
+    effort_raw = raw.get("effort", "")
+    if effort_raw is None:
+        effort = ""
+    elif isinstance(effort_raw, str):
+        effort = effort_raw.strip()
+    else:
+        raise DispatchError(f"{field}.effort must be a string")
+
+    harness_raw = raw.get("harness", "")
+    if harness_raw is None:
+        harness = ""
+    elif isinstance(harness_raw, str):
+        harness = harness_raw.strip().lower()
+    else:
+        raise DispatchError(f"{field}.harness must be a string")
+
+    command_raw = raw.get("command")
+    command: list[str] | None = None
+    if command_raw is not None:
+        if not isinstance(command_raw, list) or not command_raw or not all(
+            isinstance(part, str) and part for part in command_raw
+        ):
+            raise DispatchError(f"{field}.command must be a non-empty list of strings")
+        command = list(command_raw)
+        if not harness:
+            harness = "custom"
+
+    if harness and harness != "custom" and harness not in HARNESSES:
+        valid = ", ".join(sorted([*HARNESSES.keys(), "custom"]))
+        raise DispatchError(f"{field}.harness {harness!r} is unknown; valid: {valid}")
+    if harness == "custom" and not command:
+        raise DispatchError(f"{field}: harness 'custom' requires a non-empty 'command' template list")
+
+    out: dict[str, Any] = {"provider": provider, "model": model}
+    if effort:
+        out["effort"] = effort
+    if harness:
+        out["harness"] = harness
+    if command:
+        out["command"] = command
+    return out
+
+
+def load_pool(settings_path: Path | None, pool_json: str | None) -> list[dict[str, Any]]:
+    if pool_json is not None:
+        try:
+            raw = json.loads(pool_json)
+        except json.JSONDecodeError as exc:
+            raise DispatchError(f"invalid --pool-json: {exc}") from exc
+        if isinstance(raw, dict) and "reviewer_pool" in raw:
+            if "roles" in raw and isinstance(raw["roles"], dict) and "reviewer" in raw["roles"]:
+                raise DispatchError("retired roles.reviewer format is not accepted; use reviewer_pool")
+            raw = raw["reviewer_pool"]
+        if not isinstance(raw, list):
+            raise DispatchError("--pool-json must decode to a list of pool entries")
+        return [normalize_pool_entry(item, f"reviewer_pool[{i}]") for i, item in enumerate(raw)]
+
+    path = settings_path or default_settings_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise DispatchError(f"settings file not found: {path}") from exc
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DispatchError(f"failed to read settings {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise DispatchError(f"settings file {path} must be a JSON object")
+    if "roles" in data and isinstance(data["roles"], dict) and "reviewer" in data["roles"]:
+        raise DispatchError("retired roles.reviewer format is not accepted; migrate to reviewer_pool via setup")
+    pool_raw = data.get("reviewer_pool")
+    if not isinstance(pool_raw, list):
+        raise DispatchError(f"{path} has no reviewer_pool list")
+    return [normalize_pool_entry(item, f"reviewer_pool[{i}]") for i, item in enumerate(pool_raw)]
+
+
+def _can_host_run_natively(entry: dict[str, Any], host: str) -> tuple[bool, str]:
+    host = (host or "").strip().lower()
+    if not host:
+        return False, ""
+    provider = entry["provider"].lower()
+    model = entry["model"]
+    explicit_harness = entry.get("harness", "").lower()
+    if explicit_harness and explicit_harness != host:
+        return False, f"entry pinned to harness '{explicit_harness}' (not host '{host}')"
+
+    if host == "claude":
+        if provider == "anthropic" and model.lower() in CLAUDE_NATIVE_ALIASES:
+            return True, "Claude Code native Agent tool (subagent_type: astack:reviewer)"
+        return False, "Claude Code native Agent tool only accepts Anthropic aliases (opus, sonnet, haiku)"
+    if host == "codex":
+        if provider == "openai":
+            return True, "Codex native spawn_agent (astack-reviewer-<slug>.toml)"
+        return False, "non-OpenAI provider requires a configured Codex model_provider or CLI dispatch"
+    if host == "cursor":
+        return True, "Cursor native astack-reviewer subagent (if model is enabled in Cursor account)"
+    if host == "agy":
+        if provider in ("google", "anthropic"):
+            return True, "Antigravity native subagent (if model is enabled in Antigravity)"
+        return False, "dispatch via provider CLI"
+    return False, ""
+
+
+def resolve_entry_route(
+    entry: dict[str, Any],
+    detected: dict[str, dict[str, Any]],
+    host: str = "",
+) -> dict[str, Any]:
+    """Determine how a reviewer_pool entry can be dispatched: native, cli, or unreachable."""
+    native_ok, native_note = _can_host_run_natively(entry, host)
+    explicit_harness = entry.get("harness", "").lower()
+
+    if explicit_harness == "custom":
+        cmd_bin = entry["command"][0]
+        resolved = find_binary((cmd_bin,), use_standard_dirs=os.environ.get("ASTACK_DISPATCH_STRICT_PATH") != "1")
+        if resolved:
+            return {
+                **entry,
+                "reachable": True,
+                "route": "cli",
+                "resolved_harness": "custom",
+                "binary": resolved,
+                "note": f"custom command template ({cmd_bin})",
+            }
+        return {
+            **entry,
+            "reachable": False,
+            "route": "unreachable",
+            "resolved_harness": "custom",
+            "binary": None,
+            "note": f"custom executable {cmd_bin!r} not found on PATH",
+        }
+
+    if explicit_harness:
+        if explicit_harness in detected:
+            return {
+                **entry,
+                "reachable": True,
+                "route": "native" if native_ok else "cli",
+                "resolved_harness": explicit_harness,
+                "binary": detected[explicit_harness]["path"],
+                "note": native_note if native_ok else f"CLI dispatch via {explicit_harness}",
+            }
+        if native_ok:
+            return {
+                **entry,
+                "reachable": True,
+                "route": "native",
+                "resolved_harness": host,
+                "binary": None,
+                "note": native_note,
+            }
+        return {
+            **entry,
+            "reachable": False,
+            "route": "unreachable",
+            "resolved_harness": explicit_harness,
+            "binary": None,
+            "note": f"requested harness {explicit_harness!r} CLI not found ({', '.join(HARNESSES[explicit_harness].binaries)})",
+        }
+
+    if native_ok:
+        cli_bin = detected.get(host, {}).get("path")
+        return {
+            **entry,
+            "reachable": True,
+            "route": "native",
+            "resolved_harness": host,
+            "binary": cli_bin,
+            "note": native_note,
+        }
+
+    provider_key = entry["provider"].lower()
+    candidates = PROVIDER_DEFAULT_HARNESSES.get(provider_key, ("pi", "cursor", "agy", "devin"))
+    for candidate in candidates:
+        if candidate in detected:
+            return {
+                **entry,
+                "reachable": True,
+                "route": "cli",
+                "resolved_harness": candidate,
+                "binary": detected[candidate]["path"],
+                "note": f"CLI dispatch via {candidate}",
+            }
+
+    tried = ", ".join(candidates)
+    return {
+        **entry,
+        "reachable": False,
+        "route": "unreachable",
+        "resolved_harness": None,
+        "binary": None,
+        "note": f"no installed CLI for provider {entry['provider']!r} (checked: {tried})",
+    }
+
+
+def build_command(
+    harness: str,
+    binary: str,
+    *,
+    provider: str,
+    model: str,
+    effort: str,
+    cwd: Path,
+    prompt_text: str,
+    role: str = "reviewer",
+    system_prompt_file: Path | None = None,
+    custom_command: list[str] | None = None,
+    out_file: Path | None = None,
+) -> tuple[list[str], str | None]:
+    """Build exact non-interactive (argv, stdin_text) for the target harness."""
+    combined_prompt = prompt_text
+    if system_prompt_file is not None and harness != "claude":
+        sys_body = system_prompt_file.read_text(encoding="utf-8").strip()
+        combined_prompt = f"{sys_body}\n\n---\n\n{prompt_text}"
+
+    if harness == "custom":
+        if not custom_command:
+            raise DispatchError("custom harness requires command template")
+        subs = {
+            "provider": provider,
+            "model": model,
+            "effort": effort,
+            "cwd": str(cwd),
+            "role": role,
+        }
+        argv = [binary]
+        for part in custom_command[1:]:
+            try:
+                argv.append(part.format(**subs))
+            except KeyError as exc:
+                raise DispatchError(f"unknown placeholder {exc} in custom command template") from exc
+        return argv, combined_prompt
+
+    is_default_model = model.lower() == "default"
+
+    if harness == "claude":
+        argv = [binary, "-p", "--no-session-persistence", "--output-format", "text"]
+        if not is_default_model:
+            argv.extend(["--model", model])
+        if effort:
+            argv.extend(["--effort", effort])
+        if system_prompt_file is not None:
+            argv.extend(["--append-system-prompt-file", str(system_prompt_file)])
+        if role in ("reviewer", "researcher"):
+            argv.extend(["--disallowedTools", "Agent,AskUserQuestion" + (",Edit,Write,MultiEdit,NotebookEdit" if role == "researcher" else "")])
+        return argv, prompt_text
+
+    if harness == "codex":
+        argv = [
+            binary,
+            "exec",
+            "-C",
+            str(cwd),
+            "--sandbox",
+            "read-only" if role in ("reviewer", "researcher") else "workspace-write",
+            "--ephemeral",
+            "--skip-git-repo-check",
+        ]
+        if not is_default_model:
+            argv.extend(["--model", model])
+        if effort:
+            argv.extend(["-c", f'model_reasoning_effort="{effort}"'])
+        if provider.lower() not in ("openai", "codex"):
+            argv.extend(["-c", f'model_provider="{provider}"'])
+        if out_file is not None:
+            argv.extend(["-o", str(out_file)])
+        argv.append("-")
+        return argv, combined_prompt
+
+    if harness == "agy":
+        argv = [binary, "-p", combined_prompt, "--output-format", "text"]
+        if not is_default_model:
+            argv.extend(["--model", model])
+        if effort:
+            argv.extend(["--effort", effort])
+        if role in ("reviewer", "researcher"):
+            argv.append("--sandbox")
+        return argv, None
+
+    if harness == "cursor":
+        argv = [binary, "-p", "--trust", "--output-format", "text"]
+        if not is_default_model:
+            argv.extend(["--model", model])
+        if role in ("reviewer", "researcher"):
+            argv.extend(["--mode", "ask"])
+        argv.append(combined_prompt)
+        return argv, None
+
+    if harness == "devin":
+        argv = [binary, "-p", "--respect-workspace-trust", "false"]
+        if not is_default_model:
+            argv.extend(["--model", model])
+        if role in ("reviewer", "researcher"):
+            argv.append("--sandbox")
+        argv.append(combined_prompt)
+        return argv, None
+
+    if harness == "pi":
+        argv = [binary, "-p", "--mode", "text"]
+        if not is_default_model:
+            argv.extend(["--provider", provider, "--model", model])
+        if effort:
+            argv.extend(["--thinking", effort])
+        if role in ("reviewer", "researcher"):
+            argv.extend(["--tools", "read,grep,find,ls,bash" if role == "reviewer" else "read,grep,find,ls"])
+        argv.append(combined_prompt)
+        return argv, None
+
+    if harness == "gemini":
+        argv = [binary, "--output-format", "text"]
+        if not is_default_model:
+            argv.extend(["-m", model])
+        argv.extend(["-p", combined_prompt])
+        return argv, None
+
+    raise DispatchError(f"unsupported harness: {harness}")
+
+
+def cmd_harnesses(args) -> int:
+    detected = detect_harnesses()
+    payload = {
+        name: {
+            "installed": name in detected,
+            "path": detected[name]["path"] if name in detected else None,
+            "providers": list(spec.providers),
+            "binaries": list(spec.binaries),
+            "description": spec.description,
+        }
+        for name, spec in HARNESSES.items()
+    }
+    if args.as_json:
+        print(json.dumps(payload, indent=2))
+        return 0
+    for name, meta in payload.items():
+        status = meta["path"] or "not found"
+        provs = ", ".join(meta["providers"])
+        print(f"{name:8s}  [{provs:14s}]  {status}")
+    return 0
+
+
+def cmd_check_pool(args) -> int:
+    try:
+        pool = load_pool(Path(args.settings).expanduser() if args.settings else None, args.pool_json)
+    except DispatchError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    detected = detect_harnesses()
+    entries = [resolve_entry_route(entry, detected, host=args.host or "") for entry in pool]
+    unreachable = [e for e in entries if not e["reachable"]]
+    could_not_test = [
+        f"{e['provider']}/{e['model']} ({e['note']})" for e in unreachable
+    ]
+    payload = {
+        "host": args.host or None,
+        "all_reachable": len(unreachable) == 0,
+        "entries": entries,
+        "unreachable": unreachable,
+        "could_not_test": could_not_test,
+    }
+    if args.as_json:
+        print(json.dumps(payload, indent=2))
+    else:
+        for e in entries:
+            flag = "OK" if e["reachable"] else "UNREACHABLE"
+            via = f"{e['route']}:{e['resolved_harness']}" if e["reachable"] else "none"
+            print(f"[{flag:11s}] {e['provider']}/{e['model']} ({e.get('effort') or 'default'}) -> {via} — {e['note']}")
+    return 0 if not unreachable else 1
+
+
+def _find_approved_entry(pool: list[dict[str, Any]], provider: str, model: str, harness: str) -> dict[str, Any]:
+    matches = [
+        e for e in pool
+        if e["provider"].lower() == provider.lower() and e["model"] == model
+    ]
+    if not matches:
+        raise DispatchError(
+            f"model {provider}/{model} is not in approved reviewer_pool; refusing to dispatch unapproved model"
+        )
+    if harness:
+        for m in matches:
+            if m.get("harness", "").lower() == harness.lower():
+                return m
+    return matches[0]
+
+
+def cmd_run(args) -> int:
+    try:
+        provider = _non_empty_str(args.provider, "--provider")
+        model = _non_empty_str(args.model, "--model")
+    except DispatchError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    effort = (args.effort or "").strip()
+    harness = (args.harness or "").strip().lower()
+    custom_command: list[str] | None = None
+
+    if args.settings:
+        try:
+            pool = load_pool(Path(args.settings).expanduser(), None)
+            approved = _find_approved_entry(pool, provider, model, harness)
+        except DispatchError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        if not effort and approved.get("effort"):
+            effort = approved["effort"]
+        if not harness and approved.get("harness"):
+            harness = approved["harness"]
+        if approved.get("command"):
+            custom_command = approved["command"]
+
+    if args.prompt_file:
+        try:
+            prompt_text = Path(args.prompt_file).expanduser().read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"error: cannot read --prompt-file: {exc}", file=sys.stderr)
+            return 2
+    elif args.prompt is not None:
+        prompt_text = args.prompt
+    elif not sys.stdin.isatty():
+        prompt_text = sys.stdin.read()
+    else:
+        print("error: provide --prompt, --prompt-file, or stdin", file=sys.stderr)
+        return 2
+
+    if not prompt_text.strip():
+        print("error: prompt is empty", file=sys.stderr)
+        return 2
+
+    cwd = Path(args.cwd).expanduser().resolve() if args.cwd else Path.cwd()
+    if not cwd.is_dir():
+        print(f"error: --cwd is not a directory: {cwd}", file=sys.stderr)
+        return 2
+
+    sys_prompt_path: Path | None = None
+    if args.system_prompt_file:
+        sys_prompt_path = Path(args.system_prompt_file).expanduser().resolve()
+        if not sys_prompt_path.is_file():
+            print(f"error: --system-prompt-file not found: {sys_prompt_path}", file=sys.stderr)
+            return 2
+
+    detected = detect_harnesses()
+    entry: dict[str, Any] = {"provider": provider, "model": model}
+    if effort:
+        entry["effort"] = effort
+    if harness:
+        entry["harness"] = harness
+    if custom_command:
+        entry["command"] = custom_command
+
+    try:
+        normalized = normalize_pool_entry(entry, "dispatch")
+    except DispatchError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    route = resolve_entry_route(normalized, detected, host="")
+    if not route["reachable"] or not route["binary"]:
+        print(f"error: {route['note']}", file=sys.stderr)
+        return 2
+
+    resolved_harness = route["resolved_harness"]
+    binary = route["binary"]
+    out_path = Path(args.out).expanduser().resolve() if args.out else None
+    if out_path is not None and not args.dry_run:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        argv, stdin_text = build_command(
+            resolved_harness,
+            binary,
+            provider=provider,
+            model=model,
+            effort=effort,
+            cwd=cwd,
+            prompt_text=prompt_text,
+            role=args.role,
+            system_prompt_file=sys_prompt_path,
+            custom_command=custom_command,
+            out_file=out_path if resolved_harness == "codex" else None,
+        )
+    except DispatchError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.dry_run:
+        preview = {
+            "harness": resolved_harness,
+            "provider": provider,
+            "model": model,
+            "effort": effort or None,
+            "role": args.role,
+            "vector": args.vector or None,
+            "cwd": str(cwd),
+            "binary": binary,
+            "argv": argv,
+            "uses_stdin": stdin_text is not None,
+        }
+        if args.as_json:
+            print(json.dumps(preview, indent=2))
+        else:
+            print(" ".join(argv))
+        return 0
+
+    started = time.monotonic()
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        proc = subprocess.run(
+            argv,
+            input=stdin_text,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=args.timeout,
+        )
+        timed_out = False
+        exit_code = proc.returncode
+        stdout = proc.stdout
+        stderr = proc.stderr
+    except subprocess.TimeoutExpired as exc:
+        timed_out = True
+        exit_code = 124
+        stdout = exc.stdout if isinstance(exc.stdout, str) else (exc.stdout.decode("utf-8", "replace") if exc.stdout else "")
+        stderr = (exc.stderr if isinstance(exc.stderr, str) else (exc.stderr.decode("utf-8", "replace") if exc.stderr else "")) + f"\ntimed out after {args.timeout}s"
+
+    duration_s = round(time.monotonic() - started, 3)
+
+    # Codex writes clean last message to -o out_path; otherwise write stdout to out_path.
+    output_text = stdout
+    if out_path is not None:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        if resolved_harness == "codex" and out_path.is_file() and out_path.read_text(encoding="utf-8").strip():
+            output_text = out_path.read_text(encoding="utf-8")
+        else:
+            out_path.write_text(stdout, encoding="utf-8")
+
+    receipt = {
+        "timestamp": timestamp,
+        "harness": resolved_harness,
+        "provider": provider,
+        "model": model,
+        "effort": effort or None,
+        "role": args.role,
+        "vector": args.vector or None,
+        "cwd": str(cwd),
+        "binary": binary,
+        "argv": argv,
+        "exit_code": exit_code,
+        "timed_out": timed_out,
+        "duration_s": duration_s,
+        "stdout_len": len(output_text),
+        "out_file": str(out_path) if out_path else None,
+    }
+
+    receipt_path: Path | None = None
+    if args.receipt:
+        receipt_path = Path(args.receipt).expanduser().resolve()
+    elif out_path is not None:
+        receipt_path = out_path.with_suffix(out_path.suffix + ".receipt.json")
+    if receipt_path is not None:
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    if args.as_json:
+        print(json.dumps({**receipt, "output": output_text, "stderr": stderr}, indent=2))
+    else:
+        if output_text:
+            sys.stdout.write(output_text)
+            if not output_text.endswith("\n"):
+                sys.stdout.write("\n")
+        if stderr and exit_code != 0:
+            sys.stderr.write(stderr)
+    return 0 if exit_code == 0 else 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Cross-harness agent dispatcher and reviewer_pool reachability checker."
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_harnesses = sub.add_parser("harnesses", help="list supported harnesses and detected CLI binaries")
+    p_harnesses.add_argument("--json", action="store_true", dest="as_json")
+
+    p_check = sub.add_parser("check-pool", help="check reachability of every entry in reviewer_pool")
+    p_check.add_argument("--settings", help="path to settings.json (default: ~/.config/astack/settings.json)")
+    p_check.add_argument("--pool-json", help="inline JSON list or settings object")
+    p_check.add_argument("--host", help="current host harness name (claude|codex|agy|cursor|devin|pi)")
+    p_check.add_argument("--json", action="store_true", dest="as_json")
+
+    p_run = sub.add_parser("run", help="run one blind reviewer or worker via an approved harness CLI")
+    p_run.add_argument("--provider", required=True, help="model provider (e.g. anthropic, openai, google, cursor, devin)")
+    p_run.add_argument("--model", required=True, help="model identifier")
+    p_run.add_argument("--effort", default="", help="reasoning effort (e.g. low, medium, high)")
+    p_run.add_argument("--harness", default="", help="target harness CLI (claude|codex|agy|cursor|devin|pi|gemini|custom)")
+    p_run.add_argument("--role", choices=("lead", "worker", "reviewer", "researcher"), default="reviewer")
+    p_run.add_argument("--vector", default="", help="assigned review vector (recorded in receipt)")
+    p_run.add_argument("--cwd", help="working directory / isolated worktree path")
+    p_run.add_argument("--prompt", help="inline prompt text")
+    p_run.add_argument("--prompt-file", help="file containing prompt text")
+    p_run.add_argument("--system-prompt-file", help="agent instructions file (e.g. agents/astack-reviewer.md)")
+    p_run.add_argument("--settings", help="settings.json path to enforce reviewer_pool approval")
+    p_run.add_argument("--out", help="write reviewer/worker response to this file")
+    p_run.add_argument("--receipt", help="write structured JSON dispatch receipt to this file")
+    p_run.add_argument("--timeout", type=float, help="optional timeout in seconds")
+    p_run.add_argument("--dry-run", action="store_true", help="print resolved command without executing")
+    p_run.add_argument("--json", action="store_true", dest="as_json")
+
+    args = parser.parse_args(argv)
+    if args.command == "harnesses":
+        return cmd_harnesses(args)
+    if args.command == "check-pool":
+        return cmd_check_pool(args)
+    if args.command == "run":
+        return cmd_run(args)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

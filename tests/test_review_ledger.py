@@ -1,4 +1,6 @@
-"""Behaviour tests for bin/astack-review-ledger using hand-worked expected values."""
+"""Behaviour tests for bin/astack-review-ledger: blocking-only estimates, fix-equivalence overlap checks,
+cautious k=2 hypergeometric upper bounds, k>=3 Burnham-Overton M_h jackknife, risky landing gate,
+cross-harness metadata, unreachable models, and planted-bug stopping verification."""
 import json
 import subprocess
 import sys
@@ -7,454 +9,450 @@ from pathlib import Path
 
 BIN = Path(__file__).resolve().parent.parent / "bin" / "astack-review-ledger"
 
-POOL_3 = [
-    {"provider": "anthropic", "model": "claude-opus-4-6", "effort": "high"},
-    {"provider": "openai", "model": "gpt-5.4", "effort": "high"},
-    {"provider": "google", "model": "gemini-2.5-pro", "effort": "high"},
+POOL_4 = [
+    {"provider": "anthropic", "model": "claude-opus-4-6", "effort": "high", "harness": "claude"},
+    {"provider": "openai", "model": "gpt-5.4", "effort": "high", "harness": "codex"},
+    {"provider": "google", "model": "gemini-2.5-pro", "effort": "high", "harness": "agy"},
+    {"provider": "anthropic", "model": "claude-sonnet-4-6", "effort": "medium", "harness": "pi"},
 ]
-
-POOL_2 = POOL_3[:2]
-POOL_1 = POOL_3[:1]
 
 
 def run_ledger(payload, *extra_args):
-    proc = subprocess.run(
-        [sys.executable, str(BIN), "-", *extra_args],
-        input=json.dumps(payload),
+    text = payload if isinstance(payload, str) else json.dumps(payload)
+    return subprocess.run(
+        [sys.executable, "-B", str(BIN), "-", *extra_args],
+        input=text,
         capture_output=True,
         text=True,
     )
-    return proc
 
 
 def eval_json(payload):
-    proc = run_ledger(payload, "--json")
-    if proc.returncode != 0:
-        raise AssertionError(f"unexpected exit {proc.returncode}: {proc.stderr}")
-    return json.loads(proc.stdout)
+    res = run_ledger(payload, "--json")
+    assert res.returncode == 0, f"unexpected exit {res.returncode}: {res.stderr}"
+    return json.loads(res.stdout)
 
 
-def rcs(prefix, count):
-    return [f"{prefix}-{i}" for i in range(1, count + 1)]
+def eq_checks(vector, rcs):
+    """Build fix-verified equivalence checks for a collection of shared blocking root causes."""
+    return [
+        {
+            "vector": vector,
+            "root_cause": rc,
+            "reproductions": [f"repro-{rc}-a.py", f"repro-{rc}-b.py"],
+            "fix_verified": True,
+            "evidence": f"minimal fix for {rc} makes both reproductions pass",
+        }
+        for rc in rcs
+    ]
 
 
 class ReviewLedgerTest(unittest.TestCase):
-    def test_low_risk_one_reviewer_no_verified_bug_stops_clean(self):
+    def test_low_risk_clean_single_review_stops_even_with_minor_findings(self):
+        # Point 1: Minor suggestions/nits are reported separately and NEVER prevent a clean low-risk stop.
         data = eval_json({
-            "reviewer_pool": POOL_3,
-            "vectors": [{"name": "cli-help", "risk": "low"}],
+            "worker_model": {"provider": "anthropic", "model": "claude-sonnet-4-6", "effort": "medium"},
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "docs-cli", "risk": "low"}],
             "reviews": [
-                {"vector": "cli-help", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 2}
+                {
+                    "vector": "docs-cli",
+                    "provider": "anthropic",
+                    "model": "claude-opus-4-6",
+                    "verified": [
+                        {"root_cause": "nit-comment", "severity": "nit"},
+                        {"root_cause": "sug-rename", "severity": "suggestion"},
+                    ],
+                    "minor": ["nit-spacing"],
+                    "dropped": 1,
+                },
             ],
         })
         vec = data["vectors"][0]
         self.assertEqual(vec["action"], "stop")
         self.assertEqual(vec["reason"], "clean_single_review")
-        self.assertEqual(vec["status"], "STOPPED (clean single review)")
-        self.assertIsNone(vec["estimate"])
-        self.assertEqual(data["overall"], "complete")
+        self.assertEqual(vec["verified_count"], 0)
+        self.assertEqual(vec["minor_count"], 3)
+        self.assertEqual(vec["dropped_count"], 1)
+        self.assertFalse(vec["landing_blocked"])
 
-    def test_low_risk_one_reviewer_one_verified_bug_adds_second_model(self):
+    def test_low_risk_one_blocking_bug_adds_second_model(self):
         data = eval_json({
-            "reviewer_pool": POOL_3,
-            "vectors": [{"name": "cli-help", "risk": "low"}],
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "cli", "risk": "low"}],
             "reviews": [
-                {"vector": "cli-help", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1"], "dropped": 0}
+                {"vector": "cli", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-exit-code"], "dropped": 0},
             ],
         })
         vec = data["vectors"][0]
         self.assertEqual(vec["action"], "continue")
         self.assertEqual(vec["reason"], "verified_bug_on_low_risk_vector")
         self.assertEqual(vec["next_models"][0]["model"], "gpt-5.4")
-        self.assertEqual(data["overall"], "continue")
 
-    def test_low_risk_clean_own_reviewer_but_external_verified_bug_adds_second_model(self):
+    def test_low_risk_clean_own_reviewer_but_external_blocking_bug_adds_second_model(self):
         data = eval_json({
-            "reviewer_pool": POOL_3,
+            "reviewer_pool": POOL_4,
             "vectors": [
-                {"name": "cli-help", "risk": "low"},
-                {"name": "auth", "risk": "risky"},
+                {"name": "cli", "risk": "low"},
+                {"name": "persistence", "risk": "risky"},
             ],
             "reviews": [
-                {"vector": "cli-help", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 0},
+                {"vector": "cli", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 0},
                 {
-                    "vector": "auth",
+                    "vector": "persistence",
                     "provider": "openai",
                     "model": "gpt-5.4",
-                    "verified": [{"root_cause": "rc-cross-1", "vector": "cli-help"}],
+                    "verified": [
+                        {"root_cause": "rc-wal", "vector": "persistence", "severity": "blocking"},
+                        {"root_cause": "rc-cli-flag", "vector": "cli", "severity": "blocking"},
+                    ],
                     "dropped": 0,
                 },
             ],
         })
-        by_name = {v["name"]: v for v in data["vectors"]}
-        cli = by_name["cli-help"]
-        self.assertEqual(cli["action"], "continue")
-        self.assertEqual(cli["reason"], "external_verified_bug_on_low_risk_vector")
-        self.assertEqual(cli["verified_root_causes"], ["rc-cross-1"])
-        self.assertEqual(cli["next_models"][0]["model"], "gpt-5.4")
+        by_vec = {v["name"]: v for v in data["vectors"]}
+        self.assertEqual(by_vec["cli"]["action"], "continue")
+        self.assertEqual(by_vec["cli"]["reason"], "external_verified_bug_on_low_risk_vector")
+        self.assertEqual(by_vec["cli"]["verified_root_causes"], ["rc-cli-flag"])
 
     def test_risky_vector_with_one_reviewer_never_stops_and_adds_second_model(self):
         data = eval_json({
-            "reviewer_pool": POOL_3,
+            "reviewer_pool": POOL_4,
             "vectors": [{"name": "concurrency", "risk": "risky", "triggers": ["concurrency"]}],
             "reviews": [
-                {"vector": "concurrency", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 0}
+                {"vector": "concurrency", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 0},
             ],
         })
         vec = data["vectors"][0]
         self.assertEqual(vec["action"], "continue")
         self.assertEqual(vec["reason"], "risky_vector_requires_second_model")
-        self.assertEqual(vec["next_models"][0]["model"], "gpt-5.4")
 
-    def test_chapman_n1_6_n2_5_m_3_continues_with_N_9_5_unfound_1_5(self):
-        shared = rcs("shared", 3)
-        only1 = rcs("only1", 3)
-        only2 = rcs("only2", 2)
+    def test_k2_cautious_upper_bound_refuses_premature_stop_on_small_counts(self):
+        # Point 3: With n1=8, n2=6, m=5, Chapman point unfound is 0.5 (coin flip),
+        # but exact hypergeometric 95% upper bound is 7 >= 1 -> MUST CONTINUE (adds 3rd reviewer for Jackknife!).
+        shared = [f"s{i}" for i in range(5)]
+        r1 = shared + ["a1", "a2", "a3"]
+        r2 = shared + ["b1"]
         data = eval_json({
-            "reviewer_pool": POOL_3,
-            "vectors": [{"name": "persistence", "risk": "risky"}],
-            "reviews": [
-                {"vector": "persistence", "provider": "anthropic", "model": "claude-opus-4-6", "verified": shared + only1, "dropped": 1},
-                {"vector": "persistence", "provider": "openai", "model": "gpt-5.4", "verified": shared + only2, "dropped": 0},
-            ],
-        })
-        vec = data["vectors"][0]
-        self.assertEqual(vec["action"], "continue")
-        self.assertEqual(vec["estimate"]["n1"], 6)
-        self.assertEqual(vec["estimate"]["n2"], 5)
-        self.assertEqual(vec["estimate"]["m"], 3)
-        self.assertAlmostEqual(vec["estimate"]["estimated_total"], 9.5)
-        self.assertAlmostEqual(vec["estimate"]["estimated_unfound"], 1.5)
-        self.assertTrue(vec["estimate"]["informative"])
-        self.assertEqual(vec["next_models"][0]["model"], "gemini-2.5-pro")
-
-    def test_chapman_n1_8_n2_6_m_5_stops_with_N_9_5_unfound_0_5(self):
-        # Exercises incremental union too: reviewer 1 (5) + reviewer 2 (3 new) -> n1=8; reviewer 3 finds 5 shared + 1 new -> n2=6, m=5
-        r1 = rcs("rc", 5)
-        r2 = ["rc-6", "rc-7", "rc-8"]
-        r3 = ["rc-1", "rc-2", "rc-3", "rc-4", "rc-6", "rc-9"]
-        data = eval_json({
-            "reviewer_pool": POOL_3,
-            "vectors": [{"name": "persistence", "risk": "risky"}],
-            "reviews": [
-                {"vector": "persistence", "provider": "anthropic", "model": "claude-opus-4-6", "verified": r1, "dropped": 0},
-                {"vector": "persistence", "provider": "openai", "model": "gpt-5.4", "verified": r2, "dropped": 0},
-                {"vector": "persistence", "provider": "google", "model": "gemini-2.5-pro", "verified": r3, "dropped": 0},
-            ],
-        })
-        vec = data["vectors"][0]
-        self.assertEqual(vec["action"], "stop")
-        self.assertEqual(vec["status"], "STOPPED (estimate)")
-        self.assertEqual(vec["estimate"]["n1"], 8)
-        self.assertEqual(vec["estimate"]["n2"], 6)
-        self.assertEqual(vec["estimate"]["m"], 5)
-        self.assertAlmostEqual(vec["estimate"]["estimated_total"], 9.5)
-        self.assertAlmostEqual(vec["estimate"]["estimated_unfound"], 0.5)
-        self.assertTrue(vec["estimate"]["informative"])
-
-    def test_chapman_n1_6_n2_4_m_4_stops_nothing_new(self):
-        r1 = rcs("rc", 6)
-        r2 = r1[:4]
-        data = eval_json({
-            "reviewer_pool": POOL_3,
+            "reviewer_pool": POOL_4,
             "vectors": [{"name": "auth", "risk": "risky"}],
+            "equivalence_checks": eq_checks("auth", shared),
             "reviews": [
                 {"vector": "auth", "provider": "anthropic", "model": "claude-opus-4-6", "verified": r1, "dropped": 0},
                 {"vector": "auth", "provider": "openai", "model": "gpt-5.4", "verified": r2, "dropped": 0},
             ],
         })
         vec = data["vectors"][0]
-        self.assertEqual(vec["action"], "stop")
-        self.assertEqual(vec["estimate"]["n1"], 6)
-        self.assertEqual(vec["estimate"]["n2"], 4)
-        self.assertEqual(vec["estimate"]["m"], 4)
-        self.assertAlmostEqual(vec["estimate"]["estimated_total"], 6.0)
-        self.assertAlmostEqual(vec["estimate"]["estimated_unfound"], 0.0)
-        self.assertTrue(vec["estimate"]["informative"])
+        self.assertEqual(vec["action"], "continue")
+        self.assertEqual(vec["reason"], "cautious_upper_at_least_one")
+        est = vec["estimate"]
+        self.assertEqual(est["estimator"], "chapman_hypergeometric_95")
+        self.assertAlmostEqual(est["estimated_unfound"], 0.5)
+        self.assertGreaterEqual(est["estimated_unfound_upper"], 5.0)
+        self.assertEqual(vec["next_models"][0]["model"], "gemini-2.5-pro")
 
-    def test_chapman_n1_3_n2_2_m_0_continues_with_N_11_unfound_6(self):
+    def test_k2_identical_small_finds_still_requires_third_reviewer(self):
+        # Even when 2 reviewers find the exact same 2 bugs (n1=2, n2=2, m=2), exact hypergeometric
+        # 95% upper bound is 4 unfound bugs >= 1 -> does NOT stop prematurely at k=2!
+        shared = ["rc-1", "rc-2"]
         data = eval_json({
-            "reviewer_pool": POOL_3,
+            "reviewer_pool": POOL_4,
             "vectors": [{"name": "seams", "risk": "risky"}],
+            "equivalence_checks": eq_checks("seams", shared),
             "reviews": [
-                {"vector": "seams", "provider": "anthropic", "model": "claude-opus-4-6", "verified": rcs("a", 3), "dropped": 0},
-                {"vector": "seams", "provider": "openai", "model": "gpt-5.4", "verified": rcs("b", 2), "dropped": 0},
+                {"vector": "seams", "provider": "anthropic", "model": "claude-opus-4-6", "verified": shared, "dropped": 0},
+                {"vector": "seams", "provider": "openai", "model": "gpt-5.4", "verified": shared, "dropped": 0},
             ],
         })
         vec = data["vectors"][0]
         self.assertEqual(vec["action"], "continue")
-        self.assertEqual(vec["estimate"]["n1"], 3)
-        self.assertEqual(vec["estimate"]["n2"], 2)
-        self.assertEqual(vec["estimate"]["m"], 0)
-        self.assertAlmostEqual(vec["estimate"]["estimated_total"], 11.0)
-        self.assertAlmostEqual(vec["estimate"]["estimated_unfound"], 6.0)
-        self.assertFalse(vec["estimate"]["informative"])
+        self.assertEqual(vec["estimate"]["estimated_unfound"], 0.0)
+        self.assertGreaterEqual(vec["estimate"]["estimated_unfound_upper"], 1.0)
 
-    def test_chapman_n1_0_n2_0_m_0_stops_both_found_nothing(self):
+    def test_k2_both_zero_blocking_stops_cleanly(self):
+        # Both independent reviewers found 0 blocking bugs (minor nits don't prevent stop)
         data = eval_json({
-            "reviewer_pool": POOL_3,
-            "vectors": [{"name": "concurrency", "risk": "risky"}],
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "seams", "risk": "risky"}],
             "reviews": [
-                {"vector": "concurrency", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 1},
-                {"vector": "concurrency", "provider": "openai", "model": "gpt-5.4", "verified": [], "dropped": 0},
+                {"vector": "seams", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "minor": ["nit-1"], "dropped": 2},
+                {"vector": "seams", "provider": "openai", "model": "gpt-5.4", "verified": [], "minor": ["nit-2"], "dropped": 1},
             ],
         })
         vec = data["vectors"][0]
         self.assertEqual(vec["action"], "stop")
         self.assertEqual(vec["reason"], "both_found_nothing")
-        self.assertEqual(vec["estimate"]["n1"], 0)
-        self.assertEqual(vec["estimate"]["n2"], 0)
-        self.assertEqual(vec["estimate"]["m"], 0)
-        self.assertAlmostEqual(vec["estimate"]["estimated_total"], 0.0)
-        self.assertAlmostEqual(vec["estimate"]["estimated_unfound"], 0.0)
-        self.assertTrue(vec["estimate"]["informative"])
+        self.assertEqual(vec["estimate"]["estimated_unfound_upper"], 0.0)
 
-    def test_chapman_one_sided_zero_is_uninformative_and_continues(self):
-        # Case A: n1=2, n2=0, m=0 -> unfound=0 by formula, but uninformative -> continue
-        data_a = eval_json({
-            "reviewer_pool": POOL_3,
-            "vectors": [{"name": "auth", "risk": "risky"}],
-            "reviews": [
-                {"vector": "auth", "provider": "anthropic", "model": "claude-opus-4-6", "verified": rcs("a", 2), "dropped": 0},
-                {"vector": "auth", "provider": "openai", "model": "gpt-5.4", "verified": [], "dropped": 0},
-            ],
-        })
-        vec_a = data_a["vectors"][0]
-        self.assertEqual(vec_a["action"], "continue")
-        self.assertAlmostEqual(vec_a["estimate"]["estimated_total"], 2.0)
-        self.assertAlmostEqual(vec_a["estimate"]["estimated_unfound"], 0.0)
-        self.assertFalse(vec_a["estimate"]["informative"])
-
-        # Case B: n1=0, n2=2, m=0 -> unfound=0 by formula, but uninformative -> continue
-        data_b = eval_json({
-            "reviewer_pool": POOL_3,
-            "vectors": [{"name": "auth", "risk": "risky"}],
-            "reviews": [
-                {"vector": "auth", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 0},
-                {"vector": "auth", "provider": "openai", "model": "gpt-5.4", "verified": rcs("b", 2), "dropped": 0},
-            ],
-        })
-        vec_b = data_b["vectors"][0]
-        self.assertEqual(vec_b["action"], "continue")
-        self.assertAlmostEqual(vec_b["estimate"]["estimated_total"], 2.0)
-        self.assertAlmostEqual(vec_b["estimate"]["estimated_unfound"], 0.0)
-        self.assertFalse(vec_b["estimate"]["informative"])
-
-    def test_pool_exhausted_while_vector_cannot_stop_flags_with_estimate(self):
-        shared = rcs("s", 3)
+    def test_k2_large_complete_overlap_stops_when_exact_hypergeometric_upper_below_one(self):
+        # At n1=20, n2=20, m=20, P(M=20 | N=21) = 1/21 = 0.0476 < 0.05 -> exact upper unfound = 0 < 1 -> stops!
+        shared = [f"rc-{i}" for i in range(20)]
         data = eval_json({
-            "reviewer_pool": POOL_2,
-            "vectors": [{"name": "concurrency", "risk": "risky"}],
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "core", "risk": "risky"}],
+            "equivalence_checks": eq_checks("core", shared),
             "reviews": [
-                {"vector": "concurrency", "provider": "anthropic", "model": "claude-opus-4-6", "verified": shared + rcs("a", 3), "dropped": 1},
-                {"vector": "concurrency", "provider": "openai", "model": "gpt-5.4", "verified": shared + rcs("b", 2), "dropped": 2},
+                {"vector": "core", "provider": "anthropic", "model": "claude-opus-4-6", "verified": shared, "dropped": 0},
+                {"vector": "core", "provider": "openai", "model": "gpt-5.4", "verified": shared, "dropped": 0},
             ],
         })
         vec = data["vectors"][0]
-        self.assertEqual(vec["action"], "flag")
-        self.assertEqual(vec["status"], "POOL EXHAUSTED")
-        self.assertAlmostEqual(vec["estimate"]["estimated_total"], 9.5)
-        self.assertAlmostEqual(vec["estimate"]["estimated_unfound"], 1.5)
-        self.assertEqual(data["overall"], "flagged")
-        self.assertEqual(len(data["pool_exhausted"]), 1)
+        self.assertEqual(vec["action"], "stop")
+        self.assertEqual(vec["estimate"]["estimated_unfound_upper"], 0.0)
 
-    def test_single_model_pool_flags_any_vector_needing_second_model(self):
+    def test_k2_zero_overlap_is_uninformative_and_unbounded(self):
         data = eval_json({
-            "reviewer_pool": POOL_1,
-            "vectors": [
-                {"name": "concurrency", "risk": "risky"},
-                {"name": "cli-help", "risk": "low"},
-                {"name": "clean-low", "risk": "low"},
-            ],
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "persistence", "risk": "risky"}],
             "reviews": [
-                {"vector": "concurrency", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 0},
-                {"vector": "cli-help", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1"], "dropped": 0},
-                {"vector": "clean-low", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 0},
-            ],
-        })
-        by_name = {v["name"]: v for v in data["vectors"]}
-        self.assertEqual(by_name["concurrency"]["action"], "flag")
-        self.assertEqual(by_name["concurrency"]["status"], "POOL EXHAUSTED")
-        self.assertEqual(by_name["cli-help"]["action"], "flag")
-        self.assertEqual(by_name["cli-help"]["status"], "POOL EXHAUSTED")
-        self.assertEqual(by_name["clean-low"]["action"], "stop")
-        self.assertEqual(data["overall"], "flagged")
-        self.assertEqual({x["vector"] for x in data["pool_exhausted"]}, {"concurrency", "cli-help"})
-
-    def test_prefers_non_worker_model_and_renders_coverage_map_and_lanes_lines(self):
-        payload = {
-            "target": "lane/auth@deadbeef",
-            "worker_model": {"provider": "anthropic", "model": "claude-opus-4-6", "effort": "high"},
-            "reviewer_pool": POOL_2,
-            "vectors": [
-                {"name": "auth", "risk": "risky", "triggers": ["auth/security"]},
-                {"name": "cli", "risk": "low"},
-                {"name": "unassigned-vec", "risk": "low", "could_not_test": ["no live IDP sandbox"]},
-            ],
-            "reviews": [
-                {"vector": "auth", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1", "rc-2"], "dropped": 1},
-                {"vector": "cli", "provider": "openai", "model": "gpt-5.4", "verified": [], "dropped": 0},
-            ],
-        }
-        data = eval_json(payload)
-        by_name = {v["name"]: v for v in data["vectors"]}
-        # Worker used claude-opus-4-6, so next recommended model on auth and unassigned-vec must be gpt-5.4
-        self.assertEqual(by_name["auth"]["next_models"][0]["model"], "gpt-5.4")
-        self.assertEqual(by_name["unassigned-vec"]["next_models"][0]["model"], "gpt-5.4")
-        self.assertEqual(data["not_assigned"], ["unassigned-vec"])
-
-        md = run_ledger(payload, "--markdown")
-        self.assertEqual(md.returncode, 0, md.stderr)
-        self.assertIn("## Coverage map (`lane/auth@deadbeef`)", md.stdout)
-        self.assertIn("NOT ASSIGNED\n- unassigned-vec", md.stdout)
-        self.assertIn("POOL EXHAUSTED\n- none", md.stdout)
-        self.assertIn("COULD NOT TEST\n- unassigned-vec: no live IDP sandbox", md.stdout)
-
-        lanes = run_ledger(payload, "--lanes")
-        self.assertEqual(lanes.returncode, 0, lanes.stderr)
-        self.assertIn("vector=auth risk=risky model=anthropic/claude-opus-4-6 verified=2 dropped=1", lanes.stdout)
-        self.assertIn("vector=cli risk=low model=openai/gpt-5.4 verified=0 dropped=0", lanes.stdout)
-
-    def test_boundary_validation_rejects_retired_or_unapproved_inputs_with_exit_two(self):
-        # 1. Retired roles.reviewer rejected (yagni: no fallback)
-        res_old = run_ledger({
-            "roles": {"reviewer": {"provider": "anthropic", "model": "claude-opus-4-6"}},
-            "reviewer_pool": POOL_1,
-            "vectors": [{"name": "v", "risk": "low"}],
-        })
-        self.assertEqual(res_old.returncode, 2)
-
-        # 2. Single-object reviewer_pool rejected (must be a list)
-        res_obj = run_ledger({
-            "reviewer_pool": {"provider": "anthropic", "model": "claude-opus-4-6"},
-            "vectors": [{"name": "v", "risk": "low"}],
-        })
-        self.assertEqual(res_obj.returncode, 2)
-
-        # 3. Unapproved model in reviews rejected
-        res_unapproved = run_ledger({
-            "reviewer_pool": POOL_1,
-            "vectors": [{"name": "v", "risk": "low"}],
-            "reviews": [{"vector": "v", "provider": "openai", "model": "gpt-5.4", "verified": [], "dropped": 0}],
-        })
-        self.assertEqual(res_unapproved.returncode, 2)
-
-        # 4. Invalid risk rejected
-        res_risk = run_ledger({
-            "reviewer_pool": POOL_1,
-            "vectors": [{"name": "v", "risk": "medium"}],
-        })
-        self.assertEqual(res_risk.returncode, 2)
-
-        # 5. Unknown vector in cross-vector finding rejected
-        res_vec = run_ledger({
-            "reviewer_pool": POOL_1,
-            "vectors": [{"name": "v", "risk": "low"}],
-            "reviews": [
-                {
-                    "vector": "v",
-                    "provider": "anthropic",
-                    "model": "claude-opus-4-6",
-                    "verified": [{"root_cause": "rc-1", "vector": "ghost"}],
-                    "dropped": 0,
-                }
-            ],
-        })
-        self.assertEqual(res_vec.returncode, 2)
-
-    def test_repeated_model_on_one_vector_cannot_fake_saturation(self):
-        # Probe: sonnet (2 bugs) -> gpt (1 different bug) -> sonnet again (re-finds its own 2 bugs)
-        # Must NOT return stop: repeat run is excluded from Chapman, so distinct models have n1=2, n2=1, m=0 -> N=5, unfound=2.
-        base_reviews = [
-            {"vector": "concurrency", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1", "rc-2"], "dropped": 0},
-            {"vector": "concurrency", "provider": "openai", "model": "gpt-5.4", "verified": ["rc-3"], "dropped": 0},
-            {"vector": "concurrency", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1", "rc-2"], "dropped": 0},
-        ]
-        # With a 3rd unused model in pool -> continue (add gemini)
-        data_3 = eval_json({
-            "reviewer_pool": POOL_3,
-            "vectors": [{"name": "concurrency", "risk": "risky"}],
-            "reviews": base_reviews,
-        })
-        vec_3 = data_3["vectors"][0]
-        self.assertEqual(vec_3["action"], "continue")
-        self.assertEqual(vec_3["estimate"]["n1"], 2)
-        self.assertEqual(vec_3["estimate"]["n2"], 1)
-        self.assertEqual(vec_3["estimate"]["m"], 0)
-        self.assertAlmostEqual(vec_3["estimate"]["estimated_total"], 5.0)
-        self.assertAlmostEqual(vec_3["estimate"]["estimated_unfound"], 2.0)
-        self.assertEqual(vec_3["next_models"][0]["model"], "gemini-2.5-pro")
-        self.assertTrue(any("duplicate_model_on_vector" in v for v in vec_3["rule_violations"]))
-
-        # With only those 2 models in pool -> flag POOL EXHAUSTED (never stop)
-        data_2 = eval_json({
-            "reviewer_pool": POOL_2,
-            "vectors": [{"name": "concurrency", "risk": "risky"}],
-            "reviews": base_reviews,
-        })
-        vec_2 = data_2["vectors"][0]
-        self.assertEqual(vec_2["action"], "flag")
-        self.assertEqual(vec_2["status"], "POOL EXHAUSTED")
-        self.assertTrue(any("duplicate_model_on_vector" in v for v in vec_2["rule_violations"]))
-
-        # Even if two distinct models had overlapped, a repeat run uncovering a brand-new bug prevents stopping
-        data_new = eval_json({
-            "reviewer_pool": POOL_3,
-            "vectors": [{"name": "concurrency", "risk": "risky"}],
-            "reviews": [
-                {"vector": "concurrency", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1", "rc-2"], "dropped": 0},
-                {"vector": "concurrency", "provider": "openai", "model": "gpt-5.4", "verified": ["rc-1", "rc-2"], "dropped": 0},
-                {"vector": "concurrency", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1", "rc-2", "rc-new"], "dropped": 0},
-            ],
-        })
-        self.assertEqual(data_new["vectors"][0]["action"], "continue")
-        self.assertEqual(data_new["vectors"][0]["reason"], "unconfirmed_findings_from_repeat_run")
-
-    def test_worker_only_low_risk_review_cannot_stop_when_non_worker_model_is_available(self):
-        # Probe: worker=haiku, pool=[sonnet, haiku], low-risk vector reviewed only by haiku (0v) -> MUST continue (add sonnet)
-        pool_sh = [
-            {"provider": "anthropic", "model": "sonnet", "effort": "medium"},
-            {"provider": "anthropic", "model": "haiku", "effort": "medium"},
-        ]
-        data = eval_json({
-            "worker_model": {"provider": "anthropic", "model": "haiku", "effort": "medium"},
-            "reviewer_pool": pool_sh,
-            "vectors": [{"name": "cli", "risk": "low"}],
-            "reviews": [
-                {"vector": "cli", "provider": "anthropic", "model": "haiku", "verified": [], "dropped": 0},
+                {"vector": "persistence", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["a1", "a2"], "dropped": 0},
+                {"vector": "persistence", "provider": "openai", "model": "gpt-5.4", "verified": ["b1"], "dropped": 0},
             ],
         })
         vec = data["vectors"][0]
         self.assertEqual(vec["action"], "continue")
-        self.assertEqual(vec["reason"], "non_worker_model_required")
-        self.assertFalse(vec["non_worker_model_used"])
-        self.assertEqual(vec["next_models"][0]["model"], "sonnet")
-        self.assertTrue(any("worker_model_only" in v for v in vec["rule_violations"]))
+        self.assertEqual(vec["reason"], "uninformative_no_verified_overlap")
+        self.assertIsNone(vec["estimate"]["estimated_unfound_upper"])
 
-        # Once sonnet (non-worker) also reviews cleanly -> stops via Chapman (n1=0, n2=0, m=0)
-        data_after = eval_json({
-            "worker_model": {"provider": "anthropic", "model": "haiku", "effort": "medium"},
+    def test_point_2_unverified_overlap_merge_is_rejected_and_split(self):
+        # Point 2: Claiming the same root cause ID across two reviewers WITHOUT a fix-verified equivalence check
+        # MUST NOT count as overlap; it is split into distinct findings and flagged under rule_violations!
+        data = eval_json({
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "auth", "risk": "risky"}],
+            "reviews": [
+                {"vector": "auth", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1", "rc-2"], "dropped": 0},
+                {"vector": "auth", "provider": "openai", "model": "gpt-5.4", "verified": ["rc-1", "rc-2"], "dropped": 0},
+                {"vector": "auth", "provider": "google", "model": "gemini-2.5-pro", "verified": ["rc-1", "rc-2"], "dropped": 0},
+            ],
+        })
+        vec = data["vectors"][0]
+        self.assertEqual(vec["action"], "continue")
+        self.assertTrue(any("unverified_overlap_merge" in v for v in vec["rule_violations"]))
+        self.assertEqual(vec["estimate"]["estimator"], "jackknife_mh")
+        self.assertEqual(vec["estimate"]["recaptured"], 0)
+        self.assertFalse(vec["estimate"]["informative"])
+
+        # Same reviews WITH fix_verified=False -> STILL rejected!
+        data_false = eval_json({
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "auth", "risk": "risky"}],
+            "equivalence_checks": [
+                {"vector": "auth", "root_cause": "rc-1", "reproductions": ["r1.py", "r2.py"], "fix_verified": False},
+                {"vector": "auth", "root_cause": "rc-2", "reproductions": ["r3.py", "r4.py"], "fix_verified": False},
+            ],
+            "reviews": [
+                {"vector": "auth", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1", "rc-2"], "dropped": 0},
+                {"vector": "auth", "provider": "openai", "model": "gpt-5.4", "verified": ["rc-1", "rc-2"], "dropped": 0},
+                {"vector": "auth", "provider": "google", "model": "gemini-2.5-pro", "verified": ["rc-1", "rc-2"], "dropped": 0},
+            ],
+        })
+        self.assertEqual(data_false["vectors"][0]["action"], "continue")
+
+        # Once fix_verified=True proves both shared root causes -> k=3 Jackknife M_h sees f1=0, f3=2 -> STOPS cleanly!
+        data_ok = eval_json({
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "auth", "risk": "risky"}],
+            "equivalence_checks": eq_checks("auth", ["rc-1", "rc-2"]),
+            "reviews": [
+                {"vector": "auth", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1", "rc-2"], "dropped": 0},
+                {"vector": "auth", "provider": "openai", "model": "gpt-5.4", "verified": ["rc-1", "rc-2"], "dropped": 0},
+                {"vector": "auth", "provider": "google", "model": "gemini-2.5-pro", "verified": ["rc-1", "rc-2"], "dropped": 0},
+            ],
+        })
+        vec_ok = data_ok["vectors"][0]
+        self.assertEqual(vec_ok["action"], "stop")
+        self.assertEqual(vec_ok["estimate"]["estimator"], "jackknife_mh")
+        self.assertEqual(vec_ok["estimate"]["frequencies"], [0, 0, 2])
+        self.assertEqual(vec_ok["estimate"]["estimated_unfound_upper"], 0.0)
+
+    def test_point_3_k3_jackknife_continues_when_any_singleton_remains_and_stops_when_all_recaptured(self):
+        # 3 reviewers with different strengths: bug rc-hard found only by reviewer 3 (f1=1, f2=1, f3=2)
+        # Point unfound = 0.67 < 1, BUT cautious 95% upper bound ~ 4.2 >= 1 -> MUST CONTINUE!
+        data_cont = eval_json({
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "storage", "risk": "risky"}],
+            "equivalence_checks": eq_checks("storage", ["rc-1", "rc-2", "rc-3"]),
+            "reviews": [
+                {"vector": "storage", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1", "rc-2", "rc-3"], "dropped": 0},
+                {"vector": "storage", "provider": "openai", "model": "gpt-5.4", "verified": ["rc-1", "rc-2"], "dropped": 0},
+                {"vector": "storage", "provider": "google", "model": "gemini-2.5-pro", "verified": ["rc-1", "rc-2", "rc-3", "rc-hard"], "dropped": 0},
+            ],
+        })
+        v = data_cont["vectors"][0]
+        self.assertEqual(v["action"], "continue")
+        self.assertEqual(v["estimate"]["estimator"], "jackknife_mh")
+        self.assertEqual(v["estimate"]["frequencies"], [1, 1, 2])
+        self.assertLess(v["estimate"]["estimated_unfound"], 1.0)
+        self.assertGreater(v["estimate"]["estimated_unfound_upper"], 1.0)
+        self.assertEqual(v["next_models"][0]["model"], "claude-sonnet-4-6")
+
+        # 4th reviewer independently confirms rc-hard (and finds nothing new) -> f1=0 -> STOPS!
+        data_stop = eval_json({
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "storage", "risk": "risky"}],
+            "equivalence_checks": eq_checks("storage", ["rc-1", "rc-2", "rc-3", "rc-hard"]),
+            "reviews": [
+                {"vector": "storage", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1", "rc-2", "rc-3"], "dropped": 0},
+                {"vector": "storage", "provider": "openai", "model": "gpt-5.4", "verified": ["rc-1", "rc-2"], "dropped": 0},
+                {"vector": "storage", "provider": "google", "model": "gemini-2.5-pro", "verified": ["rc-1", "rc-2", "rc-3", "rc-hard"], "dropped": 0},
+                {"vector": "storage", "provider": "anthropic", "model": "claude-sonnet-4-6", "verified": ["rc-1", "rc-hard"], "dropped": 0},
+            ],
+        })
+        v_stop = data_stop["vectors"][0]
+        self.assertEqual(v_stop["action"], "stop")
+        self.assertEqual(v_stop["estimate"]["frequencies"], [0, 2, 1, 1])
+        self.assertEqual(v_stop["estimate"]["estimated_unfound_upper"], 0.0)
+
+    def test_point_4_run_out_pool_blocks_landing_on_risky_vector_with_range_and_plain_decision(self):
+        pool_2 = POOL_4[:2]
+        data = eval_json({
+            "reviewer_pool": pool_2,
+            "vectors": [
+                {"name": "concurrency", "risk": "risky"},
+                {"name": "formatting", "risk": "low"},
+            ],
+            "equivalence_checks": eq_checks("concurrency", ["rc-1"]),
+            "reviews": [
+                {"vector": "concurrency", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1", "rc-2"], "dropped": 0},
+                {"vector": "concurrency", "provider": "openai", "model": "gpt-5.4", "verified": ["rc-1", "rc-3"], "dropped": 0},
+                {"vector": "formatting", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-fmt"], "dropped": 0},
+                {"vector": "formatting", "provider": "openai", "model": "gpt-5.4", "verified": [], "dropped": 0},
+            ],
+        })
+        self.assertEqual(data["overall"], "flagged")
+        self.assertTrue(data["landing_blocked"])
+        by_v = {v["name"]: v for v in data["vectors"]}
+        self.assertTrue(by_v["concurrency"]["landing_blocked"])
+        self.assertFalse(by_v["formatting"]["landing_blocked"])  # only risky vectors block landing
+        self.assertEqual(len(data["person_decisions"]), 1)
+        decision = data["person_decisions"][0]
+        self.assertEqual(decision["area"], "concurrency")
+        self.assertEqual(decision["proven_blocking"], 3)
+        self.assertIsNotNone(decision["estimated_remaining"])
+        self.assertEqual(len(decision["estimated_remaining_range"]), 2)
+        self.assertIn("Approve additional reviewer models", decision["question"])
+        self.assertNotIn("POOL EXHAUSTED", decision["question"])
+
+    def test_point_5_planted_bugs_of_varying_difficulty_never_stop_while_singleton_or_k2_unsettled(self):
+        # Planted bugs: easy (rc-easy), medium (rc-med), hard (rc-hard) + 1 minor nit (nit-comment).
+        # Step 1 (k=2): Reviewer 1 finds [rc-easy, rc-med], Reviewer 2 finds [rc-easy] + minor nit -> MUST NOT STOP!
+        step_k2 = eval_json({
+            "worker_model": POOL_4[3],
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "batch-and-persistence", "risk": "risky"}],
+            "equivalence_checks": eq_checks("batch-and-persistence", ["rc-easy"]),
+            "reviews": [
+                {"vector": "batch-and-persistence", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-easy", "rc-med"], "dropped": 0},
+                {"vector": "batch-and-persistence", "provider": "openai", "model": "gpt-5.4", "verified": ["rc-easy"], "minor": ["nit-comment"], "dropped": 0},
+            ],
+        })
+        self.assertEqual(step_k2["vectors"][0]["action"], "continue")
+
+        # Step 2 (k=3): Reviewer 3 catches rc-med AND uncovers rc-hard -> rc-hard is a singleton (f1=1) -> MUST NOT STOP!
+        step_k3 = eval_json({
+            "worker_model": POOL_4[3],
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "batch-and-persistence", "risk": "risky"}],
+            "equivalence_checks": eq_checks("batch-and-persistence", ["rc-easy", "rc-med"]),
+            "reviews": [
+                {"vector": "batch-and-persistence", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-easy", "rc-med"], "dropped": 0},
+                {"vector": "batch-and-persistence", "provider": "openai", "model": "gpt-5.4", "verified": ["rc-easy"], "minor": ["nit-comment"], "dropped": 0},
+                {"vector": "batch-and-persistence", "provider": "google", "model": "gemini-2.5-pro", "verified": ["rc-easy", "rc-med", "rc-hard"], "dropped": 0},
+            ],
+        })
+        self.assertEqual(step_k3["vectors"][0]["action"], "continue")
+        self.assertEqual(step_k3["vectors"][0]["estimate"]["estimator"], "jackknife_mh")
+        self.assertEqual(step_k3["vectors"][0]["estimate"]["frequencies"], [1, 1, 1])
+
+        # Step 3 (k=4): Reviewer 4 confirms rc-hard and finds no new bugs -> ALL 3 planted bugs recaptured (f1=0) -> STOPS!
+        step_k4 = eval_json({
+            "worker_model": POOL_4[3],
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "batch-and-persistence", "risk": "risky"}],
+            "equivalence_checks": eq_checks("batch-and-persistence", ["rc-easy", "rc-med", "rc-hard"]),
+            "reviews": [
+                {"vector": "batch-and-persistence", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-easy", "rc-med"], "dropped": 0},
+                {"vector": "batch-and-persistence", "provider": "openai", "model": "gpt-5.4", "verified": ["rc-easy"], "minor": ["nit-comment"], "dropped": 0},
+                {"vector": "batch-and-persistence", "provider": "google", "model": "gemini-2.5-pro", "verified": ["rc-easy", "rc-med", "rc-hard"], "dropped": 0},
+                {"vector": "batch-and-persistence", "provider": "anthropic", "model": "claude-sonnet-4-6", "verified": ["rc-med", "rc-hard"], "dropped": 0},
+            ],
+        })
+        v4 = step_k4["vectors"][0]
+        self.assertEqual(v4["action"], "stop")
+        self.assertEqual(v4["verified_root_causes"], ["rc-easy", "rc-hard", "rc-med"])
+        self.assertEqual(v4["minor_findings"], ["nit-comment"])
+
+    def test_repeated_model_and_worker_only_low_risk_enforced_structurally(self):
+        pool_sh = [
+            {"provider": "anthropic", "model": "sonnet", "effort": "medium", "harness": "claude"},
+            {"provider": "anthropic", "model": "haiku", "effort": "medium", "harness": "claude"},
+        ]
+        # Worker-only low-risk clean review cannot stop when a non-worker model is available
+        w_only = eval_json({
+            "worker_model": pool_sh[1],
             "reviewer_pool": pool_sh,
             "vectors": [{"name": "cli", "risk": "low"}],
             "reviews": [
                 {"vector": "cli", "provider": "anthropic", "model": "haiku", "verified": [], "dropped": 0},
-                {"vector": "cli", "provider": "anthropic", "model": "sonnet", "verified": [], "dropped": 0},
             ],
         })
-        self.assertEqual(data_after["vectors"][0]["action"], "stop")
-        self.assertTrue(data_after["vectors"][0]["non_worker_model_used"])
+        self.assertEqual(w_only["vectors"][0]["action"], "continue")
+        self.assertEqual(w_only["vectors"][0]["reason"], "non_worker_model_required")
+        self.assertTrue(any("worker_model_only" in m for m in w_only["vectors"][0]["rule_violations"]))
 
-        # When pool ONLY contains the worker's model (pool doesn't allow a non-worker model), clean low-risk review still stops
-        data_only_worker_pool = eval_json({
-            "worker_model": {"provider": "anthropic", "model": "haiku", "effort": "medium"},
-            "reviewer_pool": [{"provider": "anthropic", "model": "haiku", "effort": "medium"}],
-            "vectors": [{"name": "cli", "risk": "low"}],
+        # Repeat of same model on one vector (even via another harness) is excluded & flagged
+        dup = eval_json({
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "auth", "risk": "risky"}],
+            "equivalence_checks": eq_checks("auth", ["rc-1"]),
             "reviews": [
-                {"vector": "cli", "provider": "anthropic", "model": "haiku", "verified": [], "dropped": 0},
+                {"vector": "auth", "provider": "anthropic", "model": "claude-opus-4-6", "harness": "claude", "verified": ["rc-1"], "dropped": 0},
+                {"vector": "auth", "provider": "openai", "model": "gpt-5.4", "harness": "codex", "verified": ["rc-1"], "dropped": 0},
+                {"vector": "auth", "provider": "anthropic", "model": "claude-opus-4-6", "harness": "pi", "verified": ["rc-1"], "dropped": 0},
             ],
         })
-        self.assertEqual(data_only_worker_pool["vectors"][0]["action"], "stop")
-        self.assertEqual(data_only_worker_pool["vectors"][0]["reason"], "clean_single_review")
+        self.assertEqual(dup["vectors"][0]["action"], "continue")
+        self.assertTrue(any("duplicate_model_on_vector" in m for m in dup["vectors"][0]["rule_violations"]))
+        # Only 2 distinct models -> stays on chapman_hypergeometric_95 (not jackknife_mh!)
+        self.assertEqual(dup["vectors"][0]["estimate"]["estimator"], "chapman_hypergeometric_95")
+
+    def test_unreachable_models_flag_pool_exhausted_block_risky_landing_and_populate_could_not_test(self):
+        payload = {
+            "target": "auth-refresh",
+            "worker_model": {"provider": "anthropic", "model": "haiku", "harness": "claude"},
+            "reviewer_pool": [
+                {"provider": "anthropic", "model": "sonnet", "effort": "medium", "harness": "claude"},
+                {"provider": "openai", "model": "default", "effort": "medium", "harness": "codex"},
+            ],
+            "unreachable_models": [
+                {"provider": "openai", "model": "default", "harness": "codex", "reason": "codex CLI not installed"},
+            ],
+            "vectors": [{"name": "auth-security", "risk": "risky"}],
+            "reviews": [
+                {"vector": "auth-security", "provider": "anthropic", "model": "sonnet", "verified": ["rc-exp"], "dropped": 0},
+            ],
+        }
+        data = eval_json(payload)
+        vec = data["vectors"][0]
+        self.assertEqual(vec["action"], "flag")
+        self.assertEqual(vec["reason"], "remaining_pool_models_unreachable")
+        self.assertTrue(vec["landing_blocked"])
+        self.assertTrue(data["landing_blocked"])
+        self.assertEqual(len(data["person_decisions"]), 1)
+        md = run_ledger(payload, "--markdown").stdout
+        self.assertIn("LANDING BLOCKED", md)
+        self.assertIn("codex CLI not installed", md)
+
+    def test_boundary_validation_rejects_retired_or_unapproved_inputs_with_exit_two(self):
+        for bad in (
+            {"roles": {"reviewer": {"provider": "anthropic", "model": "opus"}}, "reviewer_pool": POOL_4, "vectors": [{"name": "a", "risk": "low"}]},
+            {"reviewer_pool": POOL_4[:1], "vectors": [{"name": "a", "risk": "low"}], "reviews": [{"vector": "a", "provider": "openai", "model": "unapproved", "verified": []}]},
+            {"reviewer_pool": POOL_4, "vectors": [{"name": "a", "risk": "extreme"}]},
+            {"reviewer_pool": POOL_4, "vectors": [{"name": "a", "risk": "low"}], "equivalence_checks": [{"vector": "a", "root_cause": "r", "reproductions": ["x"], "fix_verified": "yes"}]},
+        ):
+            res = run_ledger(bad)
+            self.assertEqual(res.returncode, 2, f"expected exit 2 for {bad}")
 
 
 if __name__ == "__main__":

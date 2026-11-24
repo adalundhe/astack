@@ -4,7 +4,10 @@ stateDiagram-v2
     state "x = 2 [VIOLATION: TemporalProperty]" as s2
     [*] --> s0
     s0 --> s1: Up
+    s0 --> s0
     s1 --> s2: Up
-    s2 --> s1: cycle
+    s1 --> s1
+    s2 --> s1: Back
+    s2 --> s2
     classDef violation fill:#fee,stroke:#c00,stroke-width:2px
     class s2 violation

@@ -1,0 +1,13 @@
+{
+  "module": "SagaOrphanCharge",
+  "exit_code": 1,
+  "states": 3,
+  "transitions": 3,
+  "violations": [
+    {
+      "kind": "invariant",
+      "name": "NoOrphanCharge",
+      "hops": 2
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "module": "CacheStaleRead",
+  "exit_code": 1,
+  "states": 3,
+  "transitions": 3,
+  "violations": [
+    {
+      "kind": "invariant",
+      "name": "CacheCoherence",
+      "hops": 1
+    }
+  ]
+}

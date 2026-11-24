@@ -1,4 +1,6 @@
 {
+  "module": "CounterDeadlock",
+  "exit_code": 1,
   "states": 4,
   "transitions": 3,
   "violations": [

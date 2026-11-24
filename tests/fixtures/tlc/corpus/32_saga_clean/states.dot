@@ -1,0 +1,24 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+-8862008314604116639 [label="saga = \"started\"",style = filled]
+-8862008314604116639 -> 9142314210182390670 [label="Reserve",color="black",fontcolor="black"];
+9142314210182390670 [label="saga = \"reserved\""];
+9142314210182390670 -> 7243459903410327512 [label="Charge",color="black",fontcolor="black"];
+7243459903410327512 [label="saga = \"charged\""];
+9142314210182390670 -> -4854709022115916993 [label="ChargeFailRelease",color="black",fontcolor="black"];
+-4854709022115916993 [label="saga = \"aborted\""];
+7243459903410327512 -> -2448187103976969557 [label="Ship",color="black",fontcolor="black"];
+-2448187103976969557 [label="saga = \"shipped\""];
+7243459903410327512 -> -7260025852767695089 [label="ShipFailRefund",color="black",fontcolor="black"];
+-7260025852767695089 [label="saga = \"refunded\""];
+-4854709022115916993 -> -4854709022115916993 [label="Done",color="black",fontcolor="black"];
+-2448187103976969557 -> -2448187103976969557 [label="Done",color="black",fontcolor="black"];
+-7260025852767695089 -> -4854709022115916993 [label="ReleaseStock",color="black",fontcolor="black"];
+{rank = same; -8862008314604116639;}
+{rank = same; 9142314210182390670;}
+{rank = same; 7243459903410327512;-4854709022115916993;}
+{rank = same; -7260025852767695089;-2448187103976969557;}
+}
+}

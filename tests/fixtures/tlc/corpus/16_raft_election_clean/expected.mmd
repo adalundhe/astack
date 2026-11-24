@@ -1,0 +1,10 @@
+stateDiagram-v2
+    state "/\ term = 1, /\ role = 'follower'" as s0
+    state "/\ term = 2, /\ role = 'candidate'" as s1
+    state "/\ term = 2, /\ role = 'leader'" as s2
+    state "/\ term = 2, /\ role = 'follower'" as s3
+    [*] --> s0
+    s0 --> s1: Timeout
+    s1 --> s2: WinQuorum
+    s2 --> s3: StepDown
+    s3 --> s3: Stay

@@ -1,0 +1,19 @@
+stateDiagram-v2
+    state "/\ tm = 'init', /\ rm1 = 'working', /\ rm2 = 'working'" as s0
+    state "/\ tm = 'init', /\ rm1 = 'prepared', /\ rm2 = 'working'" as s1
+    state "/\ tm = 'init', /\ rm1 = 'working', /\ rm2 = 'prepared'" as s2
+    state "/\ tm = 'aborted', /\ rm1 = 'aborted', /\ rm2 = 'aborted'" as s3
+    state "/\ tm = 'init', /\ rm1 = 'prepared', /\ rm2 = 'prepared'" as s4
+    state "/\ tm = 'committed', /\ rm1 = 'committed', /\ rm2 = 'committed'" as s5
+    [*] --> s0
+    s0 --> s1: Prep1
+    s0 --> s2: Prep2
+    s0 --> s3: Abort
+    s1 --> s4: Prep2
+    s1 --> s3: Abort
+    s2 --> s4: Prep1
+    s2 --> s3: Abort
+    s3 --> s3: Done
+    s4 --> s5: Commit
+    s4 --> s3: Abort
+    s5 --> s5: Done

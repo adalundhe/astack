@@ -1,0 +1,11 @@
+stateDiagram-v2
+    state "/\ x = 0, /\ y = 0" as s0
+    state "/\ x = 1, /\ y = 1" as s1
+    state "/\ x = 5, /\ y = 1 [VIOLATION: Deadlock, SmallX]" as s2
+    state "/\ x = 1, /\ y = 5 [VIOLATION: SmallY]" as s3
+    [*] --> s0
+    s0 --> s1: Inc
+    s1 --> s2: BreakX
+    s1 --> s3: BreakY
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s2,s3 violation

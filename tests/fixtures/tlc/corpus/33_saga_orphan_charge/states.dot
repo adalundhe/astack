@@ -1,0 +1,15 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+-1837643287438532183 [label="/\\ aborted = FALSE\n/\\ shipped = FALSE\n/\\ charged = FALSE",style = filled]
+-1837643287438532183 -> 167758150909316085 [label="Charge",color="black",fontcolor="black"];
+167758150909316085 [label="/\\ aborted = FALSE\n/\\ shipped = FALSE\n/\\ charged = TRUE"];
+167758150909316085 -> -7418912176094721545 [label="AbortWithoutRefund",color="black",fontcolor="black"];
+-7418912176094721545 [label="/\\ aborted = TRUE\n/\\ shipped = FALSE\n/\\ charged = TRUE"];
+-7418912176094721545 -> -7418912176094721545 [label="Stay",color="black",fontcolor="black"];
+{rank = same; -1837643287438532183;}
+{rank = same; 167758150909316085;}
+{rank = same; -7418912176094721545;}
+}
+}

@@ -1,0 +1,16 @@
+stateDiagram-v2
+    state "saga = 'started'" as s0
+    state "saga = 'reserved'" as s1
+    state "saga = 'charged'" as s2
+    state "saga = 'aborted'" as s3
+    state "saga = 'shipped'" as s4
+    state "saga = 'refunded'" as s5
+    [*] --> s0
+    s0 --> s1: Reserve
+    s1 --> s2: Charge
+    s1 --> s3: ChargeFailRelease
+    s2 --> s4: Ship
+    s2 --> s5: ShipFailRefund
+    s3 --> s3: Done
+    s4 --> s4: Done
+    s5 --> s3: ReleaseStock

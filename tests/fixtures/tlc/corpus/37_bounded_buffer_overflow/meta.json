@@ -1,0 +1,13 @@
+{
+  "module": "BoundedBufferOverflow",
+  "exit_code": 1,
+  "states": 5,
+  "transitions": 8,
+  "violations": [
+    {
+      "kind": "invariant",
+      "name": "CapThree",
+      "hops": 4
+    }
+  ]
+}

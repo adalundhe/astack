@@ -1,6 +1,0 @@
-strict digraph DiskGraph {
-  1 [label="/\\ cb = \"closed\"", style = filled];
-  2 [label="/\\ cb = \"open\""];
-  1 -> 2 [label="Trip", color="black"];
-  2 -> 2 [label="RejectCall", color="black"];
-}

@@ -1,5 +1,6 @@
 stateDiagram-v2
     state "x = 9 [VIOLATION: NotNine]" as s0
     [*] --> s0
+    s0 --> s0: Next
     classDef violation fill:#fee,stroke:#c00,stroke-width:2px
     class s0 violation

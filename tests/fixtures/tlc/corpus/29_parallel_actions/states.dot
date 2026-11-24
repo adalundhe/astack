@@ -1,0 +1,14 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+4237549490191406870 [label="phase = \"start\"",style = filled]
+4237549490191406870 -> 4365049318240981654 [label="FastPath",color="black",fontcolor="black"];
+4365049318240981654 [label="phase = \"done\""];
+4237549490191406870 -> 4365049318240981654 [label="FallbackPath",color="black",fontcolor="black"];
+4237549490191406870 -> 4237549490191406870 [label="Heartbeat",color="black",fontcolor="black"];
+4365049318240981654 -> 4365049318240981654 [label="Stay",color="black",fontcolor="black"];
+{rank = same; 4237549490191406870;}
+{rank = same; 4365049318240981654;}
+}
+}

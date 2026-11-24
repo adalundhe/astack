@@ -1,6 +1,6 @@
 # astack
 
-A plugin for Claude Code, Cursor, and Codex with one entry point (`/astack:go`) that routes on demand to 67 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, root-cause diagnosis, adversarial review, σ-grounded benchmarking, graded research, and coding rules.
+A multi-harness agent toolkit for Claude Code, Codex, Cursor / Cursor CLI, Antigravity (`agy`), Pi, Devin, and other Agent Skills hosts with one entry point (`go`) that routes on demand to 67 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, root-cause diagnosis, cross-harness vectored review, σ-grounded benchmarking, graded research, and coding rules.
 
 Only `go` stays in the model catalog, so idle sessions cost one skill's worth of context instead of thousands of tokens. Adapted in part from [pstack](https://github.com/cursor/plugins/tree/main/pstack) and [mattpocock/skills](https://github.com/mattpocock/skills).
 
@@ -26,9 +26,26 @@ codex plugin add astack@astack
 
 Start a new session and run `$astack-go setup` (installs `astack-worker.toml` plus one `astack-reviewer-<slug>.toml` per Codex-routable model in `reviewer_pool` into `~/.codex/agents/`, and enables the timestamp hook).
 
+**Antigravity (`agy`)**
+
+```
+agy plugin install ./harness/antigravity
+```
+
+Ships native `plugin.json`, root `hooks.json` (`PostToolUse` lane-log stamper), all 68 skills, `bin/astack-*`, and all four native agents (`astack-lead`, `astack-worker`, `astack-reviewer`, `astack-researcher`). Validate anytime with `agy plugin validate harness/antigravity --strict`.
+
+**Pi, Devin, Cursor CLI (`agent`), and other Agent Skills hosts**
+
+Use the harness-agnostic bundle at `harness/portable/` (zero Claude-specific syntax) and install native agents and CLI links for every detected harness in one step:
+
+```bash
+harness/portable/bin/astack-tools install-agents --harness all
+harness/portable/bin/astack-tools link-bin
+```
+
 ## How it works
 
-Start with `/astack:go` (Cursor: `/astack-go`, Codex: `$astack-go`). Every other skill is hidden from auto-invocation (`disable-model-invocation: true` in Claude Code/Cursor; `agents/openai.yaml` with `allow_implicit_invocation: false` in Codex) and read on demand by path—including when skills reference each other directly.
+Start with `/astack:go` (Cursor / Cursor CLI: `/astack-go`, Codex: `$astack-go`, Antigravity / Pi / Devin: `astack-go` from `harness/portable/skills/astack-go/SKILL.md`). Every other skill is hidden from auto-invocation (`disable-model-invocation: true` in Claude Code/Cursor/portable; `agents/openai.yaml` with `allow_implicit_invocation: false` in Codex) and read on demand by path—including when skills reference each other directly.
 
 Optional one-time setup (`/astack:setup`) configures worker timing (default 60/5/5 min), per-role models/effort (`~/.config/astack/settings.json`), and whether to provision an isolated `uv` Python `>=3.11` venv (`astack-tools`) for `taskex`, `orchestral`, and `werkflow` + `werkflow-modules` (declining defaults to pure-agentic workflows).
 
@@ -62,7 +79,7 @@ measured against the current release on the same machine. Merges go to main afte
 
 ### Code review and PRs
 
-- `review`: splits a change into risk-classified vectors, runs blind adversarial reviewers from `reviewer_pool` in separate worktrees (no cap), stops per vector on Chapman capture–recapture evidence (`astack-review-ledger`), and opens with a coverage map.
+- `review`: splits a change into risk-classified vectors, runs blind adversarial reviewers from `reviewer_pool` in separate worktrees (no cap), counts only proven blocking bugs with fix-equivalence overlap checks, stops on cautious capture–recapture / $M_h$ jackknife bounds (`astack-review-ledger`), holds risky non-converged changes for human sign-off, and relays only proven high-signal issues without leaking internal ledger status.
 - `adversarial-review`: single-reviewer playbook—reproduce before, confirm fix, attack edge cases, prove every finding.
 - `challenge`: peer-to-peer adversarial interrogation of hypotheses, repeated fixes, diagnoses, designs, or code.
 - `worrywart`: pushes back on wrong or unproven review points with concrete evidence.
@@ -145,17 +162,18 @@ Indexed in `go` and checked by `review`:
 
 ## Under the hood
 
-- **Agents:** `worker` (builds one task within its time limit, reports losses first) and `reviewer` (read-only adversarial review).
+- **Agents:** `lead` (program coordinator & merge/review gatekeeper), `worker` (builds one task within its time limit, reports losses first), `reviewer` (read-only adversarial vectored review), and `researcher` (read-only codebase walks & A–F primary-source research)—shipped as full native agents across Claude Code (`.md`), Codex (`.toml`), Antigravity (`.md` with `subagent`/`mainAgent`), Cursor (`.md` with `is_background`), Devin (`.md`), and Pi (`.md` with `tools`/`readOnly`), and installable via `astack-tools install-agents`.
 - **CLI scripts (`bin/`):**
   - `astack-status`: active workers, timers, latest branch commits, and open questions (`--line` for status bars).
   - `astack-decisions`: query `decided:` entries and verbatim `person:` directives (`--query`, `--settled-by`, `--since`, `--json`).
   - `astack-verify-merge`: verifies a claimed commit is on the target branch, audits strictly `--base <last-verified-target>..<sha>` (or every parent side of a merge commit when `--base` is omitted, never trusting commit messages; fails closed on checker errors; `--strict-gates` blocks without countersign), and can run checks in a clean worktree.
   - `astack-check-gates`: structural tripwire auditing a git range (`<base>..<head>`) or commit for deleted/renamed tests, skips, lint/typecheck suppressions, assertion downgrades, cross-diff test swaps, tautologies, loosened numeric tolerances, and CI/lint/gate config edits.
-  - `astack-review-ledger`: evaluates vectored review progress per vector using the Chapman capture–recapture estimator, recommends unused non-worker models from `reviewer_pool`, flags `POOL EXHAUSTED`, renders the Markdown coverage map, and emits `LANES.md` review-count lines.
-  - `astack-statechart`: runs TLC in `-tool` mode with `-dump dot,actionlabels`, single-worker minimum-depth BFS default (`--workers 1`), `--timeout`, and `--no-deadlock` (or parses DOT/trace output offline, rejecting malformed input), follows TLC exit status strictly, preserves multiple broken invariants per state, finds shortest paths via full untruncated state matching, and renders collision-safe Mermaid `stateDiagram-v2` (tested against a 36-model committed golden-chart corpus plus live TLC 2.19 and BFS differential fuzzing in CI).
+  - `astack-review-ledger`: evaluates vectored review progress over proven blocking bugs with fix-equivalence overlap verification, cautious 2-reviewer Chapman + exact 95% hypergeometric upper bounds and 3+-reviewer Burnham–Overton $M_h$ jackknife + Chao 95% bounds, landing-block gating on non-converged risky vectors, internal Markdown coverage maps, and `LANES.md` review-count lines.
+  - `astack-dispatch`: cross-harness dispatcher and `reviewer_pool` reachability checker supporting Claude (`claude`), Codex (`codex`), Antigravity (`agy`), Cursor CLI (`cursor-agent`/`agent`), Devin (`devin`), Pi (`pi`), Gemini (`gemini`), and custom CLI templates, enforcing pool approval and writing auditable JSON receipts.
+  - `astack-statechart`: runs TLC in `-tool` mode with `-dump dot,actionlabels`, single-worker minimum-depth BFS default (`--workers 1`), `--timeout`, and `--no-deadlock` (or parses DOT/trace output offline, rejecting malformed input), follows TLC exit status strictly, preserves multiple broken invariants per state, finds shortest paths via full untruncated state matching, and renders collision-safe Mermaid `stateDiagram-v2` (tested against 40 real `.tla`/`.cfg` specs recorded with TLC 2.19 and re-checked live in CI, plus a 10-spec live BFS differential fuzzer).
   - `astack-stamp` (+ post-edit hook): timestamps new lines appended to `LANES.md`.
   - `astack-tools`: links `astack-*` CLI scripts onto `PATH` (`link-bin`), provisions Python `>=3.11` via `uv` across macOS/Linux/Windows (arm64 & amd64), and manages an isolated venv for `taskex`, `orchestral`, and `werkflow` (`doctor`, `install`, `link-bin`, `python`, `werkflow`, `env`, `path`).
-- **Evals & CI:** 13 Claude Code evals under `evals/` (worker wind-down/reports, Go-mode routing & dedicated worker/reviewer agent spawning, vectored concurrency vs. low-risk review dispatch, 6 coding rules) and GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).
+- **Evals & CI:** 15 multi-harness evals under `evals/` (worker wind-down/reports, Go-mode routing & dedicated worker/reviewer agent spawning, vectored concurrency, low-risk, cross-harness, and planted-bug outcome reviews, 6 coding rules), runnable on Claude Code, Codex, Antigravity (`agy`), Cursor CLI, Devin, or Pi via `python3 scripts/eval.py --harness <name>`, plus GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).
 
 ## Working on astack
 
@@ -166,7 +184,15 @@ python3 scripts/build.py
 python3 -m unittest discover -s tests
 ```
 
-Run Claude Code evals (requires Claude Code login): `claude plugin eval harness/claude-code --trust-plugin --scaffold --ablation none`.
+Run evals on any installed harness (`claude`, `codex`, `agy`, `cursor`, `devin`, `pi`):
+
+```bash
+python3 scripts/eval.py --harness codex --case "vectored-review-*"
+python3 scripts/eval.py --harness agy --case "vectored-review-*"
+python3 scripts/eval.py --harness claude --case "vectored-review-*"
+# Or directly with Claude Code's built-in plugin evaluator:
+claude plugin eval harness/claude-code --trust-plugin --scaffold --ablation none
+```
 
 ## License
 

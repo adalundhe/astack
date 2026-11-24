@@ -1,0 +1,23 @@
+---
+name: address-feedback
+description: "Resolve every review finding and PR comment from humans or agents by fixing, answering, or disproving it, blockers first, replying on every thread. Use when review findings or PR comments arrive."
+disable-model-invocation: true
+---
+
+# Address feedback
+
+Close every review finding and PR comment by fixing it, answering it, or disproving it, and reply on every thread.
+
+1. **Collect everything:** all reviewer findings, or every comment and review on the PR from both humans and agents.
+2. **Work blockers first,** then suggestions, then nits. Don't skip nits.
+3. **Verify each item before acting.** Run its reproduction or set up the case it describes.
+   - **Real issue:** turn the reproduction into a failing test, then fix the cause (**bugs-by-scenario**). For a coding-rule finding, either apply the rule's `Start with` guidance or show why this context warrants an exception (**worrywart**).
+   - **Question:** answer it clearly. If confusing code caused the question, clarify the code with better naming or a test rather than adding an explanatory comment.
+   - **Wrong or overstated:** refute it with evidence (**worrywart**).
+   - **Needs a human call** (such as a product trade-off or dropping functionality): ask the person directly with your recommendation, and keep working on the rest.
+4. **Reply on every thread:** cite the fix and commit SHA, share your evidence, or give your answer. Only resolve a thread after replying—never silently.
+5. **Re-request review** and repeat until it comes back clear.
+
+If the same work keeps coming back with new rounds of feedback, escalate to whoever assigned it (or the lead, in an astack program) so they can adjust the plan or add help.
+
+Referenced skills: `bugs-by-scenario` (`../bugs-by-scenario/SKILL.md`), `worrywart` (`../worrywart/SKILL.md`). Read any cited skill file before acting when its trigger applies.

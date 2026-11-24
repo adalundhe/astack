@@ -1,0 +1,12 @@
+stateDiagram-v2
+    state "/\ rm1 = 'working', /\ rm2 = 'working'" as s0
+    state "/\ rm1 = 'prepared', /\ rm2 = 'working'" as s1
+    state "/\ rm1 = 'committed', /\ rm2 = 'working'" as s2
+    state "/\ rm1 = 'committed', /\ rm2 = 'aborted' [VIOLATION: ConsistentDecision]" as s3
+    [*] --> s0
+    s0 --> s1: Prep1
+    s1 --> s2: EarlyCommit1
+    s2 --> s3: Abort2
+    s3 --> s3: Stay
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s3 violation

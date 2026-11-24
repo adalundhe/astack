@@ -1,0 +1,19 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+3511954808364917096 [label="lease = \"free\"",style = filled]
+3511954808364917096 -> 2901832103566894258 [label="Acquire",color="black",fontcolor="black"];
+2901832103566894258 [label="lease = \"held\""];
+2901832103566894258 -> -400704545860676713 [label="StartRenew",color="black",fontcolor="black"];
+-400704545860676713 [label="lease = \"renewing\""];
+-400704545860676713 -> 2901832103566894258 [label="RenewOk",color="black",fontcolor="black"];
+-400704545860676713 -> -5932325088383146913 [label="RenewTimeout",color="black",fontcolor="black"];
+-5932325088383146913 [label="lease = \"expired\""];
+-5932325088383146913 -> 3511954808364917096 [label="Reclaim",color="black",fontcolor="black"];
+{rank = same; 3511954808364917096;}
+{rank = same; 2901832103566894258;}
+{rank = same; -400704545860676713;}
+{rank = same; -5932325088383146913;}
+}
+}

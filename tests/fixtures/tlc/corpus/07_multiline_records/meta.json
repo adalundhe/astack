@@ -1,6 +1,8 @@
 {
+  "module": "MultilineRecords",
+  "exit_code": 1,
   "states": 2,
-  "transitions": 1,
+  "transitions": 2,
   "violations": [
     {
       "kind": "invariant",

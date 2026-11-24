@@ -1,0 +1,7 @@
+{
+  "module": "ParallelActions",
+  "exit_code": 0,
+  "states": 2,
+  "transitions": 4,
+  "violations": []
+}

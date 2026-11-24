@@ -1,0 +1,16 @@
+{
+  "astack-lane-stamp": {
+    "PostToolUse": [
+      {
+        "matcher": "write_file|edit_file|replace_file_content|multi_replace_file_content|run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./bin/astack-stamp-hook",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

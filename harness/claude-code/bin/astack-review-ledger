@@ -1,12 +1,25 @@
 #!/usr/bin/env python3
-"""Compute per-vector stop/continue/flag decisions and a coverage map for vectored review.
+"""Evaluate vectored review stopping decisions, cautious confidence bounds, and audit artifacts.
 
-Implements Chapman capture-recapture stopping per vector over verified root-cause findings:
-  N = (n1 + 1) * (n2 + 1) / (m + 1) - 1
-  unfound = N - (n1 + n2 - m)
+Statistical rules:
+  - Only proven BLOCKING bugs (with failing reproductions) enter the stopping estimate.
+    Minor findings (suggestions/nits) are tracked and reported separately.
+  - Shared root causes (overlap) must be proven by fix-equivalence (one fix makes both
+    reproductions pass) via `equivalence_checks` with `fix_verified: true`. Unverified
+    merges are split into distinct findings and flagged under `rule_violations`.
+  - With k = 2 distinct reviewers: Chapman (1951) point estimate + exact hypergeometric
+    one-sided 95% confidence interval [lower, upper]. Stop only when both found 0 blocking
+    bugs, or overlap m >= 1 (proven) and upper unfound < 1.
+  - With k >= 3 distinct reviewers: Burnham & Overton (1978, Biometrika 65(3):625-633)
+    M_h Jackknife (orders 1..min(5, k-1) with sequential order selection) + Chao (1987)
+    log-normal 95% confidence interval. Stop only when D = 0, or recaptures >= 1 and
+    upper unfound < 1.
+  - When the approved pool runs out before convergence on a risky vector, set
+    `landing_blocked: true` and emit a plain-language decision prompt with remaining-bug
+    point estimate and range (never leaking internal ledger jargon to user-facing replies).
 
 Usage:
-  astack-review-ledger [INPUT.json | -] [--json | --markdown] [--lanes]
+  astack-review-ledger [INPUT.json | -] [--json | --markdown | --lanes]
 
 Exit codes:
   0 = evaluated successfully (inspect per-vector action: stop | continue | flag)
@@ -16,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from dataclasses import dataclass
 from fractions import Fraction
@@ -24,6 +38,9 @@ from typing import Any
 
 
 VALID_RISKS = ("low", "risky")
+VALID_SEVERITIES = ("blocking", "suggestion", "nit", "minor")
+Z_95_ONE_SIDED = 1.6448536269514722  # Standard normal 95th percentile
+Z_95_TWO_SIDED = 1.959963984540054   # Burnham & Overton (1978) sequential order test alpha=0.05
 
 
 class ValidationError(ValueError):
@@ -35,6 +52,7 @@ class ModelSpec:
     provider: str
     model: str
     effort: str = ""
+    harness: str = ""
 
     @property
     def key(self) -> tuple[str, str]:
@@ -43,12 +61,16 @@ class ModelSpec:
     @property
     def label(self) -> str:
         base = f"{self.provider}/{self.model}"
-        return f"{base} ({self.effort})" if self.effort else base
+        if self.effort:
+            base = f"{base} ({self.effort})"
+        return f"{base} [{self.harness}]" if self.harness else base
 
     def to_dict(self) -> dict[str, str]:
         out = {"provider": self.provider, "model": self.model}
         if self.effort:
             out["effort"] = self.effort
+        if self.harness:
+            out["harness"] = self.harness
         return out
 
 
@@ -62,12 +84,23 @@ class VectorSpec:
 
 
 @dataclass(frozen=True)
+class EquivalenceCheck:
+    vector: str
+    root_cause: str
+    reproductions: tuple[str, ...]
+    fix_verified: bool
+    evidence: str
+
+
+@dataclass(frozen=True)
 class ReviewRun:
     index: int
     vector: str
     model: ModelSpec
-    verified_by_vector: dict[str, frozenset[str]]
-    verified_total: int
+    blocking_by_vector: dict[str, frozenset[str]]
+    minor_by_vector: dict[str, frozenset[str]]
+    blocking_total: int
+    minor_total: int
     dropped: int
 
 
@@ -89,10 +122,27 @@ def _parse_model(raw: Any, field: str) -> ModelSpec:
         effort = effort_raw.strip()
     else:
         raise ValidationError(f"{field}.effort must be a string")
-    return ModelSpec(provider=provider, model=model, effort=effort)
+    harness_raw = raw.get("harness", "")
+    if harness_raw is None:
+        harness = ""
+    elif isinstance(harness_raw, str):
+        harness = harness_raw.strip()
+    else:
+        raise ValidationError(f"{field}.harness must be a string")
+    return ModelSpec(provider=provider, model=model, effort=effort, harness=harness)
 
 
-def parse_input(payload: Any) -> tuple[str, ModelSpec | None, list[ModelSpec], list[VectorSpec], list[ReviewRun]]:
+def parse_input(
+    payload: Any,
+) -> tuple[
+    str,
+    ModelSpec | None,
+    list[ModelSpec],
+    list[VectorSpec],
+    list[ReviewRun],
+    list[dict[str, Any]],
+    dict[tuple[str, str], EquivalenceCheck],
+]:
     if not isinstance(payload, dict):
         raise ValidationError("input must be a JSON object")
 
@@ -116,6 +166,16 @@ def parse_input(payload: Any) -> tuple[str, ModelSpec | None, list[ModelSpec], l
             seen_keys.add(spec.key)
             pool.append(spec)
     pool_by_key = {m.key: m for m in pool}
+
+    unreachable_raw = payload.get("unreachable_models", [])
+    if not isinstance(unreachable_raw, list):
+        raise ValidationError("unreachable_models must be a list")
+    unreachable: list[dict[str, Any]] = []
+    for i, raw in enumerate(unreachable_raw):
+        spec = _parse_model(raw, f"unreachable_models[{i}]")
+        reason_raw = raw.get("reason") or raw.get("note") or "unreachable in current harness"
+        reason = _non_empty_str(reason_raw, f"unreachable_models[{i}].reason")
+        unreachable.append({"spec": spec, "reason": reason})
 
     vectors_raw = payload.get("vectors")
     if not isinstance(vectors_raw, list) or not vectors_raw:
@@ -155,6 +215,33 @@ def parse_input(payload: Any) -> tuple[str, ModelSpec | None, list[ModelSpec], l
             )
         )
 
+    eq_raw = payload.get("equivalence_checks", [])
+    if not isinstance(eq_raw, list):
+        raise ValidationError("equivalence_checks must be a list")
+    eq_map: dict[tuple[str, str], EquivalenceCheck] = {}
+    for i, raw in enumerate(eq_raw):
+        if not isinstance(raw, dict):
+            raise ValidationError(f"equivalence_checks[{i}] must be an object")
+        rc = _non_empty_str(raw.get("root_cause"), f"equivalence_checks[{i}].root_cause")
+        vec_name = _non_empty_str(raw.get("vector"), f"equivalence_checks[{i}].vector")
+        if vec_name not in vector_names:
+            raise ValidationError(f"equivalence_checks[{i}].vector {vec_name!r} is not declared in vectors")
+        repros_raw = raw.get("reproductions", [])
+        if not isinstance(repros_raw, list) or not all(isinstance(r, str) and r.strip() for r in repros_raw):
+            raise ValidationError(f"equivalence_checks[{i}].reproductions must be a list of non-empty strings")
+        fix_verified = raw.get("fix_verified")
+        if not isinstance(fix_verified, bool):
+            raise ValidationError(f"equivalence_checks[{i}].fix_verified must be a boolean")
+        ev_raw = raw.get("evidence", "")
+        evidence = ev_raw.strip() if isinstance(ev_raw, str) else ""
+        eq_map[(vec_name, rc)] = EquivalenceCheck(
+            vector=vec_name,
+            root_cause=rc,
+            reproductions=tuple(r.strip() for r in repros_raw),
+            fix_verified=fix_verified,
+            evidence=evidence,
+        )
+
     reviews_raw = payload.get("reviews", [])
     if not isinstance(reviews_raw, list):
         raise ValidationError("reviews must be a list")
@@ -170,8 +257,14 @@ def parse_input(payload: Any) -> tuple[str, ModelSpec | None, list[ModelSpec], l
             raise ValidationError(
                 f"reviews[{i}] model {model.provider}/{model.model} is not in approved reviewer_pool"
             )
-        if not model.effort and pool_by_key[model.key].effort:
-            model = pool_by_key[model.key]
+        pool_entry = pool_by_key[model.key]
+        if (not model.effort and pool_entry.effort) or (not model.harness and pool_entry.harness):
+            model = ModelSpec(
+                provider=model.provider,
+                model=model.model,
+                effort=model.effort or pool_entry.effort,
+                harness=model.harness or pool_entry.harness,
+            )
 
         dropped = raw.get("dropped", 0)
         if isinstance(dropped, bool) or not isinstance(dropped, int) or dropped < 0:
@@ -180,53 +273,232 @@ def parse_input(payload: Any) -> tuple[str, ModelSpec | None, list[ModelSpec], l
         verified_raw = raw.get("verified", [])
         if not isinstance(verified_raw, list):
             raise ValidationError(f"reviews[{i}].verified must be a list")
-        by_vec: dict[str, set[str]] = {}
-        all_rc_pairs: set[tuple[str, str]] = set()
-        for j, item in enumerate(verified_raw):
+        minor_raw = raw.get("minor", [])
+        if not isinstance(minor_raw, list):
+            raise ValidationError(f"reviews[{i}].minor must be a list")
+
+        blocking_by_vec: dict[str, set[str]] = {}
+        minor_by_vec: dict[str, set[str]] = {}
+        blocking_pairs: set[tuple[str, str]] = set()
+        minor_pairs: set[tuple[str, str]] = set()
+
+        def _ingest_item(item: Any, field: str, default_sev: str) -> None:
             if isinstance(item, str):
-                rc = _non_empty_str(item, f"reviews[{i}].verified[{j}]")
+                rc = _non_empty_str(item, field)
                 target_vec = vec
+                sev = default_sev
             elif isinstance(item, dict):
-                rc = _non_empty_str(item.get("root_cause"), f"reviews[{i}].verified[{j}].root_cause")
+                rc = _non_empty_str(item.get("root_cause"), f"{field}.root_cause")
                 v_raw = item.get("vector", vec)
-                target_vec = _non_empty_str(v_raw, f"reviews[{i}].verified[{j}].vector")
+                target_vec = _non_empty_str(v_raw, f"{field}.vector")
                 if target_vec not in vector_names:
-                    raise ValidationError(
-                        f"reviews[{i}].verified[{j}].vector {target_vec!r} is not declared in vectors"
-                    )
+                    raise ValidationError(f"{field}.vector {target_vec!r} is not declared in vectors")
+                sev_raw = item.get("severity", default_sev)
+                sev = _non_empty_str(sev_raw, f"{field}.severity").lower()
+                if sev not in VALID_SEVERITIES:
+                    raise ValidationError(f"{field}.severity must be one of {VALID_SEVERITIES}, got {sev!r}")
             else:
-                raise ValidationError(f"reviews[{i}].verified[{j}] must be a root_cause string or object")
-            by_vec.setdefault(target_vec, set()).add(rc)
-            all_rc_pairs.add((target_vec, rc))
+                raise ValidationError(f"{field} must be a root_cause string or object")
+
+            if sev == "blocking":
+                blocking_by_vec.setdefault(target_vec, set()).add(rc)
+                blocking_pairs.add((target_vec, rc))
+            else:
+                minor_by_vec.setdefault(target_vec, set()).add(rc)
+                minor_pairs.add((target_vec, rc))
+
+        for j, item in enumerate(verified_raw):
+            _ingest_item(item, f"reviews[{i}].verified[{j}]", "blocking")
+        for j, item in enumerate(minor_raw):
+            _ingest_item(item, f"reviews[{i}].minor[{j}]", "minor")
 
         reviews.append(
             ReviewRun(
                 index=i,
                 vector=vec,
                 model=model,
-                verified_by_vector={k: frozenset(v) for k, v in by_vec.items()},
-                verified_total=len(all_rc_pairs),
+                blocking_by_vector={k: frozenset(v) for k, v in blocking_by_vec.items()},
+                minor_by_vector={k: frozenset(v) for k, v in minor_by_vec.items()},
+                blocking_total=len(blocking_pairs),
+                minor_total=len(minor_pairs),
                 dropped=dropped,
             )
         )
 
-    return target, worker_model, pool, vectors, reviews
+    return target, worker_model, pool, vectors, reviews, unreachable, eq_map
+
+
+def _hypergeometric_ci_95(n1: int, n2: int, m: int, alpha: float = 0.05) -> tuple[int, int | None]:
+    """Exact one-sided 95% lower/upper bounds for total population N given Hypergeometric(N, n1, n2) overlap m."""
+    D = n1 + n2 - m
+    if n1 == 0 and n2 == 0:
+        return 0, 0
+    if m == 0:
+        # Zero overlap gives no upper bound on unseen bugs
+        return D, None
+
+    # Exact lower bound: smallest N >= D such that P(M <= m | N, n1, n2) >= alpha
+    lower_N = D
+    # Exact upper bound: largest N >= D such that P(M >= m | N, n1, n2) >= alpha
+    # Search with exact integer combinatorics up to a generous safety ceiling.
+    upper_N = D
+    search_cap = max(D + 200, D * 25)
+    for N in range(D, search_cap + 1):
+        denom = math.comb(N, n2)
+        num = 0
+        lo_x = max(m, n1 + n2 - N)
+        hi_x = min(n1, n2)
+        for x in range(lo_x, hi_x + 1):
+            num += math.comb(n1, x) * math.comb(N - n1, n2 - x)
+        if num / denom >= alpha:
+            upper_N = N
+        else:
+            break
+    else:
+        return lower_N, None
+    return lower_N, upper_N
 
 
 def chapman_estimate(n1: int, n2: int, m: int) -> dict[str, Any]:
-    """Compute exact Chapman capture-recapture totals and stopping informativeness."""
+    """k = 2 Chapman (1951) point estimate + exact hypergeometric one-sided 95% upper bound."""
     total_frac = Fraction((n1 + 1) * (n2 + 1), m + 1) - 1
     observed = n1 + n2 - m
     unfound_frac = total_frac - observed
     informative = (m >= 1) or (n1 == 0 and n2 == 0)
-    can_stop = informative and (unfound_frac < 1)
+
+    lower_N, upper_N = _hypergeometric_ci_95(n1, n2, m, alpha=0.05)
+    lower_unfound = max(0.0, float(lower_N - observed))
+    upper_unfound: float | None = None if upper_N is None else max(0.0, float(upper_N - observed))
+
+    # Stop only when even the cautious (pessimistic 95% upper) bound on unfound blocking bugs is < 1
+    can_stop = informative and (upper_unfound is not None) and (upper_unfound < 1.0)
     return {
+        "estimator": "chapman_hypergeometric_95",
+        "reviewers": 2,
         "n1": n1,
         "n2": n2,
         "m": m,
         "observed": observed,
         "estimated_total": float(total_frac),
         "estimated_unfound": float(unfound_frac),
+        "estimated_unfound_lower": lower_unfound,
+        "estimated_unfound_upper": upper_unfound,
+        "informative": informative,
+        "can_stop": can_stop,
+    }
+
+
+def _jackknife_coeffs(t: int, order: int) -> list[float]:
+    """Exact Burnham & Overton (1978, Biometrika 65(3):625-633) M_h jackknife coefficients for orders 1..5."""
+    if order == 1:
+        return [(t - 1) / t]
+    if order == 2:
+        return [(2 * t - 3) / t, -((t - 2) ** 2) / (t * (t - 1))]
+    if order == 3:
+        return [
+            (3 * t - 6) / t,
+            -(3 * t**2 - 15 * t + 19) / (t * (t - 1)),
+            ((t - 3) ** 3) / (t * (t - 1) * (t - 2)),
+        ]
+    if order == 4:
+        return [
+            (4 * t - 10) / t,
+            -(6 * t**2 - 36 * t + 55) / (t * (t - 1)),
+            (4 * t**3 - 42 * t**2 + 148 * t - 175) / (t * (t - 1) * (t - 2)),
+            -((t - 4) ** 4) / (t * (t - 1) * (t - 2) * (t - 3)),
+        ]
+    if order == 5:
+        return [
+            (5 * t - 15) / t,
+            -(10 * t**2 - 70 * t + 125) / (t * (t - 1)),
+            (10 * t**3 - 120 * t**2 + 485 * t - 660) / (t * (t - 1) * (t - 2)),
+            -((t - 4) ** 5 - (t - 5) ** 5) / (t * (t - 1) * (t - 2) * (t - 3)),
+            ((t - 5) ** 5) / (t * (t - 1) * (t - 2) * (t - 3) * (t - 4)),
+        ]
+    raise ValueError(f"unsupported jackknife order: {order}")
+
+
+def jackknife_mh_estimate(freq_counts: list[int], t: int) -> dict[str, Any]:
+    """k >= 3 Burnham & Overton (1978) M_h Jackknife + Chao (1987) log-normal 95% upper bound.
+
+    freq_counts[j] = f_{j+1}: number of distinct blocking bugs found by exactly (j + 1) reviewers.
+    """
+    if t < 3:
+        raise ValueError("jackknife_mh_estimate requires t >= 3 reviewers")
+    D = sum(freq_counts)
+    recaptured = sum(freq_counts[1:])
+    if D == 0:
+        return {
+            "estimator": "jackknife_mh",
+            "reviewers": t,
+            "order": 1,
+            "frequencies": list(freq_counts),
+            "observed": 0,
+            "recaptured": 0,
+            "estimated_total": 0.0,
+            "estimated_unfound": 0.0,
+            "estimated_unfound_lower": 0.0,
+            "estimated_unfound_upper": 0.0,
+            "se": 0.0,
+            "informative": True,
+            "can_stop": True,
+        }
+
+    max_order = min(5, t - 1)
+    ests: list[tuple[int, float, float, list[float]]] = []
+    for order in range(1, max_order + 1):
+        a = _jackknife_coeffs(t, order)
+        c = [1.0 + (a[j] if j < len(a) else 0.0) for j in range(t)]
+        n_k = sum(c[j] * freq_counts[j] for j in range(t))
+        var_k = max(0.0, sum((c[j] ** 2) * freq_counts[j] for j in range(t)) - n_k)
+        ests.append((order, n_k, var_k, c))
+
+    # Sequential order selection test (Burnham & Overton 1978, Section 4)
+    chosen_idx = 0
+    for idx in range(len(ests) - 1):
+        _, n1, _, c1 = ests[idx]
+        _, n2, _, c2 = ests[idx + 1]
+        b = [c2[j] - c1[j] for j in range(t)]
+        if D > 1:
+            s_b = sum(b[j] * freq_counts[j] for j in range(t))
+            s_b2 = sum((b[j] ** 2) * freq_counts[j] for j in range(t))
+            var_diff = (D / (D - 1)) * max(0.0, s_b2 - (s_b**2) / D)
+        else:
+            var_diff = 0.0
+        if var_diff > 0 and abs(n2 - n1) / math.sqrt(var_diff) > Z_95_TWO_SIDED:
+            chosen_idx = idx + 1
+        else:
+            break
+
+    order, n_hat, var_hat, _ = ests[chosen_idx]
+    n_hat = max(float(D), n_hat)
+    se = math.sqrt(var_hat)
+    u_hat = max(0.0, n_hat - D)
+
+    if u_hat > 0 and se > 0:
+        # Chao (1987, Biometrics 43:783-791) log-normal asymmetric confidence interval for N >= D
+        factor = math.exp(Z_95_ONE_SIDED * math.sqrt(math.log(1.0 + (se**2) / (u_hat**2))))
+        u_lower = u_hat / factor
+        u_upper: float | None = u_hat * factor
+    else:
+        u_lower = 0.0
+        u_upper = max(0.0, u_hat + Z_95_ONE_SIDED * se)
+
+    # Informative when at least one bug was independently recaptured by >= 2 reviewers
+    informative = recaptured >= 1
+    can_stop = informative and (u_upper is not None) and (u_upper < 1.0)
+    return {
+        "estimator": "jackknife_mh",
+        "reviewers": t,
+        "order": order,
+        "frequencies": list(freq_counts),
+        "observed": D,
+        "recaptured": recaptured,
+        "estimated_total": round(n_hat, 4),
+        "estimated_unfound": round(u_hat, 4),
+        "estimated_unfound_lower": round(u_lower, 4),
+        "estimated_unfound_upper": None if u_upper is None else round(u_upper, 4),
+        "se": round(se, 4),
         "informative": informative,
         "can_stop": can_stop,
     }
@@ -250,65 +522,100 @@ def _pick_next_models(
     return ordered[:count]
 
 
+def _fmt_num(x: float | None) -> str:
+    if x is None:
+        return "unbounded"
+    rounded = round(x, 2)
+    return str(int(rounded)) if rounded == int(rounded) else f"{rounded:.2f}".rstrip("0").rstrip(".")
+
+
+def _format_plain_range(est: dict[str, Any] | None) -> str:
+    if est is None:
+        return "unknown (fewer than two independent models completed this area)"
+    pt = _fmt_num(est["estimated_unfound"])
+    lo = _fmt_num(est["estimated_unfound_lower"])
+    hi = est["estimated_unfound_upper"]
+    if hi is None:
+        return f"at least ~{pt} (upper bound unbounded — no verified overlap yet)"
+    return f"about {pt} (range {lo}–{_fmt_num(hi)})"
+
+
 def evaluate_ledger(payload: Any) -> dict[str, Any]:
-    target, worker_model, pool, vectors, reviews = parse_input(payload)
+    target, worker_model, pool, vectors, reviews, unreachable_models, eq_map = parse_input(payload)
+
+    unreachable_keys = {item["spec"].key for item in unreachable_models}
+    reachable_pool = [m for m in pool if m.key not in unreachable_keys]
 
     vector_results: list[dict[str, Any]] = []
     not_assigned: list[str] = []
     pool_exhausted: list[dict[str, Any]] = []
     could_not_test: list[dict[str, Any]] = []
+    person_decisions: list[dict[str, Any]] = []
+    if unreachable_models:
+        could_not_test.append(
+            {
+                "vector": "pool",
+                "items": [f"{item['spec'].label}: {item['reason']}" for item in unreachable_models],
+            }
+        )
     all_rule_violations: list[dict[str, str]] = []
     lanes_log_lines: list[str] = []
     by_model: dict[str, dict[str, int]] = {}
     by_vector: dict[str, dict[str, int]] = {}
-    pool_has_non_worker = (worker_model is not None) and any(m.key != worker_model.key for m in pool)
+    pool_has_non_worker = (worker_model is not None) and any(m.key != worker_model.key for m in reachable_pool)
 
     for rev in reviews:
         mkey = f"{rev.model.provider}/{rev.model.model}"
-        mstats = by_model.setdefault(mkey, {"reviews": 0, "verified": 0, "dropped": 0})
+        mstats = by_model.setdefault(mkey, {"reviews": 0, "blocking": 0, "minor": 0, "verified": 0, "dropped": 0})
         mstats["reviews"] += 1
-        mstats["verified"] += rev.verified_total
+        mstats["blocking"] += rev.blocking_total
+        mstats["minor"] += rev.minor_total
+        mstats["verified"] += rev.blocking_total
         mstats["dropped"] += rev.dropped
 
     for vec in vectors:
         assigned = [r for r in reviews if r.vector == vec.name]
-        external_rcs: set[str] = set()
+        external_blocking_rcs: set[str] = set()
+        external_minor_rcs: set[str] = set()
         external_sources: list[dict[str, Any]] = []
         for r in reviews:
-            if r.vector != vec.name and vec.name in r.verified_by_vector:
-                rcs = r.verified_by_vector[vec.name]
-                external_rcs.update(rcs)
-                external_sources.append(
-                    {
-                        "from_vector": r.vector,
-                        "model": r.model.label,
-                        "root_causes": sorted(rcs),
-                    }
-                )
+            if r.vector != vec.name:
+                b_rcs = r.blocking_by_vector.get(vec.name, frozenset())
+                m_rcs = r.minor_by_vector.get(vec.name, frozenset())
+                if b_rcs or m_rcs:
+                    external_blocking_rcs.update(b_rcs)
+                    external_minor_rcs.update(m_rcs)
+                    external_sources.append(
+                        {
+                            "from_vector": r.vector,
+                            "model": r.model.label,
+                            "root_causes": sorted(b_rcs),
+                            "minor": sorted(m_rcs),
+                        }
+                    )
 
         if vec.could_not_test:
             could_not_test.append({"vector": vec.name, "items": list(vec.could_not_test)})
 
-        used_keys: list[tuple[str, str]] = []
         used_key_set: set[tuple[str, str]] = set()
         distinct_assigned: list[ReviewRun] = []
         reviewer_summaries: list[dict[str, Any]] = []
         vec_violations: list[str] = []
-        all_assigned_rcs: set[str] = set()
+        all_assigned_blocking: set[str] = set()
+        all_assigned_minor: set[str] = set()
         total_dropped = 0
         has_non_worker = False
 
         for r in assigned:
-            in_vec = r.verified_by_vector.get(vec.name, frozenset())
-            elsewhere = {
-                k: sorted(v) for k, v in r.verified_by_vector.items() if k != vec.name
-            }
-            all_assigned_rcs.update(in_vec)
+            in_vec_b = r.blocking_by_vector.get(vec.name, frozenset())
+            in_vec_m = r.minor_by_vector.get(vec.name, frozenset())
+            elsewhere = {k: sorted(v) for k, v in r.blocking_by_vector.items() if k != vec.name}
+            all_assigned_blocking.update(in_vec_b)
+            all_assigned_minor.update(in_vec_m)
             total_dropped += r.dropped
             is_duplicate = r.model.key in used_key_set
             if not is_duplicate:
                 used_key_set.add(r.model.key)
-                used_keys.append(r.model.key)
                 distinct_assigned.append(r)
             else:
                 msg = (
@@ -325,52 +632,108 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                     "provider": r.model.provider,
                     "model": r.model.model,
                     "effort": r.model.effort,
+                    "harness": r.model.harness,
                     "label": r.model.label,
-                    "verified_in_vector": len(in_vec),
-                    "verified_total": r.verified_total,
+                    "verified_in_vector": len(in_vec_b),
+                    "blocking_in_vector": len(in_vec_b),
+                    "minor_in_vector": len(in_vec_m),
+                    "verified_total": r.blocking_total,
                     "dropped": r.dropped,
                     "duplicate": is_duplicate,
-                    "root_causes": sorted(in_vec),
+                    "root_causes": sorted(in_vec_b),
+                    "minor": sorted(in_vec_m),
                     "filed_elsewhere": elsewhere,
                 }
             )
+            harness_note = f" harness={r.model.harness}" if r.model.harness else ""
+            minor_note = f" minor={r.minor_total}" if r.minor_total else ""
             extra_note = f" filed_elsewhere={sum(len(v) for v in elsewhere.values())}" if elsewhere else ""
             lanes_log_lines.append(
                 f"review {target}: vector={vec.name} risk={vec.risk} "
-                f"model={r.model.provider}/{r.model.model} verified={r.verified_total} dropped={r.dropped}{extra_note}"
+                f"model={r.model.provider}/{r.model.model}{harness_note} "
+                f"blocking={r.blocking_total}{minor_note} dropped={r.dropped}{extra_note}"
             )
 
-        all_rcs_under_vector = all_assigned_rcs | external_rcs
+        # Enforce fix-equivalence for any blocking root cause claimed by >= 2 distinct reviewers!
+        # Two findings are only the same root cause if `equivalence_checks` proves one fix makes both reproductions pass.
+        rc_claim_counts: dict[str, int] = {}
+        for r in distinct_assigned:
+            for rc in r.blocking_by_vector.get(vec.name, frozenset()):
+                rc_claim_counts[rc] = rc_claim_counts.get(rc, 0) + 1
+        # External blocking findings also count as a distinct source if matching an assigned reviewer's RC
+        for rc in external_blocking_rcs:
+            rc_claim_counts[rc] = rc_claim_counts.get(rc, 0) + 1
+
+        effective_sets: list[set[str]] = []
+        flagged_unverified_rcs: set[str] = set()
+        for r_idx, r in enumerate(distinct_assigned):
+            eff: set[str] = set()
+            for rc in sorted(r.blocking_by_vector.get(vec.name, frozenset())):
+                if rc_claim_counts.get(rc, 0) >= 2:
+                    eq = eq_map.get((vec.name, rc))
+                    if eq is not None and eq.fix_verified and len(eq.reproductions) >= 2:
+                        eff.add(rc)
+                    else:
+                        # Unverified overlap merge: split into reviewer-scoped distinct ID so wording cannot fake overlap
+                        eff.add(f"{rc}#unmerged-{r_idx}")
+                        if rc not in flagged_unverified_rcs:
+                            flagged_unverified_rcs.add(rc)
+                            msg = (
+                                f"unverified_overlap_merge: shared blocking root cause {rc!r} on {vec.name} "
+                                f"lacks an equivalence_check with fix_verified=true and >=2 reproductions; "
+                                f"treated as distinct findings until proven by one fix"
+                            )
+                            vec_violations.append(msg)
+                            all_rule_violations.append({"vector": vec.name, "message": msg})
+                else:
+                    eff.add(rc)
+            effective_sets.append(eff)
+
+        effective_external: set[str] = set()
+        for rc in sorted(external_blocking_rcs):
+            if rc in flagged_unverified_rcs:
+                effective_external.add(f"{rc}#unmerged-external")
+            else:
+                effective_external.add(rc)
+
+        all_blocking_under_vector = set().union(*effective_sets, effective_external) if (effective_sets or effective_external) else set()
+        all_minor_under_vector = all_assigned_minor | external_minor_rcs
         by_vector[vec.name] = {
             "reviews": len(assigned),
             "distinct_models": len(distinct_assigned),
-            "verified_root_causes": len(all_rcs_under_vector),
+            "verified_root_causes": len(all_blocking_under_vector),
+            "blocking_root_causes": len(all_blocking_under_vector),
+            "minor_findings": len(all_minor_under_vector),
             "dropped": total_dropped,
         }
 
         estimate: dict[str, Any] | None = None
         min_initial = 2 if vec.risk == "risky" else 1
         recommended_next: list[ModelSpec] = []
-        non_worker_covered = any(
-            worker_model is None or k != worker_model.key for k in used_key_set
-        )
+        non_worker_covered = any(worker_model is None or k != worker_model.key for k in used_key_set)
         missing_non_worker = pool_has_non_worker and not non_worker_covered
+        landing_blocked = False
 
         if len(distinct_assigned) == 0:
             not_assigned.append(vec.name)
             recommended_next = _pick_next_models(
-                pool, used_key_set, worker_model, has_non_worker=False, count=min_initial
+                reachable_pool, used_key_set, worker_model, has_non_worker=False, count=min_initial
             )
-            if len(pool) == 0:
+            if len(reachable_pool) == 0:
                 action = "flag"
                 status = "POOL EXHAUSTED"
-                reason = "no approved reviewer models in reviewer_pool"
-                pool_exhausted.append({"vector": vec.name, "risk": vec.risk, "reason": reason, "estimate": None})
+                reason = (
+                    "all_pool_models_unreachable"
+                    if len(pool) > 0
+                    else "no approved reviewer models in reviewer_pool"
+                )
+                landing_blocked = vec.risk == "risky"
+                pool_exhausted.append({"vector": vec.name, "risk": vec.risk, "reason": reason, "estimate": None, "landing_blocked": landing_blocked})
             else:
                 action = "continue"
                 status = "NOT ASSIGNED"
                 reason = (
-                    f"risky vector needs at least 2 models to start"
+                    "risky vector needs at least 2 models to start"
                     if vec.risk == "risky"
                     else "low-risk vector needs 1 model to start"
                 )
@@ -383,60 +746,79 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                 vec_violations.append(msg)
                 all_rule_violations.append({"vector": vec.name, "message": msg})
                 recommended_next = _pick_next_models(
-                    pool, used_key_set, worker_model, has_non_worker=False, count=1
+                    reachable_pool, used_key_set, worker_model, has_non_worker=False, count=1
                 )
                 action = "continue"
                 status = "CONTINUE"
                 reason = "non_worker_model_required"
-            elif vec.risk == "low" and len(all_rcs_under_vector) == 0:
+            elif vec.risk == "low" and len(all_blocking_under_vector) == 0:
                 action = "stop"
                 status = "STOPPED (clean single review)"
                 reason = "clean_single_review"
             else:
                 recommended_next = _pick_next_models(
-                    pool, used_key_set, worker_model, has_non_worker=has_non_worker, count=1
+                    reachable_pool, used_key_set, worker_model, has_non_worker=has_non_worker, count=1
                 )
                 if recommended_next:
                     action = "continue"
                     status = "CONTINUE"
                     if vec.risk == "risky":
                         reason = "risky_vector_requires_second_model"
-                    elif len(all_assigned_rcs) == 0 and len(external_rcs) > 0:
+                    elif len(effective_sets[0]) == 0 and len(effective_external) > 0:
                         reason = "external_verified_bug_on_low_risk_vector"
                     else:
                         reason = "verified_bug_on_low_risk_vector"
                 else:
                     action = "flag"
                     status = "POOL EXHAUSTED"
-                    reason = (
-                        "single_model_pool_cannot_supply_second_model"
-                        if len(pool) <= 1
-                        else "pool_exhausted_before_second_model"
+                    if any(m.key not in used_key_set and m.key in unreachable_keys for m in pool):
+                        reason = "remaining_pool_models_unreachable"
+                    elif len(pool) <= 1:
+                        reason = "single_model_pool_cannot_supply_second_model"
+                    else:
+                        reason = "pool_exhausted_before_second_model"
+                    landing_blocked = vec.risk == "risky"
+                    pool_exhausted.append(
+                        {"vector": vec.name, "risk": vec.risk, "reason": reason, "estimate": None, "landing_blocked": landing_blocked}
                     )
-                    pool_exhausted.append({"vector": vec.name, "risk": vec.risk, "reason": reason, "estimate": None})
         else:
-            # 2+ distinct models on this vector: evaluate Chapman strictly over each model's first independent run
-            latest = distinct_assigned[-1]
-            earlier_rcs: set[str] = set(external_rcs)
-            for prev in distinct_assigned[:-1]:
-                earlier_rcs.update(prev.verified_by_vector.get(vec.name, frozenset()))
-            new_rcs = set(latest.verified_by_vector.get(vec.name, frozenset()))
-            shared_rcs = earlier_rcs & new_rcs
-            unconfirmed_repeat_rcs = all_assigned_rcs - (earlier_rcs | new_rcs)
+            # k >= 2 distinct independent reviewers
+            # Check for unconfirmed blocking bugs from a duplicate/repeat run
+            raw_distinct_union = set().union(*(r.blocking_by_vector.get(vec.name, frozenset()) for r in distinct_assigned))
+            unconfirmed_repeat_rcs = all_assigned_blocking - raw_distinct_union
 
-            estimate = chapman_estimate(len(earlier_rcs), len(new_rcs), len(shared_rcs))
+            if len(distinct_assigned) == 2:
+                s1 = effective_sets[0] | effective_external
+                s2 = effective_sets[1]
+                estimate = chapman_estimate(len(s1), len(s2), len(s1 & s2))
+            else:
+                # k >= 3: Burnham & Overton (1978) M_h Jackknife built for heterogeneous reviewer strengths
+                t = len(distinct_assigned)
+                bug_counts: dict[str, int] = {}
+                for eff in effective_sets:
+                    for rc in eff:
+                        bug_counts[rc] = bug_counts.get(rc, 0) + 1
+                # External findings not already captured by assigned reviewers enter as singletons
+                for rc in effective_external:
+                    if rc not in bug_counts:
+                        bug_counts[rc] = 1
+                freqs = [0] * t
+                for cnt in bug_counts.values():
+                    freqs[min(cnt, t) - 1] += 1
+                estimate = jackknife_mh_estimate(freqs, t)
+
             if estimate["can_stop"] and not missing_non_worker and not unconfirmed_repeat_rcs:
                 action = "stop"
                 status = "STOPPED (estimate)"
-                if estimate["n1"] == 0 and estimate["n2"] == 0:
-                    reason = "both_found_nothing"
+                if estimate["observed"] == 0:
+                    reason = "both_found_nothing" if len(distinct_assigned) == 2 else "all_found_nothing"
                 elif estimate["estimated_unfound"] == 0:
-                    reason = "no_new_root_causes"
+                    reason = "cautious_upper_below_one"
                 else:
-                    reason = "unfound_below_one"
+                    reason = "cautious_upper_below_one"
             else:
                 recommended_next = _pick_next_models(
-                    pool, used_key_set, worker_model, has_non_worker=has_non_worker, count=1
+                    reachable_pool, used_key_set, worker_model, has_non_worker=has_non_worker, count=1
                 )
                 if recommended_next:
                     action = "continue"
@@ -445,17 +827,46 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                         reason = "non_worker_model_required"
                     elif unconfirmed_repeat_rcs:
                         reason = "unconfirmed_findings_from_repeat_run"
-                    elif not estimate["informative"] and estimate["estimated_unfound"] < 1:
-                        reason = "uninformative_one_sided_zero"
+                    elif not estimate["informative"]:
+                        reason = "uninformative_no_verified_overlap"
                     else:
-                        reason = "estimated_unfound_at_least_one"
+                        reason = "cautious_upper_at_least_one"
                 else:
                     action = "flag"
                     status = "POOL EXHAUSTED"
-                    reason = "pool_exhausted_with_unmet_stop_condition"
+                    if any(m.key not in used_key_set and m.key in unreachable_keys for m in pool):
+                        reason = "remaining_pool_models_unreachable"
+                    else:
+                        reason = "pool_exhausted_with_unmet_stop_condition"
+                    landing_blocked = vec.risk == "risky"
                     pool_exhausted.append(
-                        {"vector": vec.name, "risk": vec.risk, "reason": reason, "estimate": estimate}
+                        {
+                            "vector": vec.name,
+                            "risk": vec.risk,
+                            "reason": reason,
+                            "estimate": estimate,
+                            "landing_blocked": landing_blocked,
+                        }
                     )
+
+        if landing_blocked:
+            range_txt = _format_plain_range(estimate)
+            person_decisions.append(
+                {
+                    "area": vec.name,
+                    "proven_blocking": len(all_blocking_under_vector),
+                    "estimated_remaining": None if estimate is None else estimate["estimated_unfound"],
+                    "estimated_remaining_range": None if estimate is None else [
+                        estimate["estimated_unfound_lower"],
+                        estimate["estimated_unfound_upper"],
+                    ],
+                    "question": (
+                        f"Review of {vec.name} has not converged yet ({len(all_blocking_under_vector)} proven blocking bug(s) found so far; "
+                        f"likely remaining blocking bugs: {range_txt}). "
+                        f"Approve additional reviewer models to keep checking, or accept the risk and land after fixing the proven bugs?"
+                    ),
+                }
+            )
 
         vector_results.append(
             {
@@ -466,10 +877,13 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                 "action": action,
                 "status": status,
                 "reason": reason,
+                "landing_blocked": landing_blocked,
                 "reviewers": reviewer_summaries,
                 "external_findings": external_sources,
-                "verified_root_causes": sorted(all_rcs_under_vector),
-                "verified_count": len(all_rcs_under_vector),
+                "verified_root_causes": sorted(all_blocking_under_vector),
+                "verified_count": len(all_blocking_under_vector),
+                "minor_findings": sorted(all_minor_under_vector),
+                "minor_count": len(all_minor_under_vector),
                 "dropped_count": total_dropped,
                 "non_worker_model_used": non_worker_covered if assigned else False,
                 "rule_violations": vec_violations,
@@ -489,59 +903,71 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
     return {
         "target": target,
         "overall": overall,
+        "landing_blocked": any(v["landing_blocked"] for v in vector_results),
         "pool_size": len(pool),
+        "reachable_pool_size": len(reachable_pool),
         "vectors": vector_results,
         "not_assigned": not_assigned,
         "pool_exhausted": pool_exhausted,
         "could_not_test": could_not_test,
         "rule_violations": all_rule_violations,
+        "person_decisions": person_decisions,
         "by_model": by_model,
         "by_vector": by_vector,
         "lanes_log_lines": lanes_log_lines,
     }
 
 
-def _fmt_num(x: float) -> str:
-    return str(int(x)) if x == int(x) else f"{x:.2f}".rstrip("0").rstrip(".")
-
-
 def format_markdown(result: dict[str, Any]) -> str:
+    """Format the internal audit coverage map (saved to program/artifact files, never leaked raw to users)."""
     lines = [
         f"## Coverage map (`{result['target']}`)",
         "",
-        "| Vector | Risk | Models (verified/dropped) | Overlap & estimate | Status |",
+        "| Vector | Risk | Models (blocking/minor/dropped) | Estimator & remaining (95% range) | Status |",
         "|---|---|---|---|---|",
     ]
     for v in result["vectors"]:
         if v["reviewers"]:
             models_str = ", ".join(
-                f"{r['provider']}/{r['model']} ({r['verified_in_vector']}v/{r['dropped']}d)"
+                f"{r['provider']}/{r['model']}"
+                + (f" [{r['harness']}]" if r.get("harness") else "")
+                + f" ({r['blocking_in_vector']}b/{r['minor_in_vector']}m/{r['dropped']}d)"
                 for r in v["reviewers"]
             )
         else:
             models_str = "none"
         if v["external_findings"]:
             ext_count = sum(len(e["root_causes"]) for e in v["external_findings"])
-            models_str += f" (+{ext_count} external)"
+            if ext_count:
+                models_str += f" (+{ext_count} external blocking)"
 
         est = v["estimate"]
         if est is None:
             est_str = "—"
+        elif est["estimator"] == "chapman_hypergeometric_95":
+            info_tag = "" if est["informative"] else " [uninformative]"
+            hi_txt = _fmt_num(est["estimated_unfound_upper"])
+            est_str = (
+                f"Chapman n1={est['n1']}, n2={est['n2']}, m={est['m']} -> "
+                f"unfound={_fmt_num(est['estimated_unfound'])} "
+                f"(range {_fmt_num(est['estimated_unfound_lower'])}–{hi_txt}){info_tag}"
+            )
         else:
             info_tag = "" if est["informative"] else " [uninformative]"
+            hi_txt = _fmt_num(est["estimated_unfound_upper"])
             est_str = (
-                f"n1={est['n1']}, n2={est['n2']}, m={est['m']} -> "
-                f"N={_fmt_num(est['estimated_total'])}, unfound={_fmt_num(est['estimated_unfound'])}{info_tag}"
+                f"Jackknife M_h(J{est['order']}) freqs={est['frequencies']} -> "
+                f"unfound={_fmt_num(est['estimated_unfound'])} "
+                f"(range {_fmt_num(est['estimated_unfound_lower'])}–{hi_txt}){info_tag}"
             )
 
         status_str = v["status"]
         if v["action"] == "continue" and v["next_models"]:
             nxt = ", ".join(f"{m['provider']}/{m['model']}" for m in v["next_models"])
             status_str = f"{status_str} (add {nxt})"
-        elif v["action"] == "stop":
-            status_str = f"{status_str}"
         elif v["action"] == "flag":
-            status_str = f"{status_str} ({v['reason']})"
+            gate_note = "; LANDING BLOCKED" if v.get("landing_blocked") else ""
+            status_str = f"{status_str} ({v['reason']}{gate_note})"
 
         lines.append(f"| {v['name']} | {v['risk']} | {models_str} | {est_str} | {status_str} |")
 
@@ -557,15 +983,9 @@ def format_markdown(result: dict[str, Any]) -> str:
     lines.append("POOL EXHAUSTED")
     if result["pool_exhausted"]:
         for item in result["pool_exhausted"]:
-            est = item["estimate"]
-            if est is not None:
-                est_note = (
-                    f" (n1={est['n1']}, n2={est['n2']}, m={est['m']}, "
-                    f"N={_fmt_num(est['estimated_total'])}, unfound={_fmt_num(est['estimated_unfound'])})"
-                )
-            else:
-                est_note = ""
-            lines.append(f"- {item['vector']} ({item['risk']}): {item['reason']}{est_note}")
+            est_note = f" — likely remaining blocking bugs: {_format_plain_range(item['estimate'])}"
+            block_note = " [HOLD LANDING FOR PERSON]" if item.get("landing_blocked") else ""
+            lines.append(f"- {item['vector']} ({item['risk']}): {item['reason']}{est_note}{block_note}")
     else:
         lines.append("- none")
 
@@ -584,12 +1004,37 @@ def format_markdown(result: dict[str, Any]) -> str:
         for item in result["rule_violations"]:
             lines.append(f"- {item['vector']}: {item['message']}")
 
+    if result.get("person_decisions"):
+        lines.append("")
+        lines.append("PLAIN-LANGUAGE ESCALATION (for user if risky vector did not converge)")
+        for item in result["person_decisions"]:
+            lines.append(f"- {item['question']}")
+
     return "\n".join(lines) + "\n"
 
 
 def main(argv: list[str] | None = None) -> int:
+    epilog = (
+        "Input JSON schema:\n"
+        "  {\n"
+        '    "target": "<branch or PR>",\n'
+        '    "worker_model": {"provider": "...", "model": "...", "effort": "...", "harness": "..."},\n'
+        '    "reviewer_pool": [{"provider": "...", "model": "...", "effort": "...", "harness": "..."}],\n'
+        '    "unreachable_models": [{"provider": "...", "model": "...", "harness": "...", "reason": "..."}],\n'
+        '    "vectors": [{"name": "...", "risk": "low|risky", "could_not_test": ["..."]}],\n'
+        '    "equivalence_checks": [\n'
+        '      {"vector": "...", "root_cause": "rc-1", "reproductions": ["r1.py", "r2.py"], "fix_verified": true}\n'
+        "    ],\n"
+        '    "reviews": [{\n'
+        '      "vector": "...", "provider": "...", "model": "...",\n'
+        '      "verified": ["rc-1"], "minor": ["nit-1"], "dropped": 0\n'
+        "    }]\n"
+        "  }\n"
+    )
     parser = argparse.ArgumentParser(
-        description="Compute Chapman capture-recapture stop/continue/flag decisions and a coverage map for vectored review."
+        description="Evaluate vectored review stopping decisions (k=2 Chapman + exact 95% hypergeometric upper bound; k>=3 Burnham-Overton M_h Jackknife + Chao 95% range).",
+        epilog=epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "input",
@@ -599,7 +1044,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--json", action="store_true", dest="as_json", help="Emit structured JSON output")
-    mode.add_argument("--markdown", action="store_true", help="Emit Markdown coverage map (default)")
+    mode.add_argument("--markdown", action="store_true", help="Emit internal Markdown coverage map (default)")
     mode.add_argument("--lanes", action="store_true", help="Emit append-only LANES.md log lines")
     args = parser.parse_args(argv)
 

@@ -20,6 +20,7 @@ import glob
 import json
 import os
 import platform
+import re
 import shlex
 import shutil
 import subprocess
@@ -64,8 +65,9 @@ HARNESS_PROBES = (
     ("codex", "openai", ("codex",)),
     ("agy", "google", ("agy", "antigravity")),
     ("gemini", "google", ("gemini",)),
-    ("cursor", "cursor", ("cursor", "agent")),
+    ("cursor", "cursor", ("cursor-agent", "agent", "cursor")),
     ("devin", "devin", ("devin",)),
+    ("pi", "multi", ("pi",)),
 )
 
 GITHUB_REPOS = {
@@ -155,11 +157,25 @@ def _standard_bin_dirs() -> list[Path]:
         dirs.extend([
             Path.home() / ".local" / "bin",
             Path.home() / ".cargo" / "bin",
+            Path.home() / ".volta" / "bin",
+            Path.home() / ".bun" / "bin",
+            Path.home() / ".npm-global" / "bin",
+            Path.home() / ".asdf" / "shims",
+            Path.home() / ".local" / "share" / "mise" / "shims",
             Path("/opt/homebrew/bin"),
             Path("/usr/local/bin"),
             Path("/home/linuxbrew/.linuxbrew/bin"),
             Path("/usr/bin"),
         ])
+        nvm_versions = Path.home() / ".nvm" / "versions" / "node"
+        try:
+            if nvm_versions.is_dir():
+                for ver_dir in sorted(nvm_versions.iterdir(), reverse=True):
+                    bin_sub = ver_dir / "bin"
+                    if bin_sub.is_dir():
+                        dirs.append(bin_sub)
+        except OSError:
+            pass
     return dirs
 
 
@@ -548,6 +564,231 @@ def cmd_link_bin(args) -> int:
     return 0
 
 
+def _default_settings_path() -> Path:
+    if xdg := os.environ.get("XDG_CONFIG_HOME"):
+        return Path(xdg).expanduser() / "astack" / "settings.json"
+    return Path.home() / ".config" / "astack" / "settings.json"
+
+
+def _split_md_front_matter(text: str) -> tuple[dict[str, str], str]:
+    match = re.match(r"---\n(.*?)\n---\n?", text, re.S)
+    if not match:
+        return {}, text
+    fields: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        if ":" in line:
+            k, _, v = line.partition(":")
+            fields[k.strip()] = v.strip()
+    return fields, text[match.end():]
+
+
+def _unquote_yaml(val: str) -> str:
+    val = val.strip()
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+        return val[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    return val
+
+
+def _slugify_reviewer(entry: dict) -> str:
+    parts = [entry.get("provider", ""), entry.get("model", ""), entry.get("effort", "")]
+    raw = "-".join(str(p) for p in parts if p).lower()
+    return re.sub(r"[^a-z0-9]+", "-", raw).strip("-") or "default"
+
+
+def _load_bundled_agents(source_root: Path) -> dict[str, tuple[str, str, str]]:
+    """Load (description, body, disallowed_tools) for lead, worker, reviewer, researcher from agents/."""
+    agents_dir = source_root / "agents"
+    roles = ("lead", "worker", "reviewer", "researcher")
+    loaded: dict[str, tuple[str, str, str]] = {}
+    for role in roles:
+        md_candidates = (agents_dir / f"astack-{role}.md", agents_dir / f"{role}.md")
+        toml_path = agents_dir / f"astack-{role}.toml"
+        found = next((p for p in md_candidates if p.is_file()), None)
+        if found is not None:
+            fields, body = _split_md_front_matter(found.read_text(encoding="utf-8"))
+            desc = _unquote_yaml(fields.get("description", f"astack {role} agent"))
+            disallowed = fields.get("disallowedTools", "")
+            loaded[role] = (desc, body.strip(), disallowed)
+        elif toml_path.is_file():
+            raw = toml_path.read_text(encoding="utf-8")
+            dm = re.search(r'^description\s*=\s*"((?:\\.|[^"\\])*)"', raw, re.M)
+            bm = re.search(r"developer_instructions\s*=\s*'''\n(.*?)\n'''", raw, re.S)
+            desc = dm.group(1).replace('\\"', '"').replace("\\\\", "\\") if dm else f"astack {role} agent"
+            body = bm.group(1).strip() if bm else raw.strip()
+            loaded[role] = (desc, body, "")
+    return loaded
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.astack-tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _format_toml_agent(name: str, description: str, body: str, role_cfg: dict | None = None) -> str:
+    esc_desc = description.replace("\\", "\\\\").replace('"', '\\"')
+    lines = [f'name = "{name}"', f'description = "{esc_desc}"']
+    if isinstance(role_cfg, dict):
+        model = str(role_cfg.get("model", "")).strip()
+        provider = str(role_cfg.get("provider", "")).strip()
+        effort = str(role_cfg.get("effort", "")).strip()
+        if model and model.lower() != "default":
+            lines.append(f'model = "{model}"')
+        if provider and provider.lower() not in ("openai", "codex", "default"):
+            lines.append(f'model_provider = "{provider}"')
+        if effort and effort.lower() != "default":
+            lines.append(f'model_reasoning_effort = "{effort}"')
+    lines.append("developer_instructions = '''")
+    lines.append(body)
+    lines.append("'''")
+    return "\n".join(lines) + "\n"
+
+
+def _format_md_agent(harness: str, role: str, description: str, body: str, disallowed: str, role_cfg: dict | None = None) -> str:
+    name = f"astack-{role}"
+    esc_desc = description.replace("\\", "\\\\").replace('"', '\\"')
+    model = str((role_cfg or {}).get("model", "")).strip()
+    fm = ["---", f"name: {name}", f'description: "{esc_desc}"']
+    if harness == "antigravity":
+        fm.append("subagent: true")
+        fm.append(f"mainAgent: {'true' if role == 'lead' else 'false'}")
+        if model and model.lower() != "default":
+            fm.append(f"model: {model}")
+    elif harness == "cursor":
+        if role != "lead":
+            fm.append("is_background: true")
+        if model and model.lower() != "default":
+            fm.append(f"model: {model}")
+    elif harness == "pi":
+        labels = {"lead": "astack Lead", "worker": "astack Worker", "reviewer": "astack Reviewer", "researcher": "astack Researcher"}
+        fm.append(f"label: {labels[role]}")
+        fm.append(f'promptSnippet: "{esc_desc}"')
+        if role == "researcher":
+            fm.extend(["tools:", "  - read", "  - grep", "  - find", "  - ls", "readOnly: true"])
+        elif role == "reviewer":
+            fm.extend(["tools:", "  - read", "  - grep", "  - find", "  - ls", "  - bash", "readOnly: true"])
+        if model and model.lower() != "default":
+            fm.append(f"model: {model}")
+    elif harness == "claude":
+        if disallowed:
+            fm.append(f"disallowedTools: {disallowed}")
+        if model and model.lower() in ("opus", "sonnet", "haiku"):
+            fm.append(f"model: {model.lower()}")
+    elif harness == "devin":
+        if model and model.lower() != "default":
+            fm.append(f"model: {model}")
+    fm.append("---")
+    return "\n".join(fm) + "\n\n" + body + "\n"
+
+
+def _default_agents_dir(harness: str) -> Path:
+    if harness == "codex":
+        return Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex")).expanduser() / "agents"
+    if harness == "antigravity":
+        return Path.home() / ".gemini" / "config" / "agents"
+    if harness == "cursor":
+        return Path.home() / ".cursor" / "agents"
+    if harness == "devin":
+        return Path.home() / ".devin" / "agents"
+    if harness == "pi":
+        return Path.home() / ".pi" / "agent" / "agents"
+    if harness == "claude":
+        return Path.home() / ".claude" / "agents"
+    raise ValueError(f"unsupported harness: {harness}")
+
+
+def cmd_install_agents(args) -> int:
+    source_root = Path(__file__).resolve().parent.parent
+    agents = _load_bundled_agents(source_root)
+    if not agents:
+        print(f"error: no bundled agents found under {source_root / 'agents'}", file=sys.stderr)
+        return 1
+
+    settings_path = Path(args.settings).expanduser() if args.settings else _default_settings_path()
+    settings: dict = {}
+    if settings_path.is_file():
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"error: failed to read settings {settings_path}: {exc}", file=sys.stderr)
+            return 2
+
+    roles_cfg = settings.get("roles") if isinstance(settings.get("roles"), dict) else {}
+    reviewer_pool = settings.get("reviewer_pool") if isinstance(settings.get("reviewer_pool"), list) else []
+
+    raw_harness = args.harness.lower()
+    if raw_harness == "agy":
+        raw_harness = "antigravity"
+    if raw_harness == "all":
+        detected = detect_harnesses()
+        targets = []
+        for det_key, norm in (("claude", "claude"), ("codex", "codex"), ("agy", "antigravity"), ("cursor", "cursor"), ("devin", "devin"), ("pi", "pi")):
+            if det_key in detected:
+                targets.append(norm)
+        if not targets:
+            print("No supported harnesses detected on PATH or standard directories.")
+            return 0
+    else:
+        targets = [raw_harness]
+
+    actions: list[str] = []
+    for harness in targets:
+        target_dir = Path(args.target).expanduser() if (args.target and len(targets) == 1) else _default_agents_dir(harness)
+        if harness == "codex":
+            for role in ("lead", "worker", "researcher"):
+                if role not in agents:
+                    continue
+                desc, body, _ = agents[role]
+                dst = target_dir / f"astack-{role}.toml"
+                actions.append(f"write {dst}")
+                if not args.dry_run:
+                    _write_atomic(dst, _format_toml_agent(f"astack-{role}", desc, body, roles_cfg.get(role)))
+            if "reviewer" in agents:
+                desc, body, _ = agents["reviewer"]
+                if not args.dry_run and target_dir.is_dir():
+                    for stale in target_dir.glob("astack-reviewer*.toml"):
+                        stale.unlink(missing_ok=True)
+                codex_entries = [
+                    e for e in reviewer_pool
+                    if isinstance(e, dict)
+                    and ((str(e.get("harness", "")).lower() == "codex") or (not e.get("harness") and str(e.get("provider", "")).lower() == "openai"))
+                ]
+                if codex_entries:
+                    seen: set[str] = set()
+                    for entry in codex_entries:
+                        slug = _slugify_reviewer(entry)
+                        base = slug
+                        idx = 2
+                        while slug in seen:
+                            slug = f"{base}-{idx}"
+                            idx += 1
+                        seen.add(slug)
+                        dst = target_dir / f"astack-reviewer-{slug}.toml"
+                        actions.append(f"write {dst} (model={entry.get('model')})")
+                        if not args.dry_run:
+                            _write_atomic(dst, _format_toml_agent(f"astack-reviewer-{slug}", desc, body, entry))
+                else:
+                    dst = target_dir / "astack-reviewer.toml"
+                    actions.append(f"write {dst}")
+                    if not args.dry_run:
+                        _write_atomic(dst, _format_toml_agent("astack-reviewer", desc, body, None))
+        else:
+            for role in ("lead", "worker", "reviewer", "researcher"):
+                if role not in agents:
+                    continue
+                desc, body, disallowed = agents[role]
+                cfg = roles_cfg.get(role) if role != "reviewer" else None
+                dst = target_dir / f"astack-{role}.md"
+                actions.append(f"write {dst}")
+                if not args.dry_run:
+                    _write_atomic(dst, _format_md_agent(harness, role, desc, body, disallowed, cfg))
+
+    for line in actions:
+        print(line)
+    return 0
+
+
 def cmd_env(args) -> int:
     py = venv_bin(args.venv, "python")
     if not py.is_file():
@@ -611,6 +852,20 @@ def main(argv=None) -> int:
     p_link.add_argument("--copy", action="store_true", help="copy scripts instead of symlinking")
     p_link.add_argument("--dry-run", action="store_true", help="print actions without modifying files")
 
+    p_agents = sub.add_parser(
+        "install-agents",
+        help="install full native astack agents (lead, worker, reviewer, researcher) for codex, antigravity/agy, cursor, devin, pi, or claude",
+    )
+    p_agents.add_argument(
+        "--harness",
+        required=True,
+        choices=("codex", "antigravity", "agy", "cursor", "devin", "pi", "claude", "all"),
+        help="target harness (or 'all' for every detected harness)",
+    )
+    p_agents.add_argument("--settings", help="settings.json path (default: ~/.config/astack/settings.json)")
+    p_agents.add_argument("--target", help="override destination agents directory")
+    p_agents.add_argument("--dry-run", action="store_true", help="print actions without writing files")
+
     sub.add_parser("python", help="run python inside the managed venv")
     sub.add_parser("werkflow", help="run the werkflow CLI inside the managed venv")
 
@@ -628,6 +883,8 @@ def main(argv=None) -> int:
         return cmd_install(args)
     if args.command == "link-bin":
         return cmd_link_bin(args)
+    if args.command == "install-agents":
+        return cmd_install_agents(args)
     if args.command == "env":
         return cmd_env(args)
     if args.command == "path":

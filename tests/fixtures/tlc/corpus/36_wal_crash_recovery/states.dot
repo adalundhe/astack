@@ -1,9 +1,0 @@
-strict digraph DiskGraph {
-  1 [label="/\\ acked = 0\n/\\ disk = 0", style = filled];
-  2 [label="/\\ acked = 1\n/\\ disk = 0"];
-  3 [label="/\\ acked = 1\n/\\ disk = 1"];
-  4 [label="/\\ acked = 1\n/\\ recovered = 0"];
-  1 -> 2 [label="AckBeforeFsync", color="black"];
-  2 -> 3 [label="Fsync", color="black"];
-  2 -> 4 [label="CrashReplay", color="black"];
-}

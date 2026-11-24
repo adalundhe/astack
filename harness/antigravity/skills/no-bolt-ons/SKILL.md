@@ -1,0 +1,36 @@
+---
+name: no-bolt-ons
+description: "Integrate new requirements cleanly into the existing design instead of adding special-case flags, parallel copies, or wrapper patches. Use when adding features to existing code or reviewing special-case changes."
+disable-model-invocation: true
+---
+
+# No bolt-ons
+
+Integrate a new requirement as if it had been part of the design from the start, instead of bolting it on.
+
+## Start with
+
+1. **Understand the existing design first** (**how-it-works**)—read everything the requirement touches.
+2. **Design from first principles:** structure the code the way you'd build it from scratch with this requirement included.
+3. **Update every reference:** types, callers, tests, docs, examples, and architecture notes. Remove all traces of the superseded design (**yagni**).
+4. **Ship incrementally:** design the full shape up front, then land it in verifiable steps.
+
+## Watch for
+
+- mode flags or boolean switches splitting an existing code path in two;
+- special-case checks for one caller or input repeated across files;
+- parallel copies (`process_v2`, `handle_new`) or wrapper functions patching around existing logic;
+- new parameters threaded through layers that don't use them;
+- types, docs, or tests still describing the pre-change design.
+
+**The test:** if this requirement had existed from day one, would the code look like this?
+
+## When it doesn't fit
+
+- a genuinely separate concern that belongs in its own module with its own callers;
+- a temporary migration path or staged rollout explicitly requested by the person or an agreed design, behind a proper feature flag (**no-hidden-config**) with a removal condition;
+- an alternative backed by measurements (**ab-test**), with the trade-off documented.
+
+Referenced skills: `how-it-works` (`../how-it-works/SKILL.md`), `yagni` (`../yagni/SKILL.md`), `no-hidden-config` (`../no-hidden-config/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
+<!-- Adapts pstack's redesign-from-first-principles principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

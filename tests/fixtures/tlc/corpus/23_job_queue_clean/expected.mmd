@@ -1,0 +1,14 @@
+stateDiagram-v2
+    state "st = 'queued'" as s0
+    state "st = 'running'" as s1
+    state "st = 'succeeded'" as s2
+    state "st = 'retrying'" as s3
+    state "st = 'dlq'" as s4
+    [*] --> s0
+    s0 --> s1: Claim
+    s1 --> s2: Ack
+    s1 --> s3: TransientErr
+    s2 --> s2: Terminal
+    s3 --> s1: Retry
+    s3 --> s4: Exhaust
+    s4 --> s4: Terminal

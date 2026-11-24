@@ -1,6 +1,28 @@
 @!@!@STARTMSG 2262:0 @!@!@
 TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
 @!@!@ENDMSG 2262 @!@!@
+@!@!@STARTMSG 2187:0 @!@!@
+Running breadth-first search Model-Checking with fp 114 and seed 8919237592190727334 with 1 worker on 18 cores with 27300MB heap and 64MB offheap memory [pid: 88627] (Mac OS X 26.4.1 aarch64, Eclipse Adoptium 21.0.13.1 x86_64, MSBDiskFPSet, DiskStateQueue).
+@!@!@ENDMSG 2187 @!@!@
+@!@!@STARTMSG 2220:0 @!@!@
+Starting SANY...
+@!@!@ENDMSG 2220 @!@!@
+Parsing file /Users/adalundhe/Projects/astack/tests/fixtures/tlc/corpus/07_multiline_records/MultilineRecords.tla
+Parsing file /private/var/folders/1s/ldpdh04d7d7219qts5t19d7h0000gn/T/Naturals.tla
+Semantic processing of module Naturals
+Semantic processing of module MultilineRecords
+@!@!@STARTMSG 2219:0 @!@!@
+SANY finished.
+@!@!@ENDMSG 2219 @!@!@
+@!@!@STARTMSG 2185:0 @!@!@
+Starting... (2026-11-24 13:30:58)
+@!@!@ENDMSG 2185 @!@!@
+@!@!@STARTMSG 2189:0 @!@!@
+Computing initial states...
+@!@!@ENDMSG 2189 @!@!@
+@!@!@STARTMSG 2190:0 @!@!@
+Finished computing initial states: 1 distinct state generated at 2026-11-24 13:30:58.
+@!@!@ENDMSG 2190 @!@!@
 @!@!@STARTMSG 2110:1 @!@!@
 Invariant PathSafe is violated.
 @!@!@ENDMSG 2110 @!@!@
@@ -9,18 +31,32 @@ The behavior up to this point is:
 @!@!@ENDMSG 2121 @!@!@
 @!@!@STARTMSG 2217:4 @!@!@
 1: <Initial predicate>
-/\ cfg = [host |-> "a\"b",
-          path |-> "c\\d"]
-/\ items = {1, 2, 3}
+cfg = [host |-> "alpha", path |-> "/tmp/a", retries |-> 0, ok |-> TRUE]
 
 @!@!@ENDMSG 2217 @!@!@
 @!@!@STARTMSG 2217:4 @!@!@
-2: <Mutate line 12, col 1 to line 14, col 22 of module Recs>
-/\ cfg = [host |-> "a\"b",
-          path |-> "c\\e"]
-/\ items = {1, 2, 3, 4}
+2: <Corrupt line 5, col 12 to line 5, col 103 of module MultilineRecords>
+cfg = [host |-> "alpha", path |-> "/etc/bad", retries |-> 3, ok |-> FALSE]
 
 @!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2193:0 @!@!@
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 1.1E-19
+@!@!@ENDMSG 2193 @!@!@
+@!@!@STARTMSG 2200:0 @!@!@
+Progress(2) at 2026-11-24 13:30:58: 3 states generated (538 s/min), 2 distinct states found (359 ds/min), 0 states left on queue.
+@!@!@ENDMSG 2200 @!@!@
 @!@!@STARTMSG 2199:0 @!@!@
-2 states generated, 2 distinct states found, 0 states left on queue.
+3 states generated, 2 distinct states found, 0 states left on queue.
 @!@!@ENDMSG 2199 @!@!@
+@!@!@STARTMSG 2194:0 @!@!@
+The depth of the complete state graph search is 2.
+@!@!@ENDMSG 2194 @!@!@
+@!@!@STARTMSG 2268:0 @!@!@
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 1 and the 95th percentile is 1).
+@!@!@ENDMSG 2268 @!@!@
+@!@!@STARTMSG 2186:0 @!@!@
+Finished in 338ms at (2026-11-24 13:30:58)
+@!@!@ENDMSG 2186 @!@!@

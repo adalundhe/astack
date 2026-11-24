@@ -1116,6 +1116,7 @@ def cmd_check(args) -> int:
             "-workers", str(args.workers),
             "-lncheck", "final",
             "-cleanup",
+            "-metadir", str(Path(scratch) / "meta"),
             "-dump", "dot,actionlabels", str(dot_out),
         ]
         if args.no_deadlock:

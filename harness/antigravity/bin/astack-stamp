@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Stamp each new lane log line with the current UTC time.
+
+Usage:
+  astack-stamp FILE...   stamp these lane logs
+  astack-stamp --hook    read a hook event on stdin and stamp the lane logs it touched
+
+A lane log starts with the line `<!-- astack lane log -->`. Under its `## Log` heading every line starts
+with a UTC stamp such as 2026-11-23T14:02Z. A line without one gets the current time. Stamped lines are
+left alone, so running it twice changes nothing. Files without the marker are never touched.
+"""
+import json
+import os
+import re
+import shlex
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+MARKER = "<!-- astack lane log -->"
+STAMPED = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z ")
+
+
+def now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
+
+
+def stamp(path, stamp_text):
+    path = Path(path)
+    try:
+        text = path.read_text()
+    except (FileNotFoundError, IsADirectoryError, UnicodeDecodeError):
+        return False
+    if not text.startswith(MARKER):
+        return False
+    lines = text.splitlines(keepends=True)
+    in_log = False
+    changed = False
+    for index, line in enumerate(lines):
+        if line.startswith("## "):
+            in_log = line.strip() == "## Log"
+            continue
+        if in_log and line.strip() and not STAMPED.match(line):
+            lines[index] = f"{stamp_text} {line.lstrip()}"
+            changed = True
+    if changed:
+        temporary = path.with_name(f".{path.name}.astack-stamp")
+        temporary.write_text("".join(lines))
+        os.chmod(temporary, path.stat().st_mode)
+        os.replace(temporary, path)
+    return changed
+
+
+def paths_from_hook(event):
+    """The files a hook event touched: an edited file's path, or LANES.md paths named in a shell command."""
+    tool_input = event.get("tool_input") or {}
+    cwd = Path(event.get("cwd") or os.getcwd())
+    found = [
+        event.get("file_path"),
+        tool_input.get("file_path"),
+        tool_input.get("path"),
+        tool_input.get("Path"),
+        tool_input.get("TargetFile"),
+    ]
+    command = (
+        tool_input.get("command")
+        or tool_input.get("CommandLine")
+        or event.get("command")
+        or ""
+    )
+    try:
+        words = shlex.split(command)
+    except ValueError:
+        words = command.split()
+    found += [word.lstrip("<>|&;") for word in words if "LANES.md" in word]
+    paths = []
+    for item in found:
+        if item:
+            path = Path(os.path.expandvars(os.path.expanduser(item)))
+            paths.append(path if path.is_absolute() else cwd / path)
+    return paths
+
+
+def main(argv):
+    if argv[1:] == ["--hook"]:
+        try:
+            event = json.load(sys.stdin)
+        except json.JSONDecodeError:
+            return 0
+        paths = paths_from_hook(event)
+    elif len(argv) > 1 and not argv[1].startswith("-"):
+        paths = argv[1:]
+    else:
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    stamp_text = now()
+    for path in paths:
+        stamp(path, stamp_text)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

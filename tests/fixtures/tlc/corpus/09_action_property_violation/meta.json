@@ -1,0 +1,13 @@
+{
+  "module": "ActionPropertyBad",
+  "exit_code": 1,
+  "states": 2,
+  "transitions": 2,
+  "violations": [
+    {
+      "kind": "property",
+      "name": "Monotonic",
+      "hops": 1
+    }
+  ]
+}

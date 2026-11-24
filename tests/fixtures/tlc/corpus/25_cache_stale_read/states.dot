@@ -1,0 +1,15 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+6195999511045417871 [label="/\\ cache = 1\n/\\ db = 1",style = filled]
+6195999511045417871 -> -5949818585027806728 [label="WriteDbSkipEvict",color="black",fontcolor="black"];
+-5949818585027806728 [label="/\\ cache = 1\n/\\ db = 2"];
+-5949818585027806728 -> 9108545217074539865 [label="TtlRefresh",color="black",fontcolor="black"];
+9108545217074539865 [label="/\\ cache = 2\n/\\ db = 2"];
+9108545217074539865 -> 9108545217074539865 [label="Stay",color="black",fontcolor="black"];
+{rank = same; 6195999511045417871;}
+{rank = same; -5949818585027806728;}
+{rank = same; 9108545217074539865;}
+}
+}

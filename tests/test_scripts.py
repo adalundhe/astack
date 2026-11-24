@@ -81,6 +81,12 @@ class StampTest(Scratch):
         self.assertEqual(run("astack-stamp", "--hook", stdin=json.dumps(event)).returncode, 0)
         self.assertRegex(path.read_text().splitlines()[-1], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z ended a: MERGED abc$")
 
+        # Antigravity PostToolUse payload (Path / CommandLine keys)
+        path2 = self.log("ended b: MERGED def\n")
+        agy_event = {"tool_name": "write_file", "tool_input": {"Path": str(path2)}, "cwd": str(self.dir)}
+        self.assertEqual(run("astack-stamp", "--hook", stdin=json.dumps(agy_event)).returncode, 0)
+        self.assertRegex(path2.read_text().splitlines()[-1], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z ended b: MERGED def$")
+
     def test_hook_stamps_a_lane_log_appended_from_the_shell(self):
         path = self.log("closed x: done\n")
         event = {"tool_name": "Bash", "tool_input": {"command": "echo 'closed x: done' >> LANES.md"},
@@ -379,7 +385,7 @@ class ToolsTest(Scratch):
         uv_path = bin_home / "uv"
         uv_path.write_text("#!/bin/sh\nif [ \"$1\" = \"python\" ] && [ \"$2\" = \"find\" ]; then echo /fake/py312; exit 0; fi\nexit 0\n")
         uv_path.chmod(0o755)
-        for cli in ("claude", "codex", "agy"):
+        for cli in ("claude", "codex", "agy", "pi", "cursor-agent", "devin"):
             stub = bin_home / cli
             stub.write_text("#!/bin/sh\nexit 0\n")
             stub.chmod(0o755)
@@ -410,12 +416,15 @@ class ToolsTest(Scratch):
             self.assertEqual(data["harnesses"]["claude"]["provider"], "anthropic")
             self.assertEqual(data["harnesses"]["codex"]["provider"], "openai")
             self.assertEqual(data["harnesses"]["agy"]["provider"], "google")
+            self.assertEqual(data["harnesses"]["pi"]["provider"], "multi")
+            self.assertEqual(data["harnesses"]["cursor"]["path"], str(bin_home / "cursor-agent"))
+            self.assertEqual(data["harnesses"]["devin"]["provider"], "devin")
 
     def test_link_bin_installs_scripts_idempotently_and_supports_copy(self):
         bin_dir = self.dir / "user-bin"
         first = run("astack-tools", "link-bin", "--bin-dir", str(bin_dir))
         self.assertEqual(first.returncode, 0, first.stderr)
-        for name in ("astack-tools", "astack-status", "astack-decisions", "astack-verify-merge", "astack-check-gates", "astack-review-ledger", "astack-statechart", "astack-stamp"):
+        for name in ("astack-tools", "astack-dispatch", "astack-status", "astack-decisions", "astack-verify-merge", "astack-check-gates", "astack-review-ledger", "astack-statechart", "astack-stamp"):
             linked = bin_dir / name
             self.assertTrue(linked.is_symlink(), f"missing symlink {linked}")
             self.assertEqual(linked.resolve(), (BIN / name).resolve())

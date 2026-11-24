@@ -1,6 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 mkdir -p program repo
+if [ -n "${ASTACK_EVAL_SETTINGS_JSON:-}" ]; then
+  printf '%s\n' "$ASTACK_EVAL_SETTINGS_JSON" > program/settings.json
+else
 cat > program/settings.json <<'EOF'
 {
   "roles": {
@@ -12,6 +15,7 @@ cat > program/settings.json <<'EOF'
   ]
 }
 EOF
+fi
 
 git -C repo init -q -b main
 git -C repo config user.name eval

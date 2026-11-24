@@ -1,0 +1,7 @@
+{
+  "module": "TwoPhaseCommitClean",
+  "exit_code": 0,
+  "states": 6,
+  "transitions": 11,
+  "violations": []
+}

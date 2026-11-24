@@ -1,0 +1,18 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+-5349146009745802589 [label="tokens = 2",style = filled]
+-5349146009745802589 -> 8964061578492853365 [label="Consume",color="black",fontcolor="black"];
+8964061578492853365 [label="tokens = 1"];
+-5349146009745802589 -> 8506327312915616438 [label="Refill",color="black",fontcolor="black"];
+8506327312915616438 [label="tokens = 3"];
+8964061578492853365 -> -5349146009745802589 [label="RefillFromOne",color="black",fontcolor="black"];
+8506327312915616438 -> 7544326229656003059 [label="UncappedRefill",color="black",fontcolor="black"];
+7544326229656003059 [label="tokens = 5"];
+7544326229656003059 -> 7544326229656003059 [label="Stay",color="black",fontcolor="black"];
+{rank = same; -5349146009745802589;}
+{rank = same; 8964061578492853365;8506327312915616438;}
+{rank = same; 7544326229656003059;}
+}
+}

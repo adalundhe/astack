@@ -1,0 +1,639 @@
+#!/usr/bin/env python3
+"""Audit a git diff, range (<base>..<head>), or commit for gate-gaming / gate-loosening signals.
+
+Flags:
+- deleted or de-discovered (renamed away from test patterns) test files
+- net-dropped test definitions (deleted tests or tests renamed so the runner skips them)
+- added test skips, xfails, ignores, or focus-only filters
+- added lint, typecheck, or coverage suppressions
+- tautological assertions, net-dropped assertions, strong->weak assertion downgrades,
+  and loosened numeric tolerances (places decreased or delta/tol/atol/rtol increased)
+- edits to CI, lint, typecheck, or gate configuration files
+
+Note: always scan the full lane/branch range (<base>..<head>), not just the last commit.
+Static signals are a structural tripwire—pair with reviewer inspection for semantic weakenings.
+
+Usage:
+  astack-check-gates [COMMIT_OR_RANGE] [--repo DIR] [--staged] [--working] [--json]
+
+Exit codes:
+  0 = no gate-loosening signals found
+  1 = gate-loosening signals found (requires lead countersign, contract reset, or dedicated gate fix)
+  2 = invalid repository, commit/range, or error
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+
+@dataclass
+class Finding:
+    category: str  # "deleted-test-file" | "dropped-test" | "test-skip" | "lint-suppression" | "weakened-assertion" | "gate-config-edit"
+    file: str
+    line: int
+    reason: str
+    snippet: str
+
+
+_TEST_FILE_RE = re.compile(
+    r"(^|/)(tests?|__tests__|spec|specs)/|"
+    r"(^|/)test_[^/]+\.py$|"
+    r"_test\.(py|go|rs|ts|tsx|js|jsx)$|"
+    r"\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$",
+    re.I,
+)
+
+_GATE_CONFIG_PATTERNS = (
+    re.compile(r"^\.github/workflows/"),
+    re.compile(r"^\.gitlab-ci\.yml$"),
+    re.compile(r"^\.circleci/"),
+    re.compile(r"(^|/)\.pre-commit-config\.ya?ml$"),
+    re.compile(r"(^|/)(\.?ruff\.toml|mypy\.ini|\.flake8|\.pylintrc|bandit\.ya?ml)$"),
+    re.compile(r"(^|/)(\.eslintrc(\.[^/]+)?|eslint\.config\.[^/]+|biome\.jsonc?|\.prettierrc(\.[^/]+)?)$"),
+    re.compile(r"(^|/)(tsconfig(\.[^/]+)?\.json|jest\.config\.[^/]+|vitest\.config\.[^/]+|pytest\.ini|tox\.ini)$"),
+    re.compile(r"(^|/)(clippy\.toml|\.clippy\.toml|rustfmt\.toml|\.golangci\.ya?ml)$"),
+    re.compile(r"(^|/)(pyproject\.toml|Makefile|RULES\.md)$"),
+)
+
+_SKIP_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"@unittest\.skip\b|@pytest\.mark\.(skip|skipif|xfail)\b"), "added Python test skip/xfail decorator"),
+    (re.compile(r"\b(pytest\.skip|pytest\.xfail|self\.skipTest)\s*\("), "added runtime Python test skip"),
+    (re.compile(r"\b(describe|it|test)\.(skip|only|fixme|todo)\s*\("), "added JS/TS test skip/only/fixme"),
+    (re.compile(r"\b(xit|xtest|xdescribe|fit|fdescribe)\s*\("), "added JS/TS disabled/focused test"),
+    (re.compile(r"#\[ignore\b"), "added Rust #[ignore] on test"),
+    (re.compile(r"\bt\.(Skip|Skipf|SkipNow)\s*\("), "added Go test skip"),
+)
+
+_SUPPRESSION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"#\s*noqa\b", re.I), "added # noqa lint suppression"),
+    (re.compile(r"#\s*type:\s*ignore\b", re.I), "added # type: ignore suppression"),
+    (re.compile(r"#\s*pylint:\s*disable=", re.I), "added pylint disable suppression"),
+    (re.compile(r"#\s*pragma:\s*no cover\b", re.I), "added coverage exclusion"),
+    (re.compile(r"(//|/\*)\s*eslint-disable\b", re.I), "added eslint-disable suppression"),
+    (re.compile(r"//\s*biome-ignore\b", re.I), "added biome-ignore suppression"),
+    (re.compile(r"@ts-(ignore|expect-error|nocheck)\b"), "added TypeScript check suppression"),
+    (re.compile(r"#\[allow\s*\("), "added Rust #[allow(...)] lint suppression"),
+    (re.compile(r"//\s*nolint\b", re.I), "added Go //nolint suppression"),
+)
+
+_CONST_LIT = r"""(?:-?\d+(?:\.\d+)?|True|False|None|true|false|null|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\[\s*\]|\{\s*\})"""
+
+_TAUTOLOGY_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"^\s*assert\s+True\b"), "added tautological `assert True`"),
+    (re.compile(r"\bassertTrue\s*\(\s*True\s*\)"), "added tautological `assertTrue(True)`"),
+    (re.compile(r"\bexpect\s*\(\s*true\s*\)\s*\.toBe\s*\(\s*true\s*\)"), "added tautological `expect(true).toBe(true)`"),
+    (re.compile(r"^\s*assert!\s*\(\s*true\s*\)"), "added tautological `assert!(true)`"),
+    (re.compile(rf"^\s*assert\s+{_CONST_LIT}\s*(?:==|is)\s*{_CONST_LIT}(?:\s*,.*)?(?:\s*#.*)?$"), "added constant-only tautological assert"),
+    (re.compile(rf"\bself\.assertEqual\s*\(\s*{_CONST_LIT}\s*,\s*{_CONST_LIT}\s*\)"), "added constant-only tautological assertEqual"),
+    (re.compile(rf"\bassert_eq!\s*\(\s*{_CONST_LIT}\s*,\s*{_CONST_LIT}\s*\)"), "added constant-only tautological assert_eq!"),
+    (re.compile(rf"\bexpect\s*\(\s*{_CONST_LIT}\s*\)\s*\.(?:toBe|toEqual|toStrictEqual)\s*\(\s*{_CONST_LIT}\s*\)"), "added constant-only tautological expect"),
+    (re.compile(rf"\b(?:assert|require)\.Equal\s*\([^,]+,\s*{_CONST_LIT}\s*,\s*{_CONST_LIT}\s*\)"), "added constant-only tautological testify Equal"),
+    (re.compile(r"^\s*assert\s+([A-Za-z_][\w.]*)\s*(?:==|is)\s*\1(?:\s*,.*)?(?:\s*#.*)?$"), "added self-identity tautological assert (x == x)"),
+    (re.compile(r"\bself\.assertEqual\s*\(\s*([A-Za-z_][\w.]*)\s*,\s*\1\s*\)"), "added self-identity tautological assertEqual(x, x)"),
+    (re.compile(r"\bassert_eq!\s*\(\s*([A-Za-z_][\w.]*)\s*,\s*\1\s*\)"), "added self-identity tautological assert_eq!(x, x)"),
+    (re.compile(r"\bexpect\s*\(\s*([A-Za-z_][\w.]*)\s*\)\s*\.(?:toBe|toEqual|toStrictEqual)\s*\(\s*\1\s*\)"), "added self-identity tautological expect(x).toBe(x)"),
+    (re.compile(r"\b(?:assert|require)\.Equal\s*\([^,]+,\s*([A-Za-z_][\w.]*)\s*,\s*\1\s*\)"), "added self-identity tautological testify Equal(t, x, x)"),
+)
+
+_ASSERTION_LINE_RE = re.compile(
+    r"^\s*assert\b"
+    r"|\b(?:self\.)?assert[A-Z]\w*\s*\("
+    r"|\bassert_[a-zA-Z0-9_]+\s*\("
+    r"|\bpytest\.(?:raises|warns|deprecated_call|fail)\s*\("
+    r"|\b(?:assert|require)\.[A-Za-z]\w*\s*\("
+    r"|\bexpect\s*\("
+    r"|\b(?:debug_)?assert(?:_eq|_ne|_matches)?!\s*\("
+    r"|#\[should_panic\b"
+    r"|\bt\.(?:Fatal|Fatalf|Error|Errorf|Fail|FailNow)\s*\("
+)
+
+_STRONG_ASSERT_RE = re.compile(
+    r"\b(?:self\.)?assert(?:Equal|Equals|AlmostEqual|DictEqual|ListEqual|SetEqual|CountEqual|SequenceEqual|Raises|RaisesRegex|Regex|Throws)\s*\("
+    r"|\bassert_[a-zA-Z0-9_]+\s*\("
+    r"|\b(?:assert|require)\.(?:Equal|Equalf|Exactly|Exactlyf|ExactValues|NotEqual|NotEqualf|InDelta|InEpsilon|ElementsMatch|JSONEq|YAMLEq|ErrorIs|ErrorAs|ErrorContains|EqualError|NoError|NoErrorf|Error|Errorf|Panics|NotPanics|Regexp|Contains|Len|strictEqual|deepStrictEqual|deepEqual|equal|notStrictEqual|notEqual|throws|rejects|doesNotThrow|match)\s*\("
+    r"|\b(?:debug_)?assert_(?:eq|ne|matches)!\s*\("
+    r"|\.(?:toEqual|toStrictEqual|toBe|toMatchObject|toThrow|toBeCloseTo)\s*\("
+    r"|\bpytest\.(?:raises|warns|deprecated_call)\s*\("
+    r"|#\[should_panic\b"
+    r"|^\s*assert\s+.+\s*(?:==|!=|<=|>=|<|>|\bin\b|\bnot\s+in\b)"
+)
+
+_WEAK_ASSERT_RE = re.compile(
+    r"\b(?:self\.)?assert(?:IsNotNone|IsNone|True|False|IsInstance|NotNull)\s*\("
+    r"|\.(?:toBeDefined|toBeTruthy|toBeFalsy|toBeInstanceOf)\s*\("
+    r"|\.not\.toBeNull\s*\("
+    r"|\bassert!\s*\([^)]*\.(?:is_some|is_ok)\s*\(\s*\)\s*\)"
+    r"|\b(?:assert|require)\.(?:NotNil|NotNilf|Nil|True|False|NotEmpty|IsType)\s*\("
+    r"|^\s*assert\s+isinstance\s*\("
+    r"|^\s*assert\s+[A-Za-z_][\w.]*\s+is\s+not\s+None\b"
+    r"|^\s*assert\s+(?:bool\s*\([^)]+\)|[A-Za-z_][\w.]*(?:\[[^\]]+\])*(?:\(\s*\))?)(?:\s*,.*)?(?:\s*#.*)?$"
+)
+
+_RUST_TEST_ATTR_RE = re.compile(r"^\s*#\[(?:tokio::|async_std::)?test(?:\([^)]*\))?\]")
+_RUST_FN_HEADER_RE = re.compile(r"^\s*(?:pub\s+)?(?:async\s+)?fn\s+")
+_TRIVIAL_STMT_RE = re.compile(
+    r"^\s*(?:pass|\.\.\.|return(?:\s+None)?|\{|\}|\(\s*\)|\{\s*\}|//.*|#.*|/\*.*|\*.*|\"\"\"[^\"]*\"\"\"|'''[^']*''')\s*;?\s*$"
+)
+_INLINE_STUB_DEF_RE = re.compile(
+    r":\s*(?:pass|\.\.\.|return(?:\s+None)?)\s*(?:#.*)?$"
+    r"|\{\s*\}\s*(?://.*)?$"
+    r"|=>\s*\{\s*\}\s*\)?\s*;?\s*(?://.*)?$"
+)
+
+_TEST_DEF_RE = re.compile(
+    r"^\s*(?:async\s+)?def\s+test_\w+\s*\("
+    r"|^\s*func\s+Test[A-Z]\w*\s*\("
+    r"|^\s*#\[(?:tokio::|async_std::)?test(?:\([^)]*\))?\]"
+    r"|^\s*(?:it|test)\s*\("
+)
+
+_PLACES_RE = re.compile(r"\bplaces\s*=\s*(\d+)\b|\.toBeCloseTo\s*\([^,]+,\s*(\d+)\s*\)")
+_TOL_RE = re.compile(
+    r"\b(delta|abs_tol|rel_tol|atol|rtol|rel|abs|eps|epsilon|tolerance)\s*=\s*([0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)"
+)
+
+_NARROW_FILTER_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\b(pytest|vitest|jest|mocha)\b.*\s(-k|--grep|--testNamePattern|--ignore)\b"), "added test filter/ignore flag"),
+    (re.compile(r"\b(testPathIgnorePatterns|excludePathPatterns)\b"), "added test path ignore pattern"),
+)
+
+
+def _git(repo: Path, *args: str, stdin: str | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, input=stdin)
+
+
+def _is_test_file(path: str) -> bool:
+    return bool(_TEST_FILE_RE.search(path))
+
+
+def _is_gate_config(path: str) -> bool:
+    return any(p.search(path) for p in _GATE_CONFIG_PATTERNS)
+
+
+def _extract_places(line: str) -> list[int]:
+    vals: list[int] = []
+    for m in _PLACES_RE.finditer(line):
+        raw = m.group(1) or m.group(2)
+        if raw is not None:
+            vals.append(int(raw))
+    return vals
+
+
+def _extract_tols(line: str) -> list[tuple[str, float]]:
+    out: list[tuple[str, float]] = []
+    for m in _TOL_RE.finditer(line):
+        try:
+            out.append((m.group(1), float(m.group(2))))
+        except ValueError:
+            continue
+    return out
+
+
+_FUNC_DEF_HEADER_RE = re.compile(
+    r"^\s*(?:(?:async\s+)?def\s+[^:]*:|(?:func|function|(?:pub\s+)?(?:async\s+)?fn)\s+[^{]*\{)"
+)
+
+
+def _strip_def_header(line: str) -> str:
+    m = _FUNC_DEF_HEADER_RE.match(line)
+    return line[m.end():] if m else line
+
+
+def _is_assertion_line(line: str) -> bool:
+    s = line.lstrip()
+    if not s or s.startswith(("//", "/*", "*")):
+        return False
+    if s.startswith("#") and not s.startswith("#[should_panic"):
+        return False
+    if re.match(r"^(?:import\b|from\s+\S+\s+import\b)", s):
+        return False
+    body = _strip_def_header(line)
+    if not body.strip():
+        return False
+    return bool(_ASSERTION_LINE_RE.search(body))
+
+
+def _is_non_trivial_test_stmt(line: str) -> bool:
+    s = line.strip()
+    if not s:
+        return False
+    return not bool(_TRIVIAL_STMT_RE.match(s))
+
+
+def analyze_diff(diff_text: str) -> list[Finding]:
+    """Scan a unified git diff (with -M rename detection) for gate-tampering signals."""
+    findings: list[Finding] = []
+    old_file: str | None = None
+    current_file: str | None = None
+    rename_from: str | None = None
+    new_line = 0
+    config_flagged: set[str] = set()
+    deleted_flagged: set[str] = set()
+    test_removed_asserts: dict[str, tuple[int, str]] = {}
+    test_added_asserts: dict[str, int] = {}
+    test_removed_strong: dict[str, tuple[int, str]] = {}
+    test_added_strong: dict[str, int] = {}
+    test_added_weak: list[tuple[str, int, str]] = []
+    test_removed_defs: dict[str, tuple[int, str]] = {}
+    test_added_defs: dict[str, int] = {}
+    hunk_downgrade_flagged = False
+    unasserted_nonempty_tests: list[tuple[str, int, str]] = []
+
+    # Track newly added test functions to flag empty/stub bodies unconditionally,
+    # and non-empty assertion-free bodies when the diff also removes tests or assertions.
+    # (file, line, snippet, indent, is_rust_attr)
+    pending_test_def: tuple[str, int, str, int, bool] | None = None
+    pending_test_has_assert = False
+    pending_test_has_body = False
+    prev_line_should_panic = False
+
+    def close_pending_test_def() -> None:
+        nonlocal pending_test_def, pending_test_has_assert, pending_test_has_body
+        if pending_test_def is not None and not pending_test_has_assert:
+            pfile, pline, psnip, _, _ = pending_test_def
+            if not pending_test_has_body:
+                findings.append(
+                    Finding(
+                        category="weakened-assertion",
+                        file=pfile,
+                        line=pline,
+                        reason="added empty/stub test function without any assertion",
+                        snippet=psnip,
+                    )
+                )
+            else:
+                unasserted_nonempty_tests.append((pfile, pline, psnip))
+        pending_test_def = None
+        pending_test_has_assert = False
+        pending_test_has_body = False
+
+    # Per-hunk tracking for strong->weak assertion downgrades and numeric tolerance loosenings
+    hunk_removed: list[str] = []
+    hunk_added: list[tuple[int, str]] = []
+    hunk_file: str | None = None
+
+    def flush_hunk() -> None:
+        nonlocal hunk_removed, hunk_added, hunk_file, hunk_downgrade_flagged, prev_line_should_panic
+        close_pending_test_def()
+        prev_line_should_panic = False
+        if hunk_file and _is_test_file(hunk_file) and hunk_removed and hunk_added:
+            removed_strong = [ln for ln in hunk_removed if _is_assertion_line(ln) and _STRONG_ASSERT_RE.search(_strip_def_header(ln))]
+            added_strong = [ln for _, ln in hunk_added if _is_assertion_line(ln) and _STRONG_ASSERT_RE.search(_strip_def_header(ln))]
+            added_weak = [(no, ln) for no, ln in hunk_added if _is_assertion_line(ln) and _WEAK_ASSERT_RE.search(_strip_def_header(ln))]
+            if len(removed_strong) > len(added_strong) and added_weak:
+                hunk_downgrade_flagged = True
+                first_no, first_ln = added_weak[0]
+                findings.append(
+                    Finding(
+                        category="weakened-assertion",
+                        file=hunk_file,
+                        line=first_no,
+                        reason="replaced value assertion with weaker presence/truthiness/type assertion",
+                        snippet=first_ln.strip()[:120],
+                    )
+                )
+
+            # Check `places=N` / `toBeCloseTo(..., N)` precision reductions
+            old_places = [v for ln in hunk_removed for v in _extract_places(ln)]
+            new_places = [(no, ln, v) for no, ln in hunk_added for v in _extract_places(ln)]
+            if old_places and new_places:
+                max_old = max(old_places)
+                for no, ln, val in new_places:
+                    if val < max_old:
+                        findings.append(
+                            Finding(
+                                category="weakened-assertion",
+                                file=hunk_file,
+                                line=no,
+                                reason=f"loosened numeric precision (places {max_old} -> {val})",
+                                snippet=ln.strip()[:120],
+                            )
+                        )
+                        break
+
+            # Check tolerance increases (delta, abs_tol, rel_tol, atol, rtol, eps, tolerance)
+            old_tols: dict[str, float] = {}
+            for ln in hunk_removed:
+                for k, v in _extract_tols(ln):
+                    old_tols[k] = min(old_tols.get(k, v), v)
+            if old_tols:
+                for no, ln in hunk_added:
+                    for k, v in _extract_tols(ln):
+                        if k in old_tols and v > old_tols[k]:
+                            findings.append(
+                                Finding(
+                                    category="weakened-assertion",
+                                    file=hunk_file,
+                                    line=no,
+                                    reason=f"loosened numeric tolerance ({k} {old_tols[k]:g} -> {v:g})",
+                                    snippet=ln.strip()[:120],
+                                )
+                            )
+                            break
+        hunk_removed = []
+        hunk_added = []
+
+    for raw in diff_text.splitlines():
+        if raw.startswith("diff --git "):
+            flush_hunk()
+            old_file = None
+            current_file = None
+            rename_from = None
+            hunk_file = None
+            new_line = 0
+            continue
+        if raw.startswith("rename from "):
+            rename_from = raw[len("rename from "):].strip()
+            continue
+        if raw.startswith("rename to "):
+            rename_to = raw[len("rename to "):].strip()
+            if rename_from and _is_test_file(rename_from) and not _is_test_file(rename_to):
+                findings.append(
+                    Finding(
+                        category="deleted-test-file",
+                        file=rename_to,
+                        line=1,
+                        reason=f"renamed test file outside test discovery ({rename_from} -> {rename_to})",
+                        snippet=f"{rename_from} -> {rename_to}",
+                    )
+                )
+            continue
+        if raw.startswith("--- "):
+            src = raw[4:].strip()
+            if src != "/dev/null":
+                old_file = src[2:] if src.startswith("a/") else src
+            continue
+        if raw.startswith("+++ "):
+            target = raw[4:].strip()
+            if target == "/dev/null":
+                current_file = None
+                if old_file and old_file not in deleted_flagged:
+                    deleted_flagged.add(old_file)
+                    if _is_test_file(old_file):
+                        findings.append(
+                            Finding(
+                                category="deleted-test-file",
+                                file=old_file,
+                                line=1,
+                                reason="deleted entire test file",
+                                snippet=old_file,
+                            )
+                        )
+                    elif _is_gate_config(old_file):
+                        findings.append(
+                            Finding(
+                                category="gate-config-edit",
+                                file=old_file,
+                                line=1,
+                                reason="deleted CI, lint, test, or gate configuration file",
+                                snippet=old_file,
+                            )
+                        )
+                continue
+            current_file = target[2:] if target.startswith("b/") else target
+            hunk_file = current_file
+            if _is_gate_config(current_file) and current_file not in config_flagged:
+                config_flagged.add(current_file)
+                findings.append(
+                    Finding(
+                        category="gate-config-edit",
+                        file=current_file,
+                        line=1,
+                        reason="modified CI, lint, test, or gate configuration file",
+                        snippet=current_file,
+                    )
+                )
+            continue
+        if raw.startswith("@@ "):
+            flush_hunk()
+            hunk_file = current_file
+            if m := re.search(r"\+(\d+)", raw):
+                new_line = int(m.group(1))
+            continue
+
+        if raw.startswith("+") and not raw.startswith("+++"):
+            if current_file is None:
+                continue
+            content = raw[1:]
+            line_no = new_line
+            new_line += 1
+            snippet = content.strip()[:120]
+            hunk_added.append((line_no, content))
+
+            if _is_test_file(current_file):
+                is_tautology = False
+                for pat, reason in _SKIP_PATTERNS:
+                    if pat.search(content):
+                        findings.append(Finding("test-skip", current_file, line_no, reason, snippet))
+                        break
+                for pat, reason in _TAUTOLOGY_PATTERNS:
+                    if pat.search(content):
+                        is_tautology = True
+                        findings.append(Finding("weakened-assertion", current_file, line_no, reason, snippet))
+                        break
+                if _TEST_DEF_RE.search(content):
+                    close_pending_test_def()
+                    test_added_defs[current_file] = test_added_defs.get(current_file, 0) + 1
+                    indent = len(content) - len(content.lstrip())
+                    is_rust_attr = bool(_RUST_TEST_ATTR_RE.search(content))
+                    pending_test_def = (current_file, line_no, snippet, indent, is_rust_attr)
+                    pending_test_has_assert = prev_line_should_panic
+                    # Check if a single-line definition carries a non-trivial inline body
+                    if not is_rust_attr and not _INLINE_STUB_DEF_RE.search(content):
+                        inline_body = _strip_def_header(content)
+                        pending_test_has_body = bool(inline_body != content and _is_non_trivial_test_stmt(inline_body))
+                    else:
+                        pending_test_has_body = False
+                    prev_line_should_panic = False
+                elif pending_test_def is not None and content.strip():
+                    cur_indent = len(content) - len(content.lstrip())
+                    is_rust_continuation = pending_test_def[4] and (
+                        content.lstrip().startswith("#[") or bool(_RUST_FN_HEADER_RE.search(content))
+                    )
+                    if is_rust_continuation:
+                        # Consume Rust `#[...]` / `fn ... {` header lines belonging to this #[test]
+                        if _RUST_FN_HEADER_RE.search(content):
+                            pending_test_def = (pending_test_def[0], pending_test_def[1], pending_test_def[2], cur_indent, False)
+                            if not _INLINE_STUB_DEF_RE.search(content):
+                                inline_body = _strip_def_header(content)
+                                if inline_body != content and _is_non_trivial_test_stmt(inline_body):
+                                    pending_test_has_body = True
+                    elif cur_indent <= pending_test_def[3] and not content.lstrip().startswith(("#", "//", "/*", "*", "}", ")")):
+                        close_pending_test_def()
+                    elif _is_non_trivial_test_stmt(content):
+                        pending_test_has_body = True
+                else:
+                    prev_line_should_panic = bool(re.search(r"#\[should_panic\b", content))
+
+                if _is_assertion_line(content) and not is_tautology:
+                    test_added_asserts[current_file] = test_added_asserts.get(current_file, 0) + 1
+                    if pending_test_def is not None:
+                        pending_test_has_assert = True
+                    check_body = _strip_def_header(content)
+                    if _STRONG_ASSERT_RE.search(check_body):
+                        test_added_strong[current_file] = test_added_strong.get(current_file, 0) + 1
+                    elif _WEAK_ASSERT_RE.search(check_body):
+                        test_added_weak.append((current_file, line_no, snippet))
+            else:
+                for pat, reason in _NARROW_FILTER_PATTERNS:
+                    if pat.search(content):
+                        findings.append(Finding("weakened-assertion", current_file, line_no, reason, snippet))
+                        break
+
+            for pat, reason in _SUPPRESSION_PATTERNS:
+                if pat.search(content):
+                    findings.append(Finding("lint-suppression", current_file, line_no, reason, snippet))
+                    break
+
+        elif raw.startswith("-") and not raw.startswith("---"):
+            content = raw[1:]
+            src_file = current_file if current_file is not None else old_file
+            if current_file is not None:
+                hunk_removed.append(content)
+            if src_file is not None and _is_test_file(src_file):
+                if _is_assertion_line(content):
+                    prev_count, first_snip = test_removed_asserts.get(src_file, (0, content.strip()[:120]))
+                    test_removed_asserts[src_file] = (prev_count + 1, first_snip)
+                    check_body = _strip_def_header(content)
+                    if _STRONG_ASSERT_RE.search(check_body):
+                        prev_s, first_s = test_removed_strong.get(src_file, (0, content.strip()[:120]))
+                        test_removed_strong[src_file] = (prev_s + 1, first_s)
+                if _TEST_DEF_RE.search(content):
+                    prev_d, first_d = test_removed_defs.get(src_file, (0, content.strip()[:120]))
+                    test_removed_defs[src_file] = (prev_d + 1, first_d)
+        elif not raw.startswith("\\"):
+            new_line += 1
+
+    flush_hunk()
+
+    # Catch cross-file / cross-hunk test swaps where strong value assertions were replaced with weaker ones elsewhere
+    total_removed_strong = sum(count for count, _ in test_removed_strong.values())
+    total_added_strong = sum(test_added_strong.values())
+    if not hunk_downgrade_flagged and total_removed_strong > total_added_strong and test_added_weak:
+        wfile, wline, wsnip = test_added_weak[0]
+        findings.append(
+            Finding(
+                category="weakened-assertion",
+                file=wfile,
+                line=wline,
+                reason=f"cross-diff test swap: strong value assertions dropped ({total_removed_strong} removed, {total_added_strong} added) while {len(test_added_weak)} weak assertion(s) were added",
+                snippet=wsnip,
+            )
+        )
+
+    # Count test definitions and assertions across the whole diff range so moving tests between files is clean
+    total_removed_defs = sum(count for count, _ in test_removed_defs.values())
+    total_added_defs = sum(test_added_defs.values())
+    if total_removed_defs > total_added_defs:
+        losing_files = [p for p, (r, _) in sorted(test_removed_defs.items()) if r > test_added_defs.get(p, 0)]
+        first_file = losing_files[0] if losing_files else sorted(test_removed_defs)[0]
+        first_snip = test_removed_defs[first_file][1]
+        findings.append(
+            Finding(
+                category="dropped-test",
+                file=first_file,
+                line=1,
+                reason=f"net drop in runnable test definitions across diff ({total_removed_defs} removed, {total_added_defs} added — deleted or renamed out of discovery)",
+                snippet=first_snip,
+            )
+        )
+
+    total_removed_asserts = sum(count for count, _ in test_removed_asserts.values())
+    total_added_asserts = sum(test_added_asserts.values())
+    if total_removed_asserts > total_added_asserts:
+        losing_files = [p for p, (r, _) in sorted(test_removed_asserts.items()) if r > test_added_asserts.get(p, 0)]
+        first_file = losing_files[0] if losing_files else sorted(test_removed_asserts)[0]
+        first_snip = test_removed_asserts[first_file][1]
+        findings.append(
+            Finding(
+                category="weakened-assertion",
+                file=first_file,
+                line=1,
+                reason=f"net drop in test assertions across diff ({total_removed_asserts} removed, {total_added_asserts} added)",
+                snippet=first_snip,
+            )
+        )
+
+    # Flag non-empty assertion-free tests ONLY when the diff also removed tests or assertions (catches swaps without blocking custom helpers in pure additions)
+    if (total_removed_defs > 0 or total_removed_asserts > 0) and unasserted_nonempty_tests:
+        for pfile, pline, psnip in unasserted_nonempty_tests:
+            findings.append(
+                Finding(
+                    category="weakened-assertion",
+                    file=pfile,
+                    line=pline,
+                    reason="added test function without any recognized assertion alongside removed tests/assertions",
+                    snippet=psnip,
+                )
+            )
+
+    return findings
+
+
+def diff_for_target(repo: Path, target: str | None, *, staged: bool, working: bool) -> tuple[str | None, str | None]:
+    """Return (diff_text, error_message)."""
+    if staged:
+        res = _git(repo, "diff", "--cached", "-M", "--unified=0")
+        return (res.stdout, None) if res.returncode == 0 else (None, res.stderr.strip() or "git diff --cached failed")
+    if working or not target:
+        res = _git(repo, "diff", "HEAD", "-M", "--unified=0")
+        return (res.stdout, None) if res.returncode == 0 else (None, res.stderr.strip() or "git diff HEAD failed")
+    if ".." in target:
+        res = _git(repo, "diff", "-M", "--unified=0", target)
+        return (res.stdout, None) if res.returncode == 0 else (None, res.stderr.strip() or f"git diff {target} failed")
+
+    # Single commit SHA: diff against first parent (or empty tree for root commit)
+    rev = _git(repo, "rev-parse", "--verify", "--quiet", f"{target}^{{commit}}")
+    if rev.returncode != 0:
+        return None, f"{target} is not a commit in {repo}"
+    sha = rev.stdout.strip()
+    parents = _git(repo, "rev-list", "--parents", "-n", "1", sha).stdout.split()[1:]
+    base = parents[0] if parents else _git(repo, "hash-object", "-t", "tree", "--stdin", stdin="").stdout.strip()
+    res = _git(repo, "diff", "-M", "--unified=0", base, sha)
+    return (res.stdout, None) if res.returncode == 0 else (None, res.stderr.strip() or f"git diff {base} {sha} failed")
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Flag potential gate-gaming or gate-loosening edits in a git diff range (<base>..<head>) or commit."
+    )
+    parser.add_argument("target", nargs="?", help="git diff range (preferred: <base>..<head>) or commit SHA; defaults to working tree vs HEAD")
+    parser.add_argument("--repo", default=".", help="git repository path (default: .)")
+    parser.add_argument("--staged", action="store_true", help="inspect staged index changes")
+    parser.add_argument("--working", action="store_true", help="inspect working tree changes against HEAD")
+    parser.add_argument("--json", action="store_true", dest="as_json")
+    args = parser.parse_args(argv)
+
+    repo = Path(args.repo).resolve()
+    if _git(repo, "rev-parse", "--git-dir").returncode != 0:
+        print(f"error: {repo} is not a git repository", file=sys.stderr)
+        return 2
+
+    diff_text, err = diff_for_target(repo, args.target, staged=args.staged, working=args.working)
+    if err is not None or diff_text is None:
+        print(f"error: {err}", file=sys.stderr)
+        return 2
+
+    findings = analyze_diff(diff_text)
+    if args.as_json:
+        print(json.dumps({"clean": not findings, "count": len(findings), "findings": [asdict(f) for f in findings]}, indent=2))
+        return 1 if findings else 0
+
+    if not findings:
+        print("GATES CLEAN: no deleted/dropped tests, skips, lint suppressions, weakened assertions, or gate-config edits detected.")
+        return 0
+
+    print(f"GATE SIGNALS ({len(findings)}): review required — countersign in RULES.md, isolate genuine gate fixes, or reject & reset contract if gamed:")
+    for f in findings:
+        print(f"  - [{f.category}] {f.file}:{f.line} — {f.reason}: {f.snippet}")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

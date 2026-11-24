@@ -1,0 +1,27 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+-1324424843339598239 [label="/\\ tm = \"init\"\n/\\ rm1 = \"working\"\n/\\ rm2 = \"working\"",style = filled]
+-1324424843339598239 -> 2249734897775177161 [label="Prep1",color="black",fontcolor="black"];
+2249734897775177161 [label="/\\ tm = \"init\"\n/\\ rm1 = \"prepared\"\n/\\ rm2 = \"working\""];
+-1324424843339598239 -> -2346885343285188723 [label="Prep2",color="black",fontcolor="black"];
+-2346885343285188723 [label="/\\ tm = \"init\"\n/\\ rm1 = \"working\"\n/\\ rm2 = \"prepared\""];
+-1324424843339598239 -> -6000981847661714443 [label="Abort",color="black",fontcolor="black"];
+-6000981847661714443 [label="/\\ tm = \"aborted\"\n/\\ rm1 = \"aborted\"\n/\\ rm2 = \"aborted\""];
+2249734897775177161 -> -2920725133227214819 [label="Prep2",color="black",fontcolor="black"];
+-2920725133227214819 [label="/\\ tm = \"init\"\n/\\ rm1 = \"prepared\"\n/\\ rm2 = \"prepared\""];
+2249734897775177161 -> -6000981847661714443 [label="Abort",color="black",fontcolor="black"];
+-2346885343285188723 -> -2920725133227214819 [label="Prep1",color="black",fontcolor="black"];
+-2346885343285188723 -> -6000981847661714443 [label="Abort",color="black",fontcolor="black"];
+-6000981847661714443 -> -6000981847661714443 [label="Done",color="black",fontcolor="black"];
+-2920725133227214819 -> 3632490375615556564 [label="Commit",color="black",fontcolor="black"];
+3632490375615556564 [label="/\\ tm = \"committed\"\n/\\ rm1 = \"committed\"\n/\\ rm2 = \"committed\""];
+-2920725133227214819 -> -6000981847661714443 [label="Abort",color="black",fontcolor="black"];
+3632490375615556564 -> 3632490375615556564 [label="Done",color="black",fontcolor="black"];
+{rank = same; -1324424843339598239;}
+{rank = same; 2249734897775177161;-6000981847661714443;-2346885343285188723;}
+{rank = same; -2920725133227214819;}
+{rank = same; 3632490375615556564;}
+}
+}

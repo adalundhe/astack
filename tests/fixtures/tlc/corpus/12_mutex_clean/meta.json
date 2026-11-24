@@ -1,0 +1,7 @@
+{
+  "module": "MutexClean",
+  "exit_code": 0,
+  "states": 8,
+  "transitions": 14,
+  "violations": []
+}

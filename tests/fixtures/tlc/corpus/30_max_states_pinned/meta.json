@@ -1,0 +1,15 @@
+{
+  "module": "MaxStatesPinned",
+  "exit_code": 1,
+  "states": 18,
+  "transitions": 31,
+  "violations": [
+    {
+      "kind": "invariant",
+      "name": "PinnedInv",
+      "hops": 4
+    }
+  ],
+  "max_states": 6,
+  "omitted_states": 12
+}

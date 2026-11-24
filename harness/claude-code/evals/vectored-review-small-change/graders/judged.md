@@ -2,11 +2,10 @@
 type: llm
 ---
 
-The text is the final report of a vectored review on a small, isolated formatting change (`repo/fmt.py`, built by a `haiku` worker, with approved `reviewer_pool` containing `sonnet` and `haiku`). Tool-call graders separately verify `astack:reviewer` invocation.
+The text is the user-facing report of a vectored review on a clean, small, isolated formatting change (`repo/fmt.py`, built by a `haiku` worker, with approved `reviewer_pool` containing `sonnet` and `haiku`). Tool-call and regex graders separately verify that exactly one `astack:reviewer` ran on `sonnet`, zero ran on `haiku` or `general-purpose`, `astack-review-ledger` was run, and zero internal status codes were leaked.
 
 PASS if ALL of the following hold:
-- The report opens with a coverage map showing the vector classified as `low` risk.
-- Only **one** reviewer ran on a model from the approved pool other than the worker's (`sonnet`), with verified and dropped counts, and stopped cleanly (`STOPPED (clean single review)`) without spawning a second reviewer (or added a second model via `astack-review-ledger` only if a verified bug was reported).
-- `NOT ASSIGNED`, `POOL EXHAUSTED`, and `COULD NOT TEST` are reported.
+- Confirms clearly in plain language that no proven blocking bugs were found in `normalize_spaces` and states what was verified.
+- Does NOT leak internal vectored-review status codes or bookkeeping (no `POOL EXHAUSTED`, `NOT ASSIGNED`, `STOPPED (clean single review)`, raw ledger tables, or internal estimator jargon).
 
 FAIL otherwise.

@@ -1,0 +1,32 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+155384187904594241 [label="/\\ lock = \"free\"\n/\\ p1 = \"idle\"\n/\\ p2 = \"idle\"",style = filled]
+155384187904594241 -> 9042658036990365654 [label="Req1",color="black",fontcolor="black"];
+9042658036990365654 [label="/\\ lock = \"free\"\n/\\ p1 = \"wait\"\n/\\ p2 = \"idle\""];
+155384187904594241 -> 7719879430364144620 [label="Req2",color="black",fontcolor="black"];
+7719879430364144620 [label="/\\ lock = \"free\"\n/\\ p1 = \"idle\"\n/\\ p2 = \"wait\""];
+9042658036990365654 -> 2896986145880324919 [label="Enter1",color="black",fontcolor="black"];
+2896986145880324919 [label="/\\ lock = \"p1\"\n/\\ p1 = \"crit\"\n/\\ p2 = \"idle\""];
+9042658036990365654 -> 1474777127379500411 [label="Req2",color="black",fontcolor="black"];
+1474777127379500411 [label="/\\ lock = \"free\"\n/\\ p1 = \"wait\"\n/\\ p2 = \"wait\""];
+7719879430364144620 -> 1474777127379500411 [label="Req1",color="black",fontcolor="black"];
+7719879430364144620 -> 8368733226722599353 [label="Enter2",color="black",fontcolor="black"];
+8368733226722599353 [label="/\\ lock = \"p2\"\n/\\ p1 = \"idle\"\n/\\ p2 = \"crit\""];
+2896986145880324919 -> 155384187904594241 [label="Exit1",color="black",fontcolor="black"];
+2896986145880324919 -> 4701377467344718234 [label="Req2",color="black",fontcolor="black"];
+4701377467344718234 [label="/\\ lock = \"p1\"\n/\\ p1 = \"crit\"\n/\\ p2 = \"wait\""];
+1474777127379500411 -> 4701377467344718234 [label="Enter1",color="black",fontcolor="black"];
+1474777127379500411 -> 825924602733494062 [label="Enter2",color="black",fontcolor="black"];
+825924602733494062 [label="/\\ lock = \"p2\"\n/\\ p1 = \"wait\"\n/\\ p2 = \"crit\""];
+8368733226722599353 -> 825924602733494062 [label="Req1",color="black",fontcolor="black"];
+8368733226722599353 -> 155384187904594241 [label="Exit2",color="black",fontcolor="black"];
+4701377467344718234 -> 7719879430364144620 [label="Exit1",color="black",fontcolor="black"];
+825924602733494062 -> 9042658036990365654 [label="Exit2",color="black",fontcolor="black"];
+{rank = same; 155384187904594241;}
+{rank = same; 9042658036990365654;7719879430364144620;}
+{rank = same; 2896986145880324919;8368733226722599353;1474777127379500411;}
+{rank = same; 4701377467344718234;825924602733494062;}
+}
+}

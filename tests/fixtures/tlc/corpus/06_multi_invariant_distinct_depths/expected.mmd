@@ -1,12 +1,16 @@
 stateDiagram-v2
-    state "/\ x = 0" as s0
-    state "/\ x = 1 [VIOLATION: InvA]" as s1
-    state "/\ x = 2" as s2
-    state "/\ x = 3 [VIOLATION: InvB]" as s3
+    state "x = 0" as s0
+    state "x = 1" as s1
+    state "x = 2 [VIOLATION: InvA]" as s2
+    state "x = 3" as s3
+    state "x = 4 [VIOLATION: InvB]" as s4
+    state "x = 5" as s5
     [*] --> s0
     s0 --> s1: Step
     s1 --> s2: Step
     s2 --> s3: Step
-    s3 --> s3: Stay
+    s3 --> s4: Step
+    s4 --> s5: Step
+    s5 --> s5: Stay
     classDef violation fill:#fee,stroke:#c00,stroke-width:2px
-    class s1,s3 violation
+    class s2,s4 violation

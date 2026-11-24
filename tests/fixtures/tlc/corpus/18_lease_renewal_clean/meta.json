@@ -1,0 +1,7 @@
+{
+  "module": "LeaseRenewalClean",
+  "exit_code": 0,
+  "states": 4,
+  "transitions": 5,
+  "violations": []
+}

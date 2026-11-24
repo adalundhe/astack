@@ -1,0 +1,18 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+5230014750169362437 [label="/\\ disk = 0\n/\\ lost = FALSE\n/\\ acked = 0",style = filled]
+5230014750169362437 -> -6303813628792324820 [label="AckBeforeFsync",color="black",fontcolor="black"];
+-6303813628792324820 [label="/\\ disk = 0\n/\\ lost = FALSE\n/\\ acked = 1"];
+-6303813628792324820 -> -4802898067902135882 [label="Fsync",color="black",fontcolor="black"];
+-4802898067902135882 [label="/\\ disk = 1\n/\\ lost = FALSE\n/\\ acked = 1"];
+-6303813628792324820 -> 9069354303838367488 [label="CrashLoseAcked",color="black",fontcolor="black"];
+9069354303838367488 [label="/\\ disk = 0\n/\\ lost = TRUE\n/\\ acked = 1"];
+-4802898067902135882 -> -4802898067902135882 [label="Stay",color="black",fontcolor="black"];
+9069354303838367488 -> 9069354303838367488 [label="Stay",color="black",fontcolor="black"];
+{rank = same; 5230014750169362437;}
+{rank = same; -6303813628792324820;}
+{rank = same; -4802898067902135882;9069354303838367488;}
+}
+}

@@ -1,0 +1,10 @@
+stateDiagram-v2
+    state "leaders = {}" as s0
+    state "leaders = {'n1'}" as s1
+    state "leaders = {'n1', 'n2'} [VIOLATION: ElectionSafety]" as s2
+    [*] --> s0
+    s0 --> s1: ElectN1
+    s1 --> s2: StaleVoteElectN2
+    s2 --> s2: Stay
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s2 violation

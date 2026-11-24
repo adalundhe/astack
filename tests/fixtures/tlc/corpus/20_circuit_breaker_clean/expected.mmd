@@ -1,0 +1,10 @@
+stateDiagram-v2
+    state "cb = 'closed'" as s0
+    state "cb = 'open'" as s1
+    state "cb = 'half_open'" as s2
+    [*] --> s0
+    s0 --> s0: Success
+    s0 --> s1: Trip
+    s1 --> s2: Cooldown
+    s2 --> s0: ProbeOk
+    s2 --> s1: ProbeFail

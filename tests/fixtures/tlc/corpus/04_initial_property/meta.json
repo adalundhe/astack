@@ -1,10 +1,12 @@
 {
+  "module": "InitPropertyBad",
+  "exit_code": 1,
   "states": 1,
   "transitions": 0,
   "violations": [
     {
       "kind": "property",
-      "name": "InitSpec",
+      "name": "InitZero",
       "hops": 0
     }
   ]

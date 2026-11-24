@@ -1,0 +1,15 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+-3123463815601479463 [label="/\\ runs = 0\n/\\ acked = FALSE",style = filled]
+-3123463815601479463 -> 8030594299993395213 [label="ExecCrashBeforeAck",color="black",fontcolor="black"];
+8030594299993395213 [label="/\\ runs = 1\n/\\ acked = FALSE"];
+8030594299993395213 -> 6293779742285135972 [label="RedeliverExec",color="black",fontcolor="black"];
+6293779742285135972 [label="/\\ runs = 2\n/\\ acked = FALSE"];
+6293779742285135972 -> 6293779742285135972 [label="Stay",color="black",fontcolor="black"];
+{rank = same; -3123463815601479463;}
+{rank = same; 8030594299993395213;}
+{rank = same; 6293779742285135972;}
+}
+}

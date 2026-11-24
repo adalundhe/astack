@@ -1,16 +1,18 @@
 {
-  "states": 4,
-  "transitions": 4,
+  "module": "MultiInvDistinctDepths",
+  "exit_code": 1,
+  "states": 6,
+  "transitions": 6,
   "violations": [
     {
       "kind": "invariant",
       "name": "InvA",
-      "hops": 1
+      "hops": 2
     },
     {
       "kind": "invariant",
       "name": "InvB",
-      "hops": 3
+      "hops": 4
     }
   ]
 }

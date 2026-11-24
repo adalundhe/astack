@@ -1,0 +1,18 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+-9293730645397238 [label="/\\ rm1 = \"working\"\n/\\ rm2 = \"working\"",style = filled]
+-9293730645397238 -> -1730543705996977987 [label="Prep1",color="black",fontcolor="black"];
+-1730543705996977987 [label="/\\ rm1 = \"prepared\"\n/\\ rm2 = \"working\""];
+-1730543705996977987 -> 4228494960619877851 [label="EarlyCommit1",color="black",fontcolor="black"];
+4228494960619877851 [label="/\\ rm1 = \"committed\"\n/\\ rm2 = \"working\""];
+4228494960619877851 -> 927550195948814983 [label="Abort2",color="black",fontcolor="black"];
+927550195948814983 [label="/\\ rm1 = \"committed\"\n/\\ rm2 = \"aborted\""];
+927550195948814983 -> 927550195948814983 [label="Stay",color="black",fontcolor="black"];
+{rank = same; -9293730645397238;}
+{rank = same; -1730543705996977987;}
+{rank = same; 4228494960619877851;}
+{rank = same; 927550195948814983;}
+}
+}

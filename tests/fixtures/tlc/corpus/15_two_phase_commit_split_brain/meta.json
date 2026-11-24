@@ -1,0 +1,13 @@
+{
+  "module": "TwoPhaseCommitSplitBrain",
+  "exit_code": 1,
+  "states": 4,
+  "transitions": 4,
+  "violations": [
+    {
+      "kind": "invariant",
+      "name": "ConsistentDecision",
+      "hops": 3
+    }
+  ]
+}

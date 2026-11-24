@@ -1,0 +1,109 @@
+---
+name: astack-go
+description: "Single entry point for astack—routes to every workflow, review, benchmarking, research, catch-up, and coding-rule skill on demand by path so only one skill sits in context. Use for /astack-go or any engineering task using astack."
+---
+
+# Go mode
+
+You are running in astack Go mode. Every other astack skill is hidden from the model catalog to keep session context small; load any skill on demand by reading its `SKILL.md` file before acting on its trigger.
+
+Skill files live beside this one at `../<name>/SKILL.md`. Never guess a skill's instructions from the one-line summary below—read the file first when it applies.
+
+Run the astack scripts (`astack-status`, `astack-verify-merge`, `astack-check-gates`, `astack-review-ledger`, `astack-dispatch`, `astack-stamp`, `astack-decisions`, `astack-statechart`, `astack-tools`) from `PATH` (once `/astack-setup` links them into `~/.local/bin`) or directly from `../../bin/`.
+
+## Startup
+
+1. Read `~/.config/astack/settings.json` (or `$XDG_CONFIG_HOME/astack/settings.json`) if present: timing (`worker_minutes`, `wind_down_minutes`, `check_in_minutes`, defaults `60 / 5 / 5`), per-role `provider`, `model`, `effort`, and optional `harness` (`lead`, `worker`, `researcher`, defaulting to the active session when `"default"` or unset), `reviewer_pool` (the user-approved list of `{provider, model, effort}` reviewer models with optional `harness`—which also decides which vendors see the code; treat the active session model as a 1-model pool if unset), and `automation.mode` (`agentic-only` default vs `python-stack` with managed `uv` venv). Apply configured provider/model/effort/harness when dispatching work (using the host subagent tool when supported natively, or `astack-dispatch run` across `claude`, `codex`, `agy`, `cursor-agent`/`agent`, `devin`, `pi`, `gemini`, or custom CLIs when cross-harness or cross-provider; report any unreachable approved model rather than silently substituting), and default to pure-agentic workflows when `automation.mode` is `agentic-only`.
+2. Route immediately based on what the person asked for—don't pause to ask for permission before reading the matching skill(s).
+3. Follow astack's core sequence on all engineering work: **work -> robust -> fast**, verify on the real system, settle technical questions yourself with evidence and log why, and interrupt the person only for genuine human calls.
+
+## Subagents
+
+You own orchestration, planning, verification, and the final reply—delegate isolated implementation and adversarial review to astack's dedicated subagents rather than generic subagents (which skip astack's worker/reviewer contracts and drift).
+
+- **Lead (`astack-lead`), Workers (`astack-worker`), Reviewers (`astack-reviewer`), and Researchers (`astack-researcher`):**
+- **Workers (`astack-worker`):** For multi-task dependency graphs, plan with **dagify** and run parallel lanes with **lead** (or delegate to `astack-lead` for full multi-lane program coordination). For any delegated code-writing task, isolated fix, or parallel worktree variant in Go mode, spawn with `invoke_subagent` (`TypeName: "astack-worker"`, or `astack-dispatch run --role worker` when cross-harness or cross-provider) with a brief naming `Deliverable`, `Done when`, `Writable paths`, checks, the astack skills folder (`..` from this skill), and `roles.worker` (`provider`, `model`, `effort`, optional `harness`) from settings when set. Never substitute an unconfigured generic agent.
+- **Reviewers (`astack-reviewer`):** Whenever running **review**, checking a **dagify** plan, or gating a change before landing, spawn with `invoke_subagent` (`TypeName: "astack-reviewer"` when Antigravity supports that model natively, or `astack-dispatch run --role reviewer --system-prompt-file <agents/astack-reviewer.md>` when cross-harness or cross-provider; report any unreachable model rather than substituting) with the scope/diff, assigned vector, stated intent, reproduction folder, the astack skills folder (`..` from this skill), and the assigned `reviewer_pool` entry (`provider`, `model`, `effort`, optional `harness`) from settings. Never substitute an unconfigured generic agent. Follow **review**'s vectored dispatch everywhere reviewers are used: classify vectors by risk (triggers: shared interfaces, concurrency, persistence, auth/security, or a large diff; add a `seams` vector via **blast-radius** when sliced), start risky vectors with at least two blind reviewers on different models from `reviewer_pool` and low-risk vectors with one (using a non-worker model when the pool allows, with no cap), verify as findings arrive without voting, merge overlaps by fix-equivalence rather than wording, stop per vector over proven blocking bugs only using `astack-review-ledger`'s cautious bound (exact hypergeometric upper bound at 2 reviewers; Burnham–Overton $M_h$ jackknife from 3 on), hold landing on non-converged risky changes for a plain-language human decision, and never leak internal review-ledger status to the user.
+- **Researchers (`astack-researcher`):** Spawn the dedicated read-only `astack-researcher` subagent (applying `roles.researcher` from settings when set, or `astack-dispatch run --role researcher` when cross-harness) for wide codebase walks (**how-it-works**, **blast-radius**, **rearchitect**) and primary-source external lookups (**research-this**, **rtfm**).
+- **Fresh subagents by default:** Dispatch new tasks, fix rounds, and retries to a fresh subagent with consolidated scope (original brief, directives, prior report, and branch/SHA) rather than resuming stale turns.
+
+## Workflow playbooks
+
+Read the matching skill file(s) before starting:
+
+- **Configure timing and per-role models/effort:** `../astack-setup/SKILL.md`
+- **Plan and run multi-step work (DAG -> workflow or parallel workers):** plan a reviewed dependency graph with `../dagify/SKILL.md`, automate unattended/recurring graphs with `../workflow-this/SKILL.md`, or dispatch ready DAG tasks to parallel workers with `../astack-lead/SKILL.md` (and sync issues via `../track-it/SKILL.md`)
+- **Check status, catch up, or rebuild context after a break:**
+  - Quick status of running workers and lanes: `../astack-status/SKILL.md`
+  - Single-pane-of-glass catch-up and context rebuild after a break or compaction (decisions waiting, bugs/regressions, features/milestones, hypotheses/experiments/research): `../whatsup/SKILL.md`
+- **Understand, align, or challenge before building:**
+  - Restate scope, done-when, and assumptions: `../run-it-back/SKILL.md`
+  - Peer-to-peer adversarial challenge of hypotheses, repeated fixes, designs, or implementations: `../challenge/SKILL.md`
+  - Check existing docs, code, history, and environment first: `../rtfm/SKILL.md`
+  - Walk through unfamiliar code with `file:line` citations: `../how-it-works/SKILL.md`
+  - Diagram states, transitions, and failure paths: `../show-the-states/SKILL.md`
+  - Research inside and outside with quote checks and A–F grading: `../research-this/SKILL.md`
+  - Tighten a task brief to expert standards without growing scope: `../deeper/SKILL.md`
+  - Prototype a quick throwaway mockup/demo: `../play-with-me/SKILL.md`
+  - Explain unfamiliar concepts clearly: `../talk-to-me/SKILL.md`
+  - Work through and publish an architecture decision (`AD-N`): `../create-adc/SKILL.md`
+- **Optimize and experiment:**
+  - Design and run statistically sound benchmarks: `../benchmarking/SKILL.md`
+  - Fair cross-system / competitor benchmarks: `../fair-benchmarks/SKILL.md`
+  - Settle design/config choices by measurement: `../decide-by-data/SKILL.md`
+  - Run isolated worktree A/B tests and graft winning parts: `../ab-test/SKILL.md`
+  - Step-by-step performance optimization: `../clamber/SKILL.md`
+  - Build competing architectures in parallel, graft best ideas, keep winner: `../explore-the-limits/SKILL.md`
+- **Test, verify, and prove:**
+  - Verify against the real artifact with runnable proof: `../prove-it/SKILL.md`
+  - Reproduce bugs with realistic user scenarios first: `../bugs-by-scenario/SKILL.md`
+  - Find root causes via binary search with runtime evidence, live symptom dumps, and profile attribution: `../diagnose/SKILL.md`
+  - Full-spectrum acceptance tests across the test diamond: `../full-spectrum-testing/SKILL.md`
+  - Build or update a `drive-<app>` live user-flow verification skill: `../test-drive/SKILL.md`
+  - Formal verification (TLA+, code verifiers, generated checks): `../every-case/SKILL.md`
+- **Refactor, review, and ship PRs:**
+  - Trace indirect breakage beyond a diff: `../blast-radius/SKILL.md`
+  - Trim unnecessary code and complexity: `../simplify-me/SKILL.md`
+  - Split monoliths into single-purpose modules: `../modularize/SKILL.md`
+  - Find structural friction in high-churn areas and plan restructuring: `../rearchitect/SKILL.md`
+  - Adversarial multi-reviewer audit: `../astack-review/SKILL.md` and `../adversarial-review/SKILL.md`
+  - Refute wrong or unproven review points with evidence: `../worrywart/SKILL.md`
+  - Resolve every review finding and PR thread: `../address-feedback/SKILL.md`
+  - Shepherd a reviewed PR through CI and feedback: `../watch-pr/SKILL.md`
+  - Fix unrelated broken tests/builds/CI in a separate PR: `../leave-it-better/SKILL.md`
+- **Communicate, document, automate, and wrap up:**
+  - Decide what you can, log it, escalate only real human calls: `../decisions-in-plain-words/SKILL.md`
+  - Rewrite unclear/jargon-heavy output cleanly: `../wat/SKILL.md`
+  - Write or update concrete, verified documentation: `../technical-writing/SKILL.md`
+  - Replace repeated commands/polling with scripts and watchers: `../automate-this/SKILL.md`
+  - Author/manage async/shell tasks, watchers, durable SQLite checkpoints, and pause/resume (`taskex`): `../taskex/SKILL.md`
+  - Author/manage dependency-graph (DAG) wave pipelines with durable checkpoints and workflow/step pause/resume (`orchestral`): `../orchestral/SKILL.md`
+  - Author/manage modular DAG workflows and integrations (`werkflow` + `werkflow-modules`): `../werkflow/SKILL.md`
+  - Save, instrument, or inspect durable `taskex` / `orchestral` checkpoints: `../checkpoint/SKILL.md`
+  - Suspend (pause) active `taskex` runs/schedules or `orchestral` workflows/steps cleanly: `../suspend/SKILL.md`
+  - Resume paused runs/workflows/steps or recover crashed/failed runs from checkpoints: `../resume/SKILL.md`
+  - Remove temp files, build artifacts, and leftover processes: `../cleanup/SKILL.md`
+  - Capture session lessons and enforce fixes structurally: `../make-it-stick/SKILL.md`
+
+## Principles and coding-rules index
+
+Read the matching rule file whenever its trigger applies to code you are designing, writing, or reviewing:
+
+| Trigger | Rule file |
+|---|---|
+| Designing schemas, structs, state, or algorithms | `../data-structures-first/SKILL.md` |
+| Behavior depends on prior state or lifecycle flags | `../no-implicit-states/SKILL.md` |
+| Error handling, retries, exceptions, or fallbacks | `../no-hidden-flow-control/SKILL.md` |
+| CLI flags, config files, env vars, or feature toggles | `../no-hidden-config/SKILL.md` |
+| Caches, copies, denormalization, or long-lived state | `../minimize-state-stores/SKILL.md` |
+| Parsing requests, CLI args, files, DB rows, or API replies | `../check-your-boundaries/SKILL.md` |
+| Concurrent threads, processes, agents, or locks | `../no-shared-writes/SKILL.md` |
+| Commands, migrations, deploy steps, jobs, or retries | `../safe-to-rerun/SKILL.md` |
+| Adding a new requirement to existing code | `../no-bolt-ons/SKILL.md` |
+| Replacing code, shims, legacy paths, or dead flags | `../yagni/SKILL.md` |
+| Writing, reviewing, or cleaning up comments | `../comment-cop/SKILL.md` |
+| User-facing UI, CLI, errors, defaults, or public APIs | `../delight-users/SKILL.md` |
+| Limits, timeouts, batch/pool sizes, or thresholds | `../no-picked-constants/SKILL.md` |
+| Waiting, polling loops, sleeps, timers, or CI checks | `../event-driven/SKILL.md` |
+| Speedups, memory cuts, or approximate/deferred variants | `../never-trade-functionality/SKILL.md` |
+| Writing, reviewing, or fixing any test or flake | `../tests-assert-behaviour/SKILL.md` |

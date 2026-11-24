@@ -1,0 +1,13 @@
+stateDiagram-v2
+    state "/\ disk = 0, /\ lost = FALSE, /\ acked = 0" as s0
+    state "/\ disk = 0, /\ lost = FALSE, /\ acked = 1" as s1
+    state "/\ disk = 1, /\ lost = FALSE, /\ acked = 1" as s2
+    state "/\ disk = 0, /\ lost = TRUE, /\ acked = 1 [VIOLATION: DurableCommit]" as s3
+    [*] --> s0
+    s0 --> s1: AckBeforeFsync
+    s1 --> s2: Fsync
+    s1 --> s3: CrashLoseAcked
+    s2 --> s2: Stay
+    s3 --> s3: Stay
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s3 violation

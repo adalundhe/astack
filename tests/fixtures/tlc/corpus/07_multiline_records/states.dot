@@ -2,8 +2,11 @@ strict digraph DiskGraph {
 nodesep=0.35;
 subgraph cluster_graph {
 color="white";
--501 [label="/\\ cfg = [host |-> \"a\\\"b\", path |-> \"c\\\\d\"]\n/\\ items = {1, 2, 3}",style = filled]
--501 -> -502 [label="Mutate",color="black",fontcolor="black"];
--502 [label="/\\ cfg = [host |-> \"a\\\"b\", path |-> \"c\\\\e\"]\n/\\ items = {1, 2, 3, 4}"];
+4161469640105303177 [label="cfg = [host |-> \"alpha\", path |-> \"/tmp/a\", retries |-> 0, ok |-> TRUE]",style = filled]
+4161469640105303177 -> 6871733470079630430 [label="Corrupt",color="black",fontcolor="black"];
+6871733470079630430 [label="cfg = [host |-> \"alpha\", path |-> \"/etc/bad\", retries |-> 3, ok |-> FALSE]"];
+6871733470079630430 -> 6871733470079630430 [label="Stay",color="black",fontcolor="black"];
+{rank = same; 4161469640105303177;}
+{rank = same; 6871733470079630430;}
 }
 }

@@ -1,0 +1,13 @@
+{
+  "module": "LockInversionDeadlock",
+  "exit_code": 1,
+  "states": 4,
+  "transitions": 6,
+  "violations": [
+    {
+      "kind": "deadlock",
+      "name": "Deadlock",
+      "hops": 2
+    }
+  ]
+}

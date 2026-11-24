@@ -1,0 +1,18 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+-27169398830185255 [label="/\\ gen = 1\n/\\ replayed = FALSE",style = filled]
+-27169398830185255 -> -3340672189166386726 [label="Rotate",color="black",fontcolor="black"];
+-3340672189166386726 [label="/\\ gen = 2\n/\\ replayed = FALSE"];
+-3340672189166386726 -> 1952815825154979778 [label="Rotate",color="black",fontcolor="black"];
+1952815825154979778 [label="/\\ gen = 3\n/\\ replayed = FALSE"];
+1952815825154979778 -> 48788744863107979 [label="AcceptOldGen1",color="black",fontcolor="black"];
+48788744863107979 [label="/\\ gen = 3\n/\\ replayed = TRUE"];
+48788744863107979 -> 48788744863107979 [label="Stay",color="black",fontcolor="black"];
+{rank = same; -27169398830185255;}
+{rank = same; -3340672189166386726;}
+{rank = same; 1952815825154979778;}
+{rank = same; 48788744863107979;}
+}
+}

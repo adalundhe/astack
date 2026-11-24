@@ -1,0 +1,13 @@
+stateDiagram-v2
+    state "/\ readers = 0, /\ writer = 'waiting'" as s0
+    state "/\ readers = 1, /\ writer = 'waiting'" as s1
+    state "/\ readers = 2, /\ writer = 'waiting' [VIOLATION: TemporalProperty]" as s2
+    [*] --> s0
+    s0 --> s1: ReaderEnter
+    s0 --> s0
+    s1 --> s2: ReaderOverlap
+    s1 --> s1
+    s2 --> s1: ReaderLeave
+    s2 --> s2
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s2 violation

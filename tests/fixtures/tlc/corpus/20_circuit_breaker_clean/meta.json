@@ -1,0 +1,7 @@
+{
+  "module": "CircuitBreakerClean",
+  "exit_code": 0,
+  "states": 3,
+  "transitions": 5,
+  "violations": []
+}

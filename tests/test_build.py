@@ -44,8 +44,13 @@ class BuildTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_every_manifest_has_the_same_name_and_version(self):
-        manifests = [HARNESS / "claude-code/.claude-plugin/plugin.json", HARNESS / "cursor/.cursor-plugin/plugin.json",
-                     HARNESS / "codex/plugin.json"]
+        manifests = [
+            HARNESS / "claude-code/.claude-plugin/plugin.json",
+            HARNESS / "cursor/.cursor-plugin/plugin.json",
+            HARNESS / "codex/plugin.json",
+            HARNESS / "antigravity/plugin.json",
+            HARNESS / "portable/plugin.json",
+        ]
         self.assertEqual(len({(load(m)["name"], load(m)["version"]) for m in manifests}), 1)
 
     def test_each_marketplace_points_at_its_package(self):
@@ -74,15 +79,27 @@ class BuildTest(unittest.TestCase):
             self.assertEqual(fields["name"], skill.parent.name, skill)
 
     def test_cursor_and_codex_use_prefixed_names(self):
-        for tool in ("cursor", "codex"):
+        for tool in ("cursor", "codex", "antigravity", "portable"):
             names = {p.name for p in (HARNESS / tool / "skills").iterdir()}
             self.assertTrue({"astack-go", "astack-lead", "astack-setup", "astack-status", "astack-review"} <= names, names)
             self.assertFalse({"go", "lead", "setup", "status", "review"} & names, names)
-        self.assertTrue((HARNESS / "cursor/agents/astack-worker.md").is_file())
-        self.assertTrue((HARNESS / "cursor/agents/astack-reviewer.md").is_file())
+        for role in ("lead", "worker", "reviewer", "researcher"):
+            self.assertTrue((HARNESS / "claude-code/agents" / f"{role}.md").is_file())
+            self.assertTrue((HARNESS / "cursor/agents" / f"astack-{role}.md").is_file())
+            self.assertTrue((HARNESS / "codex/agents" / f"astack-{role}.toml").is_file())
+            self.assertTrue((HARNESS / "antigravity/agents" / f"astack-{role}.md").is_file())
+            self.assertTrue((HARNESS / "portable/agents" / f"astack-{role}.md").is_file())
+        # Verify native Antigravity agent & hook frontmatter
+        agy_lead_fm, _ = front_matter(HARNESS / "antigravity/agents/astack-lead.md")
+        self.assertEqual(agy_lead_fm["subagent"], "true")
+        self.assertEqual(agy_lead_fm["mainAgent"], "true")
+        agy_rev_fm, _ = front_matter(HARNESS / "antigravity/agents/astack-reviewer.md")
+        self.assertEqual(agy_rev_fm["subagent"], "true")
+        self.assertEqual(agy_rev_fm["mainAgent"], "false")
+        self.assertTrue((HARNESS / "antigravity/hooks.json").is_file())
 
     def test_only_go_is_visible_in_the_skill_catalog(self):
-        for tool, go_name in (("claude-code", "go"), ("cursor", "astack-go")):
+        for tool, go_name in (("claude-code", "go"), ("cursor", "astack-go"), ("antigravity", "astack-go"), ("portable", "astack-go")):
             visible = []
             for skill in sorted((HARNESS / tool / "skills").glob("*/SKILL.md")):
                 fields, _ = front_matter(skill)
@@ -133,7 +150,7 @@ class BuildTest(unittest.TestCase):
         linked = set(re.findall(r"\$\{CLAUDE_SKILL_DIR\}/\.\./([a-z0-9-]+)/SKILL\.md", go_text))
         self.assertEqual(linked, source_skills - {"go"})
 
-        for tool, go_name in (("claude-code", "go"), ("cursor", "astack-go"), ("codex", "astack-go")):
+        for tool, go_name in (("claude-code", "go"), ("cursor", "astack-go"), ("codex", "astack-go"), ("antigravity", "astack-go"), ("portable", "astack-go")):
             go_file = HARNESS / tool / "skills" / go_name / "SKILL.md"
             text = go_file.read_text()
             if tool == "claude-code":
@@ -147,7 +164,7 @@ class BuildTest(unittest.TestCase):
 
     def test_skills_that_cite_other_skills_include_valid_sibling_paths(self):
         source_skills = {p.name for p in (ROOT / "skills").iterdir() if (p / "SKILL.md").is_file()}
-        for tool in ("claude-code", "cursor", "codex"):
+        for tool in ("claude-code", "cursor", "codex", "antigravity", "portable"):
             for skill_file in sorted((HARNESS / tool / "skills").glob("*/SKILL.md")):
                 if skill_file.parent.name in ("go", "astack-go"):
                     continue
@@ -168,14 +185,16 @@ class BuildTest(unittest.TestCase):
                     self.assertTrue((skill_file.parent / rel).resolve().is_file(), f"{tool}: broken ref {rel}")
 
     def test_the_codex_agents_are_valid_toml_files(self):
+        for role in ("lead", "worker", "reviewer", "researcher"):
+            agent = tomllib.loads((HARNESS / f"codex/agents/astack-{role}.toml").read_text())
+            self.assertEqual(agent["name"], f"astack-{role}")
+            self.assertTrue(agent["developer_instructions"].strip())
         worker = tomllib.loads((HARNESS / "codex/agents/astack-worker.toml").read_text())
-        self.assertEqual(worker["name"], "astack-worker")
         self.assertIn("$astack-go", worker["description"])
         self.assertIn("$astack-lead", worker["description"])
         self.assertNotIn("Spawn only from", worker["description"])
         self.assertIn("RESULT: DONE | NOT DONE", worker["developer_instructions"])
         reviewer = tomllib.loads((HARNESS / "codex/agents/astack-reviewer.toml").read_text())
-        self.assertEqual(reviewer["name"], "astack-reviewer")
         self.assertIn("$astack-go", reviewer["description"])
         self.assertIn("$astack-lead", reviewer["description"])
         self.assertIn("$astack-review", reviewer["description"])
@@ -210,14 +229,18 @@ class BuildTest(unittest.TestCase):
         self.assertIn("astack-reviewer-<slug>.toml", cx_setup)
 
     def test_vectored_review_replaces_old_panel_form_in_all_three_harnesses(self):
-        for tool, prefix in (("claude-code", ""), ("cursor", "astack-"), ("codex", "astack-")):
+        for tool, prefix in (("claude-code", ""), ("cursor", "astack-"), ("codex", "astack-"), ("antigravity", "astack-"), ("portable", "astack-")):
             go = (HARNESS / tool / "skills" / f"{prefix}go" / "SKILL.md").read_text()
             review = (HARNESS / tool / "skills" / f"{prefix}review" / "SKILL.md").read_text()
             setup = (HARNESS / tool / "skills" / f"{prefix}setup" / "SKILL.md").read_text()
             lead = (HARNESS / tool / "skills" / f"{prefix}lead" / "SKILL.md").read_text()
             dagify = (HARNESS / tool / "skills" / "dagify" / "SKILL.md").read_text()
             reviewer_agent = (
-                HARNESS / tool / "agents" / ("reviewer.md" if tool == "claude-code" else "astack-reviewer.md" if tool == "cursor" else "astack-reviewer.toml")
+                HARNESS / tool / "agents" / (
+                    "reviewer.md" if tool == "claude-code"
+                    else "astack-reviewer.toml" if tool == "codex"
+                    else "astack-reviewer.md"
+                )
             ).read_text()
 
             # Every reader uses reviewer_pool and vectored review; old panel form is completely gone
@@ -227,16 +250,19 @@ class BuildTest(unittest.TestCase):
             for text, label in ((go, "go"), (review, "review"), (lead, "lead"), (dagify, "dagify")):
                 self.assertNotIn("roles.reviewer", text, f"{tool}/{label} still references retired roles.reviewer")
 
-            # Vectored review invariants present in every harness's review skill
+            # Vectored review invariants + cross-harness dispatch + cautious stopping + no-internal-leak present in every harness
             self.assertIn("seams", review, f"{tool}/review missing seams vector rule")
             self.assertIn("blast-radius", review, f"{tool}/review missing blast-radius reference")
             self.assertIn("astack-review-ledger", review, f"{tool}/review missing astack-review-ledger")
+            self.assertIn("astack-dispatch", review, f"{tool}/review missing astack-dispatch")
+            self.assertIn("astack-dispatch", setup, f"{tool}/setup missing astack-dispatch")
+            self.assertIn("pi", setup, f"{tool}/setup missing pi harness support")
             self.assertIn("blind to each other", review, f"{tool}/review missing blind-independence rule")
             self.assertIn("Combine, never vote", review, f"{tool}/review missing combine-never-vote rule")
-            self.assertIn("POOL EXHAUSTED", review, f"{tool}/review missing POOL EXHAUSTED")
-            self.assertIn("NOT ASSIGNED", review, f"{tool}/review missing NOT ASSIGNED")
-            self.assertIn("COULD NOT TEST", review, f"{tool}/review missing COULD NOT TEST")
-            self.assertIn("Coverage map", review, f"{tool}/review missing Coverage map")
+            self.assertIn("fix-equivalence", review, f"{tool}/review missing fix-equivalence overlap rule")
+            self.assertIn("Jackknife", review, f"{tool}/review missing 3+-reviewer jackknife rule")
+            self.assertIn("landing_blocked", review, f"{tool}/review missing risky landing gate")
+            self.assertIn("Never leak internal review status", review, f"{tool}/review missing no-internal-leak rule")
             self.assertIn("LANES.md", review, f"{tool}/review missing LANES.md count logging")
             self.assertIn("which vendors/providers see their code", setup, f"{tool}/setup missing vendor-visibility warning")
             self.assertIn("VECTOR:", reviewer_agent, f"{tool}/reviewer agent missing VECTOR header")
@@ -261,13 +287,15 @@ class BuildTest(unittest.TestCase):
                 capture_output=True, text=True, env=env, cwd=root,
             )
             self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("astack-lead", proc.stdout)
             self.assertIn("astack-worker", proc.stdout)
+            self.assertIn("astack-researcher", proc.stdout)
             self.assertIn("astack-reviewer-openai-gpt-5-4-high", proc.stdout)
             self.assertIn("astack-reviewer-openai-o3-high", proc.stdout)
 
     def test_the_scripts_are_executable_in_every_package(self):
-        for tool in ("claude-code", "cursor", "codex"):
-            for script in ("astack-check-gates", "astack-decisions", "astack-review-ledger", "astack-stamp", "astack-stamp-hook", "astack-statechart", "astack-status", "astack-tools", "astack-verify-merge"):
+        for tool in ("claude-code", "cursor", "codex", "antigravity", "portable"):
+            for script in ("astack-check-gates", "astack-decisions", "astack-dispatch", "astack-review-ledger", "astack-stamp", "astack-stamp-hook", "astack-statechart", "astack-status", "astack-tools", "astack-verify-merge"):
                 self.assertTrue((HARNESS / tool / "bin" / script).stat().st_mode & 0o111, f"{tool}/{script}")
 
     def test_readme_lists_every_skill_and_notice_attributions_hold(self):
@@ -308,20 +336,39 @@ class BuildTest(unittest.TestCase):
                 self.assertIn("tool_used", types, f"{case.name} must verify the hidden rule was read")
                 self.assertIn("llm", types, f"{case.name} must grade the output")
 
-        # Verify vectored-review evals grade actual Agent tool spawns (models & exact counts), not only report prose
+        # Verify vectored-review evals grade actual Agent tool spawns (binding astack:reviewer + model together & exact counts)
         conc_graders = {p.stem: front_matter(p)[0] for p in (ROOT / "evals/vectored-review-concurrency/graders").glob("*.md")}
         self.assertEqual(conc_graders["reviewer-started"].get("min"), "2")
+        self.assertIn("astack:reviewer", conc_graders["sonnet-spawned"].get("input_match", ""))
         self.assertIn("sonnet", conc_graders["sonnet-spawned"].get("input_match", ""))
+        self.assertIn("astack:reviewer", conc_graders["haiku-spawned"].get("input_match", ""))
         self.assertIn("haiku", conc_graders["haiku-spawned"].get("input_match", ""))
         self.assertEqual(conc_graders["no-general-purpose"].get("max"), "0")
 
         small_graders = {p.stem: front_matter(p)[0] for p in (ROOT / "evals/vectored-review-small-change/graders").glob("*.md")}
         self.assertEqual(small_graders["reviewer-started"].get("min"), "1")
         self.assertEqual(small_graders["reviewer-started"].get("max"), "1")
+        self.assertIn("astack:reviewer", small_graders["sonnet-spawned"].get("input_match", ""))
         self.assertIn("sonnet", small_graders["sonnet-spawned"].get("input_match", ""))
+        self.assertIn("astack:reviewer", small_graders["no-worker-model-spawned"].get("input_match", ""))
+        self.assertIn("haiku", small_graders["no-worker-model-spawned"].get("input_match", ""))
         self.assertEqual(small_graders["no-worker-model-spawned"].get("min"), "0")
         self.assertEqual(small_graders["no-worker-model-spawned"].get("max"), "0")
         self.assertEqual(small_graders["no-general-purpose"].get("max"), "0")
+
+        cross_graders = {p.stem: front_matter(p)[0] for p in (ROOT / "evals/vectored-review-cross-harness/graders").glob("*.md")}
+        self.assertIn("astack-dispatch", cross_graders["dispatch-used"].get("input_match", ""))
+        self.assertIn("astack-review-ledger", cross_graders["ledger-used"].get("input_match", ""))
+        self.assertEqual(cross_graders["no-general-purpose"].get("max"), "0")
+        self.assertIn("no-internal-leak", cross_graders)
+
+        planted_graders = {p.stem: front_matter(p)[0] for p in (ROOT / "evals/vectored-review-planted-bugs/graders").glob("*.md")}
+        self.assertEqual(planted_graders["reviewers-continued-past-two"].get("min"), "3")
+        self.assertIn("astack-review-ledger", planted_graders["ledger-used"].get("input_match", ""))
+        self.assertEqual(planted_graders["no-general-purpose"].get("max"), "0")
+        self.assertIn("no-internal-leak", planted_graders)
+        for vcase in ("vectored-review-concurrency", "vectored-review-small-change", "vectored-review-cross-harness", "vectored-review-planted-bugs"):
+            self.assertTrue((ROOT / "evals" / vcase / "graders" / "no-internal-leak.md").is_file(), f"{vcase} missing no-internal-leak grader")
 
 
 if __name__ == "__main__":

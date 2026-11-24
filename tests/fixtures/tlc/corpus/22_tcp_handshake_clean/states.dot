@@ -1,0 +1,21 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+-850042297492847784 [label="s = \"CLOSED\"",style = filled]
+-850042297492847784 -> 501698444412906445 [label="PassiveOpen",color="black",fontcolor="black"];
+501698444412906445 [label="s = \"LISTEN\""];
+501698444412906445 -> -246107559496009072 [label="RecvSYN",color="black",fontcolor="black"];
+-246107559496009072 [label="s = \"SYN_RCVD\""];
+-246107559496009072 -> 1227613497027103508 [label="RecvACK",color="black",fontcolor="black"];
+1227613497027103508 [label="s = \"ESTABLISHED\""];
+1227613497027103508 -> -9099657746402151491 [label="Close",color="black",fontcolor="black"];
+-9099657746402151491 [label="s = \"FIN_WAIT\""];
+-9099657746402151491 -> -850042297492847784 [label="RecvFINACK",color="black",fontcolor="black"];
+{rank = same; -850042297492847784;}
+{rank = same; 501698444412906445;}
+{rank = same; -246107559496009072;}
+{rank = same; 1227613497027103508;}
+{rank = same; -9099657746402151491;}
+}
+}

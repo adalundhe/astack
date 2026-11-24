@@ -1,0 +1,13 @@
+{
+  "module": "ShortcutBeatsChain",
+  "exit_code": 1,
+  "states": 5,
+  "transitions": 6,
+  "violations": [
+    {
+      "kind": "invariant",
+      "name": "NoFour",
+      "hops": 1
+    }
+  ]
+}

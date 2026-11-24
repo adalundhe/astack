@@ -1,0 +1,7 @@
+{
+  "module": "BoundedBufferClean",
+  "exit_code": 0,
+  "states": 4,
+  "transitions": 6,
+  "violations": []
+}

@@ -1,0 +1,17 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+-9109272001516859317 [label="cb = \"closed\"",style = filled]
+-9109272001516859317 -> -9109272001516859317 [label="Success",color="black",fontcolor="black"];
+-9109272001516859317 -> 137687334476424124 [label="Trip",color="black",fontcolor="black"];
+137687334476424124 [label="cb = \"open\""];
+137687334476424124 -> 4246328791752017669 [label="Cooldown",color="black",fontcolor="black"];
+4246328791752017669 [label="cb = \"half_open\""];
+4246328791752017669 -> -9109272001516859317 [label="ProbeOk",color="black",fontcolor="black"];
+4246328791752017669 -> 137687334476424124 [label="ProbeFail",color="black",fontcolor="black"];
+{rank = same; -9109272001516859317;}
+{rank = same; 137687334476424124;}
+{rank = same; 4246328791752017669;}
+}
+}

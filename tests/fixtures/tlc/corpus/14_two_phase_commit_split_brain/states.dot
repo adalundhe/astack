@@ -1,9 +1,0 @@
-strict digraph DiskGraph {
-  1 [label="/\\ rm1 = \"working\"\n/\\ rm2 = \"working\"", style = filled];
-  2 [label="/\\ rm1 = \"prepared\"\n/\\ rm2 = \"working\""];
-  3 [label="/\\ rm1 = \"committed\"\n/\\ rm2 = \"working\""];
-  4 [label="/\\ rm1 = \"committed\"\n/\\ rm2 = \"aborted\""];
-  1 -> 2 [label="Prep1", color="black"];
-  2 -> 3 [label="EarlyCommit1", color="black"];
-  3 -> 4 [label="Abort2", color="black"];
-}

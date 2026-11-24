@@ -1,0 +1,8 @@
+stateDiagram-v2
+    state "/\ applied = 0, /\ sent = 0" as s0
+    state "/\ applied = 1, /\ sent = 1" as s1
+    state "/\ applied = 1, /\ sent = 2" as s2
+    [*] --> s0
+    s0 --> s1: SendFirst
+    s1 --> s2: RetryDedup
+    s2 --> s2: Done

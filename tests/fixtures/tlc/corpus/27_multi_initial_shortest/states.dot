@@ -1,0 +1,22 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+1967290587852197561 [label="/\\ seed = \"a\"\n/\\ v = 0",style = filled]
+-1613819303721681551 [label="/\\ seed = \"b\"\n/\\ v = 0",style = filled]
+1967290587852197561 -> -1034517671681930527 [label="SlowA",color="black",fontcolor="black"];
+-1034517671681930527 [label="/\\ seed = \"a\"\n/\\ v = 1"];
+-1613819303721681551 -> 8879196339889832458 [label="FastB",color="black",fontcolor="black"];
+8879196339889832458 [label="/\\ seed = \"b\"\n/\\ v = 3"];
+-1034517671681930527 -> 7135696644185388442 [label="SlowA",color="black",fontcolor="black"];
+7135696644185388442 [label="/\\ seed = \"a\"\n/\\ v = 2"];
+8879196339889832458 -> 8879196339889832458 [label="Stay",color="black",fontcolor="black"];
+7135696644185388442 -> -8507711188749815358 [label="SlowA",color="black",fontcolor="black"];
+-8507711188749815358 [label="/\\ seed = \"a\"\n/\\ v = 3"];
+-8507711188749815358 -> -8507711188749815358 [label="Stay",color="black",fontcolor="black"];
+{rank = same; 1967290587852197561;-1613819303721681551;}
+{rank = same; 8879196339889832458;-1034517671681930527;}
+{rank = same; 7135696644185388442;}
+{rank = same; -8507711188749815358;}
+}
+}

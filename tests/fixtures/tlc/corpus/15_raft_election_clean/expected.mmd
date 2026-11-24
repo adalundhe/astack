@@ -1,8 +1,0 @@
-stateDiagram-v2
-    state "/\ role = 'follower', /\ term = 1" as s0
-    state "/\ role = 'candidate', /\ term = 2" as s1
-    state "/\ role = 'leader', /\ term = 2" as s2
-    [*] --> s0
-    s0 --> s1: Timeout
-    s1 --> s2: WinQuorum
-    s2 --> s0: StepDown

@@ -1,0 +1,13 @@
+{
+  "module": "WalUnfsyncedCommit",
+  "exit_code": 1,
+  "states": 4,
+  "transitions": 5,
+  "violations": [
+    {
+      "kind": "invariant",
+      "name": "DurableCommit",
+      "hops": 2
+    }
+  ]
+}

@@ -1,0 +1,897 @@
+#!/usr/bin/env python3
+"""Install, inspect, link, load, and run astack's Python automation stack (taskex, orchestral, werkflow + werkflow-modules).
+
+Usage:
+  astack-tools doctor [--venv DIR] [--json]
+  astack-tools install [--profile core|standard|all] [--modules LIST] [--from-github] [--python SPEC] [--venv DIR] [--dry-run]
+  astack-tools link-bin [--bin-dir DIR] [--copy] [--dry-run]
+  astack-tools python [--venv DIR] [ARGS...]
+  astack-tools werkflow [--venv DIR] [ARGS...]
+  astack-tools env [--venv DIR] [--shell sh|powershell|cmd]
+  astack-tools path [--venv DIR]
+
+Manages an isolated uv/Python venv (override with ASTACK_VENV or --venv) across macOS, Linux, and Windows
+(arm64 and amd64) so automation scripts never pollute a target repository's environment.
+"""
+from __future__ import annotations
+
+import argparse
+import glob
+import json
+import os
+import platform
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+CORE_PACKAGES = ("taskex", "orchestral", "werkflow")
+STANDARD_MODULES = (
+    "werkflow-shell",
+    "werkflow-file",
+    "werkflow-git",
+    "werkflow-github",
+    "werkflow-http",
+    "werkflow-python",
+    "werkflow-system",
+    "werkflow-secrets",
+    "werkflow-encryption",
+)
+EXTRA_MODULES = (
+    "werkflow-docker",
+    "werkflow-aws",
+    "werkflow-jira",
+    "werkflow-metrikflow",
+    "werkflow-appito",
+)
+ALL_MODULES = STANDARD_MODULES + EXTRA_MODULES
+ALL_KNOWN = CORE_PACKAGES + ("werkflow-core",) + ALL_MODULES
+
+MIN_VERSIONS = {
+    "taskex": ">=0.5.0",
+    "orchestral": ">=0.4.0",
+    "werkflow": ">=0.4.0",
+    "werkflow-docker": ">=0.4.1",
+    "werkflow-metrikflow": ">=0.3.1",
+}
+
+MIN_PYTHON_SPEC = ">=3.11"
+DEFAULT_UV_PYTHON_INSTALL = "3.12"
+
+HARNESS_PROBES = (
+    ("claude", "anthropic", ("claude",)),
+    ("codex", "openai", ("codex",)),
+    ("agy", "google", ("agy", "antigravity")),
+    ("gemini", "google", ("gemini",)),
+    ("cursor", "cursor", ("cursor-agent", "agent", "cursor")),
+    ("devin", "devin", ("devin",)),
+    ("pi", "multi", ("pi",)),
+)
+
+GITHUB_REPOS = {
+    "taskex": "git+https://github.com/adalundhe/taskex.git",
+    "orchestral": "git+https://github.com/adalundhe/orchestral.git",
+    "werkflow": "git+https://github.com/adalundhe/werkflow.git",
+}
+WERKFLOW_MODULES_GIT = "git+https://github.com/adalundhe/werkflow-modules.git"
+
+
+def normalized_arch() -> str:
+    machine = platform.machine().lower()
+    if machine in ("aarch64", "arm64"):
+        return "arm64"
+    if machine in ("x86_64", "amd64", "x64"):
+        return "amd64"
+    return machine or "unknown"
+
+
+def default_venv() -> Path:
+    if env_venv := os.environ.get("ASTACK_VENV"):
+        return Path(env_venv).expanduser()
+    if xdg := os.environ.get("XDG_DATA_HOME"):
+        return Path(xdg).expanduser() / "astack" / "venv"
+    if os.name == "nt":
+        local_app = os.environ.get("LOCALAPPDATA")
+        base = Path(local_app) if local_app else Path.home() / "AppData" / "Local"
+        return base / "astack" / "venv"
+    return Path.home() / ".local" / "share" / "astack" / "venv"
+
+
+def default_bin_dir() -> Path:
+    if xdg_bin := os.environ.get("XDG_BIN_HOME"):
+        return Path(xdg_bin).expanduser()
+    return Path.home() / ".local" / "bin"
+
+
+def venv_bin_dir(venv: Path) -> Path:
+    return venv / ("Scripts" if os.name == "nt" else "bin")
+
+
+def venv_bin(venv: Path, name: str) -> Path:
+    directory = venv_bin_dir(venv)
+    if os.name == "nt":
+        for ext in (".exe", ".cmd", ".bat", ""):
+            candidate = directory / f"{name}{ext}"
+            if _is_file_safe(candidate):
+                return candidate
+        return directory / f"{name}.exe"
+    return directory / name
+
+
+def _is_file_safe(path: Path) -> bool:
+    try:
+        return path.is_file()
+    except OSError:
+        return False
+
+
+def _is_executable_file(path: Path) -> bool:
+    try:
+        if not path.is_file():
+            return False
+        return True if os.name == "nt" else os.access(path, os.X_OK)
+    except OSError:
+        return False
+
+
+def _standard_bin_dirs() -> list[Path]:
+    dirs: list[Path] = []
+    if xdg_bin := os.environ.get("XDG_BIN_HOME"):
+        dirs.append(Path(xdg_bin).expanduser())
+    if os.name == "nt":
+        local_app = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
+        app_data = Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+        program_data = Path(os.environ.get("ProgramData") or "C:/ProgramData")
+        dirs.extend([
+            Path.home() / ".local" / "bin",
+            Path.home() / ".cargo" / "bin",
+            local_app / "uv",
+            local_app / "Microsoft" / "WinGet" / "Links",
+            app_data / "npm",
+            Path.home() / "scoop" / "shims",
+            program_data / "chocolatey" / "bin",
+        ])
+    else:
+        dirs.extend([
+            Path.home() / ".local" / "bin",
+            Path.home() / ".cargo" / "bin",
+            Path.home() / ".volta" / "bin",
+            Path.home() / ".bun" / "bin",
+            Path.home() / ".npm-global" / "bin",
+            Path.home() / ".asdf" / "shims",
+            Path.home() / ".local" / "share" / "mise" / "shims",
+            Path("/opt/homebrew/bin"),
+            Path("/usr/local/bin"),
+            Path("/home/linuxbrew/.linuxbrew/bin"),
+            Path("/usr/bin"),
+        ])
+        nvm_versions = Path.home() / ".nvm" / "versions" / "node"
+        try:
+            if nvm_versions.is_dir():
+                for ver_dir in sorted(nvm_versions.iterdir(), reverse=True):
+                    bin_sub = ver_dir / "bin"
+                    if bin_sub.is_dir():
+                        dirs.append(bin_sub)
+        except OSError:
+            pass
+    return dirs
+
+
+def find_cli(names: tuple[str, ...]) -> str | None:
+    for name in names:
+        if found := shutil.which(name):
+            return found
+    exts = (".exe", ".cmd", ".bat", "") if os.name == "nt" else ("",)
+    for directory in _standard_bin_dirs():
+        for name in names:
+            for ext in exts:
+                path = directory / f"{name}{ext}"
+                if _is_executable_file(path):
+                    return str(path)
+    return None
+
+
+def find_uv() -> str | None:
+    return find_cli(("uv",))
+
+
+def detect_harnesses() -> dict[str, dict[str, str]]:
+    found: dict[str, dict[str, str]] = {}
+    for key, provider, binaries in HARNESS_PROBES:
+        if path := find_cli(binaries):
+            found[key] = {"provider": provider, "path": path}
+    return found
+
+
+def is_compatible_python(path: str) -> bool:
+    if not path:
+        return False
+    try:
+        if not Path(path).exists():
+            return False
+        probe = subprocess.run(
+            [path, "-c", "import sys; print(sys.version_info >= (3, 11))"],
+            capture_output=True, text=True,
+        )
+    except OSError:
+        return False
+    return probe.returncode == 0 and probe.stdout.strip() == "True"
+
+
+def find_uv_python(uv: str, spec: str = MIN_PYTHON_SPEC) -> str | None:
+    try:
+        probe = subprocess.run([uv, "python", "find", spec], capture_output=True, text=True)
+    except OSError:
+        return None
+    if probe.returncode == 0:
+        found = probe.stdout.strip().splitlines()
+        if found:
+            return found[-1].strip()
+    return None
+
+
+def find_python(explicit: str | None) -> str | None:
+    if explicit:
+        resolved = explicit if Path(explicit).is_absolute() else shutil.which(explicit)
+        return resolved if resolved and is_compatible_python(resolved) else None
+    candidates: list[str] = []
+    if os.name == "nt":
+        if py_launcher := shutil.which("py"):
+            for minor in ("3.14", "3.13", "3.12", "3.11", "3"):
+                try:
+                    probe = subprocess.run(
+                        [py_launcher, f"-{minor}", "-c", "import sys; print(sys.executable)"],
+                        capture_output=True, text=True,
+                    )
+                except OSError:
+                    break
+                if probe.returncode == 0 and probe.stdout.strip():
+                    candidates.append(probe.stdout.strip())
+        for name in ("python3.14", "python3.13", "python3.12", "python3.11", "python3", "python"):
+            if found := shutil.which(name):
+                candidates.append(found)
+        local_app = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        for match in sorted(glob.glob(str(Path(local_app) / "Programs" / "Python" / "Python3*" / "python.exe")), reverse=True):
+            candidates.append(match)
+        candidates.append(sys.executable)
+    else:
+        for item in (
+            "python3.14", "python3.13", "python3.12", "python3.11",
+            "/opt/homebrew/bin/python3", "/usr/local/bin/python3",
+            "python3", "/usr/bin/python3", sys.executable,
+        ):
+            path = item if Path(item).is_absolute() else shutil.which(item)
+            if path:
+                candidates.append(path)
+    seen: set[str] = set()
+    for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        if is_compatible_python(path):
+            return path
+    return None
+
+
+def normalize_module(name: str) -> str:
+    cleaned = name.strip().lower().replace("_", "-")
+    if cleaned in CORE_PACKAGES or cleaned == "werkflow-core":
+        return cleaned
+    prefixed = cleaned if cleaned.startswith("werkflow-") else f"werkflow-{cleaned}"
+    if prefixed not in ALL_MODULES:
+        valid = ", ".join(m.removeprefix("werkflow-") for m in ALL_MODULES)
+        raise ValueError(f"unknown werkflow module {name!r}; valid modules: {valid}")
+    return prefixed
+
+
+def resolve_packages(profile: str, modules: str | None, from_github: bool) -> list[str]:
+    names = list(CORE_PACKAGES)
+    if profile == "standard":
+        names.extend(STANDARD_MODULES)
+    elif profile == "all":
+        names.extend(ALL_MODULES)
+    if modules:
+        for item in modules.split(","):
+            if item.strip():
+                pkg = normalize_module(item)
+                if pkg not in names:
+                    names.append(pkg)
+    if not from_github:
+        return [f"{name}{MIN_VERSIONS.get(name, '')}" for name in names]
+    specs = []
+    for name in names:
+        if name in GITHUB_REPOS:
+            specs.append(GITHUB_REPOS[name])
+        else:
+            specs.append(f"{name} @ {WERKFLOW_MODULES_GIT}#subdirectory={name}")
+    if any(n.startswith("werkflow") for n in names):
+        core_spec = f"werkflow-core @ {WERKFLOW_MODULES_GIT}#subdirectory=werkflow-core"
+        if core_spec not in specs:
+            specs.insert(0, core_spec)
+    return specs
+
+
+def inspect_venv(venv: Path) -> dict:
+    py = venv_bin(venv, "python")
+    wf_cli = venv_bin(venv, "werkflow")
+    uv = find_uv()
+    compatible_python = find_uv_python(uv, MIN_PYTHON_SPEC) if uv else None
+    if not compatible_python:
+        compatible_python = find_python(None)
+    on_path = shutil.which("astack-tools")
+    harnesses = detect_harnesses()
+    py_exists = _is_file_safe(py)
+    wf_exists = _is_file_safe(wf_cli)
+    info = {
+        "platform": sys.platform,
+        "arch": normalized_arch(),
+        "astack_tools_on_path": on_path,
+        "harnesses": harnesses,
+        "venv": str(venv),
+        "venv_exists": py_exists,
+        "python": str(py) if py_exists else None,
+        "python_version": None,
+        "compatible_python": compatible_python,
+        "werkflow_cli": str(wf_cli) if wf_exists else None,
+        "uv": uv,
+        "packages": {pkg: None for pkg in ALL_KNOWN},
+        "capabilities": {
+            "taskex_checkpoints": False,
+            "orchestral_dag": False,
+            "orchestral_checkpoints": False,
+        },
+    }
+    if not py_exists:
+        return info
+    probe_code = (
+        "import importlib, importlib.metadata, json, sys\n"
+        f"names = {list(ALL_KNOWN)!r}\n"
+        "versions = {}\n"
+        "for n in names:\n"
+        "    try: versions[n] = importlib.metadata.version(n)\n"
+        "    except importlib.metadata.PackageNotFoundError: versions[n] = None\n"
+        "caps = {'taskex_checkpoints': False, 'orchestral_dag': False, 'orchestral_checkpoints': False}\n"
+        "if versions.get('taskex'):\n"
+        "    try:\n"
+        "        m = importlib.import_module('taskex')\n"
+        "        caps['taskex_checkpoints'] = all(hasattr(m, a) for a in ('SQLiteCheckpointStore', 'checkpoint', 'pause_point'))\n"
+        "    except Exception: pass\n"
+        "if versions.get('orchestral'):\n"
+        "    try:\n"
+        "        m = importlib.import_module('orchestral')\n"
+        "        caps['orchestral_dag'] = all(hasattr(m, a) for a in ('build_execution_plan', 'OrchestralCycleError'))\n"
+        "        caps['orchestral_checkpoints'] = (\n"
+        "            all(hasattr(m, a) for a in ('SQLiteCheckpointStore', 'checkpoint', 'pause_point'))\n"
+        "            and hasattr(getattr(m, 'WorkflowStatus', None), 'PAUSED')\n"
+        "            and all(hasattr(getattr(m, 'Orchestral', None), a) for a in ('pause', 'resume', 'pause_step', 'resume_step'))\n"
+        "        )\n"
+        "    except Exception: pass\n"
+        "print(json.dumps({'version': '.'.join(map(str, sys.version_info[:3])), 'packages': versions, 'capabilities': caps}))\n"
+    )
+    proc = subprocess.run([str(py), "-c", probe_code], capture_output=True, text=True)
+    if proc.returncode == 0 and proc.stdout.strip():
+        data = json.loads(proc.stdout)
+        info["python_version"] = data["version"]
+        info["packages"] = data["packages"]
+        info["capabilities"] = data["capabilities"]
+    return info
+
+
+def uv_install_hint() -> str:
+    if os.name == "nt":
+        return 'powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex" (or winget install --id=astral-sh.uv -e)'
+    return "curl -LsSf https://astral.sh/uv/install.sh | sh (or brew install uv)"
+
+
+def cmd_doctor(args) -> int:
+    info = inspect_venv(args.venv)
+    core_ok = all(info["packages"].get(p) for p in CORE_PACKAGES)
+    if args.as_json:
+        print(json.dumps({**info, "core_ready": core_ok}, indent=2))
+        return 0 if core_ok else 1
+
+    print(f"astack-tools venv: {info['venv']} ({'ready' if info['venv_exists'] else 'missing'})")
+    print(f"  platform: {info['platform']} ({info['arch']})")
+    print(f"  on PATH: {info['astack_tools_on_path'] or 'no (run `astack-tools link-bin` to link into ~/.local/bin)'}")
+    if info["python_version"]:
+        print(f"  venv python: {info['python']} ({info['python_version']})")
+    print(f"  uv: {info['uv'] or 'not found (' + uv_install_hint() + ')'}")
+    print(f"  python >=3.11: {info['compatible_python'] or 'not found (uv python install can provision one)'}")
+    print(f"  werkflow cli: {info['werkflow_cli'] or 'missing'}")
+    if info["harnesses"]:
+        print("\nDetected agent harnesses")
+        for key, meta in info["harnesses"].items():
+            print(f"  {key} ({meta['provider']}): {meta['path']}")
+    print("\nCore packages")
+    caps = info["capabilities"]
+    orch_feats = []
+    orch_missing = []
+    (orch_feats if caps["orchestral_dag"] else orch_missing).append("DAG waves")
+    (orch_feats if caps["orchestral_checkpoints"] else orch_missing).append("checkpoints + pause/resume")
+    orch_note = ", ".join(orch_feats) if not orch_missing else (
+        f"{', '.join(orch_feats)}; missing {' & '.join(orch_missing)} (upgrade orchestral)"
+        if orch_feats else f"missing {' & '.join(orch_missing)} (upgrade orchestral)"
+    )
+    cap_notes = {
+        "taskex": "checkpoints + pause/resume" if caps["taskex_checkpoints"] else "missing checkpoints/pause-resume (upgrade taskex)",
+        "orchestral": orch_note,
+    }
+    for pkg in CORE_PACKAGES + ("werkflow-core",):
+        ver = info["packages"].get(pkg)
+        if ver and pkg in cap_notes:
+            print(f"  {pkg}: {ver} ({cap_notes[pkg]})")
+        else:
+            print(f"  {pkg}: {ver or 'missing'}")
+    installed_mods = [(m, v) for m in ALL_MODULES if (v := info["packages"].get(m))]
+    missing_mods = [m for m in ALL_MODULES if not info["packages"].get(m)]
+    print(f"\nWerkflow modules ({len(installed_mods)}/{len(ALL_MODULES)} installed)")
+    for mod, ver in installed_mods:
+        print(f"  {mod}: {ver}")
+    if missing_mods:
+        print("  not installed: " + ", ".join(m.removeprefix("werkflow-") for m in missing_mods))
+    if not core_ok:
+        print("\nRun `astack-tools install` to provision Python >=3.11 (via uv) and set up the managed venv.")
+    elif not all(caps.values()):
+        print("\nRun `astack-tools install` (or `--from-github`) to upgrade taskex/orchestral to the latest capabilities.")
+    return 0 if core_ok else 1
+
+
+def cmd_install(args) -> int:
+    try:
+        packages = resolve_packages(args.profile, args.modules, args.from_github)
+    except ValueError as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 2
+
+    uv = find_uv()
+    py_venv = venv_bin(args.venv, "python")
+    commands: list[list[str]] = []
+
+    if not py_venv.is_file():
+        if uv:
+            find_spec = args.python or MIN_PYTHON_SPEC
+            found_py = find_uv_python(uv, find_spec)
+            if not found_py:
+                install_spec = args.python or DEFAULT_UV_PYTHON_INSTALL
+                commands.append([uv, "python", "install", install_spec])
+                venv_py_spec = install_spec
+            else:
+                venv_py_spec = find_spec
+            commands.append([uv, "venv", str(args.venv), "--python", venv_py_spec])
+        else:
+            py_host = find_python(args.python)
+            if not py_host:
+                print(
+                    f"error: Python >=3.11 is required and `uv` was not found. "
+                    f"Install uv with `{uv_install_hint()}` or pass --python <path-to-python3.11+>.",
+                    file=sys.stderr,
+                )
+                return 1
+            commands.append([py_host, "-m", "venv", str(args.venv)])
+
+    if uv:
+        commands.append([uv, "pip", "install", "--python", str(py_venv), "--refresh", "--upgrade", *packages])
+    else:
+        commands.append([str(py_venv), "-m", "pip", "install", "--upgrade", *packages])
+
+    if args.dry_run:
+        for cmd in commands:
+            print(" ".join(cmd))
+        return 0
+
+    args.venv.parent.mkdir(parents=True, exist_ok=True)
+    for cmd in commands:
+        result = subprocess.run(cmd)
+        if result.returncode != 0:
+            return result.returncode
+    return cmd_doctor(argparse.Namespace(venv=args.venv, as_json=False))
+
+
+def _dir_on_path(target_dir: Path) -> bool:
+    resolved = str(target_dir.resolve()) if target_dir.exists() else str(target_dir.expanduser())
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if not entry:
+            continue
+        try:
+            if str(Path(entry).expanduser().resolve()) == resolved:
+                return True
+        except OSError:
+            if os.path.normcase(entry) == os.path.normcase(resolved):
+                return True
+    return False
+
+
+def cmd_link_bin(args) -> int:
+    source_dir = Path(__file__).resolve().parent
+    scripts = sorted(p for p in source_dir.iterdir() if p.is_file() and p.name.startswith("astack-"))
+    if not scripts:
+        print(f"error: no astack-* scripts found in {source_dir}", file=sys.stderr)
+        return 1
+
+    target_dir = args.bin_dir.expanduser()
+    actions: list[str] = []
+    if not args.dry_run:
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+    for src in scripts:
+        if os.name == "nt":
+            if src.name.endswith("-hook"):
+                continue
+            target_py = target_dir / src.name if args.copy else src
+            if args.copy:
+                actions.append(f"copy {src} -> {target_py}")
+                if not args.dry_run and src.resolve() != target_py.resolve():
+                    shutil.copy2(src, target_py)
+            shim = target_dir / f"{src.name}.cmd"
+            actions.append(f"write {shim} -> {target_py}")
+            if not args.dry_run:
+                shim.write_text(
+                    "@echo off\r\n"
+                    f"where py >nul 2>nul && (py -3 \"{target_py}\" %* & exit /b %ERRORLEVEL%)\r\n"
+                    f"python \"{target_py}\" %*\r\n"
+                )
+        else:
+            dst = target_dir / src.name
+            if dst.exists() and dst.resolve() == src.resolve() and not dst.is_symlink():
+                actions.append(f"keep {dst} (already in place)")
+                continue
+            if args.copy:
+                actions.append(f"copy {src} -> {dst}")
+                if not args.dry_run:
+                    tmp = target_dir / f".{src.name}.astack-tmp"
+                    shutil.copy2(src, tmp)
+                    os.chmod(tmp, 0o755)
+                    os.replace(tmp, dst)
+            else:
+                actions.append(f"link {dst} -> {src}")
+                if not args.dry_run:
+                    tmp = target_dir / f".{src.name}.astack-tmp"
+                    tmp.unlink(missing_ok=True)
+                    tmp.symlink_to(src)
+                    os.replace(tmp, dst)
+
+    for line in actions:
+        print(line)
+    if not _dir_on_path(target_dir):
+        if os.name == "nt":
+            print(f'\nNote: {target_dir} is not on PATH. Add it in PowerShell with:')
+            print(f'  [Environment]::SetEnvironmentVariable("Path", $env:Path + ";{target_dir}", "User")')
+        else:
+            print(f'\nNote: {target_dir} is not on PATH. Add it to your shell profile:')
+            print(f'  export PATH="{target_dir}:$PATH"')
+    return 0
+
+
+def _default_settings_path() -> Path:
+    if xdg := os.environ.get("XDG_CONFIG_HOME"):
+        return Path(xdg).expanduser() / "astack" / "settings.json"
+    return Path.home() / ".config" / "astack" / "settings.json"
+
+
+def _split_md_front_matter(text: str) -> tuple[dict[str, str], str]:
+    match = re.match(r"---\n(.*?)\n---\n?", text, re.S)
+    if not match:
+        return {}, text
+    fields: dict[str, str] = {}
+    for line in match.group(1).splitlines():
+        if ":" in line:
+            k, _, v = line.partition(":")
+            fields[k.strip()] = v.strip()
+    return fields, text[match.end():]
+
+
+def _unquote_yaml(val: str) -> str:
+    val = val.strip()
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+        return val[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    return val
+
+
+def _slugify_reviewer(entry: dict) -> str:
+    parts = [entry.get("provider", ""), entry.get("model", ""), entry.get("effort", "")]
+    raw = "-".join(str(p) for p in parts if p).lower()
+    return re.sub(r"[^a-z0-9]+", "-", raw).strip("-") or "default"
+
+
+def _load_bundled_agents(source_root: Path) -> dict[str, tuple[str, str, str]]:
+    """Load (description, body, disallowed_tools) for lead, worker, reviewer, researcher from agents/."""
+    agents_dir = source_root / "agents"
+    roles = ("lead", "worker", "reviewer", "researcher")
+    loaded: dict[str, tuple[str, str, str]] = {}
+    for role in roles:
+        md_candidates = (agents_dir / f"astack-{role}.md", agents_dir / f"{role}.md")
+        toml_path = agents_dir / f"astack-{role}.toml"
+        found = next((p for p in md_candidates if p.is_file()), None)
+        if found is not None:
+            fields, body = _split_md_front_matter(found.read_text(encoding="utf-8"))
+            desc = _unquote_yaml(fields.get("description", f"astack {role} agent"))
+            disallowed = fields.get("disallowedTools", "")
+            loaded[role] = (desc, body.strip(), disallowed)
+        elif toml_path.is_file():
+            raw = toml_path.read_text(encoding="utf-8")
+            dm = re.search(r'^description\s*=\s*"((?:\\.|[^"\\])*)"', raw, re.M)
+            bm = re.search(r"developer_instructions\s*=\s*'''\n(.*?)\n'''", raw, re.S)
+            desc = dm.group(1).replace('\\"', '"').replace("\\\\", "\\") if dm else f"astack {role} agent"
+            body = bm.group(1).strip() if bm else raw.strip()
+            loaded[role] = (desc, body, "")
+    return loaded
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.astack-tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _format_toml_agent(name: str, description: str, body: str, role_cfg: dict | None = None) -> str:
+    esc_desc = description.replace("\\", "\\\\").replace('"', '\\"')
+    lines = [f'name = "{name}"', f'description = "{esc_desc}"']
+    if isinstance(role_cfg, dict):
+        model = str(role_cfg.get("model", "")).strip()
+        provider = str(role_cfg.get("provider", "")).strip()
+        effort = str(role_cfg.get("effort", "")).strip()
+        if model and model.lower() != "default":
+            lines.append(f'model = "{model}"')
+        if provider and provider.lower() not in ("openai", "codex", "default"):
+            lines.append(f'model_provider = "{provider}"')
+        if effort and effort.lower() != "default":
+            lines.append(f'model_reasoning_effort = "{effort}"')
+    lines.append("developer_instructions = '''")
+    lines.append(body)
+    lines.append("'''")
+    return "\n".join(lines) + "\n"
+
+
+def _format_md_agent(harness: str, role: str, description: str, body: str, disallowed: str, role_cfg: dict | None = None) -> str:
+    name = f"astack-{role}"
+    esc_desc = description.replace("\\", "\\\\").replace('"', '\\"')
+    model = str((role_cfg or {}).get("model", "")).strip()
+    fm = ["---", f"name: {name}", f'description: "{esc_desc}"']
+    if harness == "antigravity":
+        fm.append("subagent: true")
+        fm.append(f"mainAgent: {'true' if role == 'lead' else 'false'}")
+        if model and model.lower() != "default":
+            fm.append(f"model: {model}")
+    elif harness == "cursor":
+        if role != "lead":
+            fm.append("is_background: true")
+        if model and model.lower() != "default":
+            fm.append(f"model: {model}")
+    elif harness == "pi":
+        labels = {"lead": "astack Lead", "worker": "astack Worker", "reviewer": "astack Reviewer", "researcher": "astack Researcher"}
+        fm.append(f"label: {labels[role]}")
+        fm.append(f'promptSnippet: "{esc_desc}"')
+        if role == "researcher":
+            fm.extend(["tools:", "  - read", "  - grep", "  - find", "  - ls", "readOnly: true"])
+        elif role == "reviewer":
+            fm.extend(["tools:", "  - read", "  - grep", "  - find", "  - ls", "  - bash", "readOnly: true"])
+        if model and model.lower() != "default":
+            fm.append(f"model: {model}")
+    elif harness == "claude":
+        if disallowed:
+            fm.append(f"disallowedTools: {disallowed}")
+        if model and model.lower() in ("opus", "sonnet", "haiku"):
+            fm.append(f"model: {model.lower()}")
+    elif harness == "devin":
+        if model and model.lower() != "default":
+            fm.append(f"model: {model}")
+    fm.append("---")
+    return "\n".join(fm) + "\n\n" + body + "\n"
+
+
+def _default_agents_dir(harness: str) -> Path:
+    if harness == "codex":
+        return Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex")).expanduser() / "agents"
+    if harness == "antigravity":
+        return Path.home() / ".gemini" / "config" / "agents"
+    if harness == "cursor":
+        return Path.home() / ".cursor" / "agents"
+    if harness == "devin":
+        return Path.home() / ".devin" / "agents"
+    if harness == "pi":
+        return Path.home() / ".pi" / "agent" / "agents"
+    if harness == "claude":
+        return Path.home() / ".claude" / "agents"
+    raise ValueError(f"unsupported harness: {harness}")
+
+
+def cmd_install_agents(args) -> int:
+    source_root = Path(__file__).resolve().parent.parent
+    agents = _load_bundled_agents(source_root)
+    if not agents:
+        print(f"error: no bundled agents found under {source_root / 'agents'}", file=sys.stderr)
+        return 1
+
+    settings_path = Path(args.settings).expanduser() if args.settings else _default_settings_path()
+    settings: dict = {}
+    if settings_path.is_file():
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"error: failed to read settings {settings_path}: {exc}", file=sys.stderr)
+            return 2
+
+    roles_cfg = settings.get("roles") if isinstance(settings.get("roles"), dict) else {}
+    reviewer_pool = settings.get("reviewer_pool") if isinstance(settings.get("reviewer_pool"), list) else []
+
+    raw_harness = args.harness.lower()
+    if raw_harness == "agy":
+        raw_harness = "antigravity"
+    if raw_harness == "all":
+        detected = detect_harnesses()
+        targets = []
+        for det_key, norm in (("claude", "claude"), ("codex", "codex"), ("agy", "antigravity"), ("cursor", "cursor"), ("devin", "devin"), ("pi", "pi")):
+            if det_key in detected:
+                targets.append(norm)
+        if not targets:
+            print("No supported harnesses detected on PATH or standard directories.")
+            return 0
+    else:
+        targets = [raw_harness]
+
+    actions: list[str] = []
+    for harness in targets:
+        target_dir = Path(args.target).expanduser() if (args.target and len(targets) == 1) else _default_agents_dir(harness)
+        if harness == "codex":
+            for role in ("lead", "worker", "researcher"):
+                if role not in agents:
+                    continue
+                desc, body, _ = agents[role]
+                dst = target_dir / f"astack-{role}.toml"
+                actions.append(f"write {dst}")
+                if not args.dry_run:
+                    _write_atomic(dst, _format_toml_agent(f"astack-{role}", desc, body, roles_cfg.get(role)))
+            if "reviewer" in agents:
+                desc, body, _ = agents["reviewer"]
+                if not args.dry_run and target_dir.is_dir():
+                    for stale in target_dir.glob("astack-reviewer*.toml"):
+                        stale.unlink(missing_ok=True)
+                codex_entries = [
+                    e for e in reviewer_pool
+                    if isinstance(e, dict)
+                    and ((str(e.get("harness", "")).lower() == "codex") or (not e.get("harness") and str(e.get("provider", "")).lower() == "openai"))
+                ]
+                if codex_entries:
+                    seen: set[str] = set()
+                    for entry in codex_entries:
+                        slug = _slugify_reviewer(entry)
+                        base = slug
+                        idx = 2
+                        while slug in seen:
+                            slug = f"{base}-{idx}"
+                            idx += 1
+                        seen.add(slug)
+                        dst = target_dir / f"astack-reviewer-{slug}.toml"
+                        actions.append(f"write {dst} (model={entry.get('model')})")
+                        if not args.dry_run:
+                            _write_atomic(dst, _format_toml_agent(f"astack-reviewer-{slug}", desc, body, entry))
+                else:
+                    dst = target_dir / "astack-reviewer.toml"
+                    actions.append(f"write {dst}")
+                    if not args.dry_run:
+                        _write_atomic(dst, _format_toml_agent("astack-reviewer", desc, body, None))
+        else:
+            for role in ("lead", "worker", "reviewer", "researcher"):
+                if role not in agents:
+                    continue
+                desc, body, disallowed = agents[role]
+                cfg = roles_cfg.get(role) if role != "reviewer" else None
+                dst = target_dir / f"astack-{role}.md"
+                actions.append(f"write {dst}")
+                if not args.dry_run:
+                    _write_atomic(dst, _format_md_agent(harness, role, desc, body, disallowed, cfg))
+
+    for line in actions:
+        print(line)
+    return 0
+
+
+def cmd_env(args) -> int:
+    py = venv_bin(args.venv, "python")
+    if not py.is_file():
+        print(f"astack-tools: venv not installed at {args.venv}. Run `astack-tools install`.", file=sys.stderr)
+        return 1
+    shell = args.shell or ("powershell" if os.name == "nt" else "sh")
+    bin_dir = str(venv_bin_dir(args.venv))
+    venv_str = str(args.venv)
+    if shell == "powershell":
+        print(f"$env:VIRTUAL_ENV = '{venv_str.replace(chr(39), chr(39)*2)}'")
+        print(f"$env:PATH = '{bin_dir.replace(chr(39), chr(39)*2)};' + $env:PATH")
+    elif shell == "cmd":
+        print(f'set "VIRTUAL_ENV={venv_str}"')
+        print(f'set "PATH={bin_dir};%PATH%"')
+    else:
+        print(f"export VIRTUAL_ENV={shlex.quote(venv_str)}")
+        print(f'export PATH={shlex.quote(bin_dir)}:"$PATH"')
+    return 0
+
+
+def cmd_exec(venv: Path, binary: str, raw_args: list[str]) -> int:
+    target = venv_bin(venv, binary)
+    if not target.is_file():
+        print(f"astack-tools: {binary} not installed in {venv}. Run `astack-tools install`.", file=sys.stderr)
+        return 1
+    passthrough = raw_args[1:] if raw_args and raw_args[0] == "--" else raw_args
+    return subprocess.run([str(target), *passthrough]).returncode
+
+
+def split_exec_venv(raw_args: list[str]) -> tuple[Path, list[str]]:
+    if len(raw_args) >= 2 and raw_args[0] == "--venv":
+        return Path(raw_args[1]).expanduser(), raw_args[2:]
+    if raw_args and raw_args[0].startswith("--venv="):
+        return Path(raw_args[0].split("=", 1)[1]).expanduser(), raw_args[1:]
+    return default_venv(), raw_args
+
+
+def main(argv=None) -> int:
+    args_list = list(sys.argv[1:] if argv is None else argv)
+    if args_list and args_list[0] in ("python", "werkflow"):
+        venv, rest = split_exec_venv(args_list[1:])
+        return cmd_exec(venv, args_list[0], rest)
+
+    parser = argparse.ArgumentParser(description="Manage and run astack's Python automation stack.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_doc = sub.add_parser("doctor", aliases=["status"], help="check uv, Python >=3.11, PATH, and installed automation tools")
+    p_doc.add_argument("--venv", type=Path, default=default_venv())
+    p_doc.add_argument("--json", action="store_true", dest="as_json")
+
+    p_inst = sub.add_parser("install", help="provision Python >=3.11 via uv, create/update the venv, and install packages")
+    p_inst.add_argument("--venv", type=Path, default=default_venv())
+    p_inst.add_argument("--profile", choices=("core", "standard", "all"), default="standard")
+    p_inst.add_argument("--modules", help="comma-separated extra werkflow modules (e.g. docker,jira)")
+    p_inst.add_argument("--from-github", action="store_true", help="install from GitHub main instead of PyPI")
+    p_inst.add_argument("--python", help="Python version/interpreter spec for uv or venv (>=3.11)")
+    p_inst.add_argument("--dry-run", action="store_true", help="print commands without executing")
+
+    p_link = sub.add_parser("link-bin", help="link (or copy) astack-* CLI scripts onto PATH (default ~/.local/bin)")
+    p_link.add_argument("--bin-dir", type=Path, default=default_bin_dir())
+    p_link.add_argument("--copy", action="store_true", help="copy scripts instead of symlinking")
+    p_link.add_argument("--dry-run", action="store_true", help="print actions without modifying files")
+
+    p_agents = sub.add_parser(
+        "install-agents",
+        help="install full native astack agents (lead, worker, reviewer, researcher) for codex, antigravity/agy, cursor, devin, pi, or claude",
+    )
+    p_agents.add_argument(
+        "--harness",
+        required=True,
+        choices=("codex", "antigravity", "agy", "cursor", "devin", "pi", "claude", "all"),
+        help="target harness (or 'all' for every detected harness)",
+    )
+    p_agents.add_argument("--settings", help="settings.json path (default: ~/.config/astack/settings.json)")
+    p_agents.add_argument("--target", help="override destination agents directory")
+    p_agents.add_argument("--dry-run", action="store_true", help="print actions without writing files")
+
+    sub.add_parser("python", help="run python inside the managed venv")
+    sub.add_parser("werkflow", help="run the werkflow CLI inside the managed venv")
+
+    p_env = sub.add_parser("env", help="print shell exports to load the managed venv")
+    p_env.add_argument("--venv", type=Path, default=default_venv())
+    p_env.add_argument("--shell", choices=("sh", "powershell", "cmd"), help="shell syntax (default: auto)")
+
+    p_path = sub.add_parser("path", help="print the managed venv's python path")
+    p_path.add_argument("--venv", type=Path, default=default_venv())
+
+    args = parser.parse_args(args_list)
+    if args.command in ("doctor", "status"):
+        return cmd_doctor(args)
+    if args.command == "install":
+        return cmd_install(args)
+    if args.command == "link-bin":
+        return cmd_link_bin(args)
+    if args.command == "install-agents":
+        return cmd_install_agents(args)
+    if args.command == "env":
+        return cmd_env(args)
+    if args.command == "path":
+        print(venv_bin(args.venv, "python"))
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

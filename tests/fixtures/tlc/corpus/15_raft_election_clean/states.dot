@@ -1,8 +1,0 @@
-strict digraph DiskGraph {
-  1 [label="/\\ role = \"follower\"\n/\\ term = 1", style = filled];
-  2 [label="/\\ role = \"candidate\"\n/\\ term = 2"];
-  3 [label="/\\ role = \"leader\"\n/\\ term = 2"];
-  1 -> 2 [label="Timeout", color="black"];
-  2 -> 3 [label="WinQuorum", color="black"];
-  3 -> 1 [label="StepDown", color="black"];
-}

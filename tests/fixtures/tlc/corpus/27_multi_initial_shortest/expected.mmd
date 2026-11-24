@@ -1,0 +1,17 @@
+stateDiagram-v2
+    state "/\ seed = 'a', /\ v = 0" as s0
+    state "/\ seed = 'b', /\ v = 0" as s1
+    state "/\ seed = 'a', /\ v = 1" as s2
+    state "/\ seed = 'b', /\ v = 3 [VIOLATION: BoundV]" as s3
+    state "/\ seed = 'a', /\ v = 2" as s4
+    state "/\ seed = 'a', /\ v = 3" as s5
+    [*] --> s0
+    [*] --> s1
+    s0 --> s2: SlowA
+    s1 --> s3: FastB
+    s2 --> s4: SlowA
+    s3 --> s3: Stay
+    s4 --> s5: SlowA
+    s5 --> s5: Stay
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s3 violation

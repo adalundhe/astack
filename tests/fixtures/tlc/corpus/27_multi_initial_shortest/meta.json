@@ -1,0 +1,13 @@
+{
+  "module": "MultiInitShortest",
+  "exit_code": 1,
+  "states": 6,
+  "transitions": 6,
+  "violations": [
+    {
+      "kind": "invariant",
+      "name": "BoundV",
+      "hops": 1
+    }
+  ]
+}

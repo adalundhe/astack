@@ -270,18 +270,26 @@ class StatechartUnitTest(unittest.TestCase):
         self.assertEqual(by_name["Monotonic"]["steps"][1]["action"], "Drop")
         self.assertEqual(by_name["TemporalProperty"]["cycle_back_to"], 1)
 
-    def test_golden_corpus_36_models_match_committed_expected_charts(self):
+    def test_recorded_40_model_tlc_corpus_matches_committed_expected_charts(self):
         corpus_dir = FIXTURES / "corpus"
         model_dirs = sorted(p for p in corpus_dir.iterdir() if p.is_dir())
-        self.assertGreaterEqual(len(model_dirs), 36)
+        self.assertGreaterEqual(len(model_dirs), 40)
 
         for mdir in model_dirs:
             slug = mdir.name
             meta = json.loads((mdir / "meta.json").read_text())
+            mod = meta["module"]
+            # Every corpus model MUST have real .tla + .cfg specs and genuine recorded TLC 2.19 output
+            self.assertTrue((mdir / f"{mod}.tla").is_file(), f"{slug}: missing {mod}.tla")
+            self.assertTrue((mdir / f"{mod}.cfg").is_file(), f"{slug}: missing {mod}.cfg")
+            tlc_text = (mdir / "tlc.out").read_text()
+            self.assertIn("TLC2 Version 2.19", tlc_text, f"{slug}: tlc.out is not a recorded TLC 2.19 run")
+            dot_text = (mdir / "states.dot").read_text()
+            if meta["states"] > 1:
+                self.assertRegex(dot_text, r"-?\d{10,}", f"{slug}: states.dot missing real 64-bit TLC fingerprints")
+
             expected_mmd = (mdir / "expected.mmd").read_text()
-            cmd = ["render", str(mdir / "states.dot"), "--json"]
-            if (mdir / "tlc.out").is_file():
-                cmd.extend(["--trace", str(mdir / "tlc.out")])
+            cmd = ["render", str(mdir / "states.dot"), "--trace", str(mdir / "tlc.out"), "--json"]
             if "max_states" in meta:
                 cmd.extend(["--max-states", str(meta["max_states"])])
 
@@ -333,6 +341,8 @@ class StatechartUnitTest(unittest.TestCase):
         self.assertIn("dot,actionlabels", args_used)
         self.assertIn("-continue", args_used)
         self.assertIn("-lncheck", args_used)
+        self.assertIn("-metadir", args_used)
+        self.assertFalse((model.parent / "states").exists())
         idx_w = args_used.index("-workers")
         self.assertEqual(args_used[idx_w + 1], "1")
 
@@ -559,7 +569,7 @@ class LiveTlcTest(unittest.TestCase):
             "Step == x < 5 /\\ x' = x + 1\n"
             "Stay == x = 5 /\\ x' = 5\n"
             "Next == Step \\/ Stay\n"
-            "InvA == x < 2\n"
+            "InvA == x # 2\n"
             "InvB == x < 4\n"
             "====\n"
         )
@@ -592,6 +602,35 @@ class LiveTlcTest(unittest.TestCase):
         l_data = json.loads(l_res.stdout)
         self.assertEqual(l_data["violations"][0]["kind"], "temporal")
         self.assertIsNotNone(l_data["violations"][0]["cycle_back_to"])
+
+    def test_live_tlc_rechecks_all_40_corpus_specs(self):
+        """Re-check every committed .tla + .cfg spec in the 40-model corpus against live TLC 2.19."""
+        corpus_dir = FIXTURES / "corpus"
+        model_dirs = sorted(p for p in corpus_dir.iterdir() if p.is_dir())
+        self.assertGreaterEqual(len(model_dirs), 40)
+
+        for mdir in model_dirs:
+            slug = mdir.name
+            meta = json.loads((mdir / "meta.json").read_text())
+            mod = meta["module"]
+            tla = mdir / f"{mod}.tla"
+            cfg = mdir / f"{mod}.cfg"
+            expected_mmd = (mdir / "expected.mmd").read_text()
+
+            cmd = ["check", str(tla), "--cfg", str(cfg), "--json"]
+            if "max_states" in meta:
+                cmd.extend(["--max-states", str(meta["max_states"])])
+            res = run_sc(*cmd)
+            self.assertEqual(res.returncode, meta["exit_code"], f"{slug}: exit={res.returncode} stderr={res.stderr}")
+            data = json.loads(res.stdout)
+            self.assertEqual(data["parser_mode"], "tool", f"{slug}: expected -tool mode")
+            self.assertEqual(data["states"], meta["states"], f"{slug}: live state count")
+            self.assertEqual(data["transitions"], meta["transitions"], f"{slug}: live transition count")
+            got_v = {(v["kind"], v["name"]): (v["hops"], v.get("cycle_back_to")) for v in data["violations"]}
+            exp_v = {(v["kind"], v["name"]): (v["hops"], v.get("cycle_back_to")) for v in meta["violations"]}
+            self.assertEqual(got_v, exp_v, f"{slug}: live violations mismatch")
+            self.assertEqual(data["mermaid"], expected_mmd, f"{slug}: live vs committed golden chart drift")
+            self.assertFalse((mdir / "states").exists(), f"{slug}: TLC check left stray states/ directory")
 
     def test_live_tlc_differential_fuzzer_against_independent_bfs_oracle(self):
         """Generate 10 random finite-state TLA+ specs, solve shortest paths independently, and verify live TLC matches 100%."""

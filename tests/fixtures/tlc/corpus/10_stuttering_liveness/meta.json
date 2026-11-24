@@ -1,0 +1,14 @@
+{
+  "module": "StutteringLiveness",
+  "exit_code": 1,
+  "states": 2,
+  "transitions": 4,
+  "violations": [
+    {
+      "kind": "temporal",
+      "name": "TemporalProperty",
+      "hops": 0,
+      "cycle_back_to": 1
+    }
+  ]
+}

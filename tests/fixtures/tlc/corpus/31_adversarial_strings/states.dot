@@ -1,0 +1,15 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+1069743195256770607 [label="tag = \"[*] --> %%init\"",style = filled]
+1069743195256770607 -> 5798142769772880271 [label="Mid",color="black",fontcolor="black"];
+5798142769772880271 [label="tag = \"quote \\\"here\\\" \\\\\""];
+5798142769772880271 -> -5880998345352660908 [label="Bad",color="black",fontcolor="black"];
+-5880998345352660908 [label="tag = \"end --> state\""];
+-5880998345352660908 -> -5880998345352660908 [label="Stay",color="black",fontcolor="black"];
+{rank = same; 1069743195256770607;}
+{rank = same; 5798142769772880271;}
+{rank = same; -5880998345352660908;}
+}
+}

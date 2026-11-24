@@ -1,0 +1,10 @@
+stateDiagram-v2
+    state "/\ cache = 1, /\ db = 1" as s0
+    state "/\ cache = 1, /\ db = 2 [VIOLATION: CacheCoherence]" as s1
+    state "/\ cache = 2, /\ db = 2" as s2
+    [*] --> s0
+    s0 --> s1: WriteDbSkipEvict
+    s1 --> s2: TtlRefresh
+    s2 --> s2: Stay
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s1 violation

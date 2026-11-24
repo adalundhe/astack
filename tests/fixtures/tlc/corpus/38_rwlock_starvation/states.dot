@@ -1,0 +1,18 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+7575462220545167209 [label="/\\ readers = 0\n/\\ writer = \"waiting\"",style = filled]
+7575462220545167209 -> 3614631562174894529 [label="ReaderEnter",color="black",fontcolor="black"];
+3614631562174894529 [label="/\\ readers = 1\n/\\ writer = \"waiting\""];
+7575462220545167209 -> 7575462220545167209 [style="dashed"];
+3614631562174894529 -> -2364363677081619911 [label="ReaderOverlap",color="black",fontcolor="black"];
+-2364363677081619911 [label="/\\ readers = 2\n/\\ writer = \"waiting\""];
+3614631562174894529 -> 3614631562174894529 [style="dashed"];
+-2364363677081619911 -> 3614631562174894529 [label="ReaderLeave",color="black",fontcolor="black"];
+-2364363677081619911 -> -2364363677081619911 [style="dashed"];
+{rank = same; 7575462220545167209;}
+{rank = same; 3614631562174894529;}
+{rank = same; -2364363677081619911;}
+}
+}

@@ -1,0 +1,14 @@
+{
+  "module": "RwLockStarvation",
+  "exit_code": 1,
+  "states": 3,
+  "transitions": 6,
+  "violations": [
+    {
+      "kind": "temporal",
+      "name": "TemporalProperty",
+      "hops": 2,
+      "cycle_back_to": 2
+    }
+  ]
+}

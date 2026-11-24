@@ -1,0 +1,8 @@
+stateDiagram-v2
+    state "/\ q = << 1,, 2,, 3,, 4,, 5,, 6,, 7,, 8,, 9,, 10,, 11,, 12,, 13,, 14,, 15,, 16,, 17,, 18,, 19,, 20,, 21,,... | /\ y = 0" as s0
+    state "/\ q = << 1,, 2,, 3,, 4,, 5,, 6,, 7,, 8,, 9,, 10,, 11,, 12,, 13,, 14,, 15,, 16,, 17,, 18,, 19,, 20,, 21,,... | /\ y = 1 [VIOLATION: YZero]" as s1
+    [*] --> s0
+    s0 --> s1: Flip
+    s1 --> s1: Stay
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s1 violation

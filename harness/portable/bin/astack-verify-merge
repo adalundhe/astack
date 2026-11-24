@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""Verify a worker's claimed merge in one step.
+
+Usage: astack-verify-merge SHA [--target origin/main] [--repo DIR] [--check CMD]
+
+Fetches the target, confirms SHA is on it, and lists what the commit changed.
+With --check, runs CMD in a clean worktree of the target's tip.
+The first line is the verdict. Exit 0: verified. 1: not verified. 2: could not check.
+"""
+import argparse
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def git(repo, *args, stdin=None):
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, input=stdin)
+
+
+def cache_dir():
+    base = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+    path = Path(base) / "astack" / "verify"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def fetch_target(repo, target):
+    remote, _, branch = target.partition("/")
+    if not branch or remote not in git(repo, "remote").stdout.split():
+        return None
+    result = git(repo, "fetch", "--quiet", remote)
+    return None if result.returncode == 0 else result.stderr.strip() or f"git fetch {remote} failed"
+
+
+def resolve(repo, ref):
+    result = git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def resolve_diff_ranges(repo, sha, base_sha):
+    """Return list of (label, range_spec, base_ref) to audit without ever trusting commit messages.
+
+    - With --base: audit strictly base_sha..sha (unforgeable tree diff; never rewrites base from messages).
+    - Without --base on a merge commit: audit EVERY parent (p_i..sha) so neither parent-order flipping
+      nor forged merge messages can hide a gamed lane.
+    - Without --base on a non-merge commit: audit first-parent..sha (or root..sha).
+    """
+    if base_sha:
+        return [("base", f"{base_sha}..{sha}", base_sha)]
+    parents = git(repo, "rev-list", "--parents", "-n", "1", sha).stdout.split()[1:]
+    if len(parents) >= 2:
+        return [(f"parent {idx + 1} ({p[:12]})", f"{p}..{sha}", p) for idx, p in enumerate(parents)]
+    return [("commit", sha, parents[0] if parents else None)]
+
+
+def changes(repo, sha, base_ref=None):
+    if base_ref:
+        return git(repo, "diff", "--stat", f"{base_ref}..{sha}").stdout.rstrip()
+    parents = git(repo, "rev-list", "--parents", "-n", "1", sha).stdout.split()[1:]
+    base = parents[0] if parents else git(repo, "hash-object", "-t", "tree", "--stdin", stdin="").stdout.strip()
+    return git(repo, "diff", "--stat", base, sha).stdout.rstrip()
+
+
+def run_check(repo, tip, command):
+    tree = Path(tempfile.mkdtemp(prefix=f"{tip[:12]}-", dir=cache_dir()))
+    log = tree.with_suffix(".log")
+    added = git(repo, "worktree", "add", "--detach", str(tree), tip)
+    if added.returncode != 0:
+        return None, f"could not make a worktree: {added.stderr.strip()}"
+    try:
+        with log.open("w") as out:
+            code = subprocess.run(["bash", "-c", command], cwd=tree, stdout=out, stderr=subprocess.STDOUT).returncode
+    finally:
+        git(repo, "worktree", "remove", "--force", str(tree))
+    return code, str(log)
+
+
+def gate_signals_for_target(repo, target):
+    """Run astack-check-gates on target; fail closed on checker errors."""
+    checker = Path(__file__).resolve().parent / "astack-check-gates"
+    if not checker.is_file():
+        return None, f"missing gate checker script: {checker}"
+    res = subprocess.run(
+        [sys.executable, str(checker), target, "--repo", str(repo), "--json"],
+        capture_output=True, text=True,
+    )
+    if res.returncode not in (0, 1):
+        detail = res.stderr.strip() or res.stdout.strip() or f"exit {res.returncode}"
+        return None, f"astack-check-gates failed (exit {res.returncode}): {detail}"
+    try:
+        import json
+        payload = json.loads(res.stdout)
+        if not isinstance(payload, dict) or not isinstance(payload.get("findings"), list):
+            return None, "astack-check-gates returned malformed JSON payload"
+        return payload["findings"], None
+    except Exception as exc:
+        return None, f"could not parse astack-check-gates output: {exc}"
+
+
+def audit_gates(repo, sha, base_sha):
+    """Audit all required diff ranges and deduplicate findings, tagging parent side on merges."""
+    ranges = resolve_diff_ranges(repo, sha, base_sha)
+    all_signals = []
+    seen = set()
+    multi = len(ranges) > 1
+    for label, target, _ in ranges:
+        sigs, err = gate_signals_for_target(repo, target)
+        if err is not None:
+            return None, err, ranges
+        for s in sigs:
+            key = (s.get("category"), s.get("file"), s.get("line"), s.get("reason"), s.get("snippet"))
+            if key not in seen:
+                seen.add(key)
+                entry = dict(s)
+                if multi:
+                    entry["side"] = label
+                all_signals.append(entry)
+    return all_signals, None, ranges
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Verify that a claimed merge is on the target branch.")
+    parser.add_argument("sha")
+    parser.add_argument("--target", default="origin/main")
+    parser.add_argument("--base", help="last verified target commit/ref before this lane landed (audits strictly BASE..SHA without trusting commit messages)")
+    parser.add_argument("--repo", default=".")
+    parser.add_argument("--check", help="command to run in a clean worktree of the target's tip")
+    parser.add_argument("--strict-gates", action="store_true", help="fail verification (exit 1) if gate-loosening signals are detected")
+    args = parser.parse_args()
+
+    repo = Path(args.repo).resolve()
+    if git(repo, "rev-parse", "--git-dir").returncode != 0:
+        print(f"NOT CHECKED: {repo} is not a git repository")
+        return 2
+    error = fetch_target(repo, args.target)
+    if error:
+        print(f"NOT CHECKED: {error}")
+        return 2
+    tip = resolve(repo, args.target)
+    if not tip:
+        print(f"NOT CHECKED: no target {args.target} in {repo}")
+        return 2
+    sha = resolve(repo, args.sha)
+    if not sha:
+        print(f"NOT VERIFIED: {args.sha} is not a commit in {repo}")
+        return 1
+    base_sha = None
+    if args.base:
+        base_sha = resolve(repo, args.base)
+        if not base_sha:
+            print(f"NOT CHECKED: base {args.base} is not a commit in {repo}")
+            return 2
+        if git(repo, "merge-base", "--is-ancestor", base_sha, sha).returncode != 0:
+            print(f"NOT CHECKED: base {base_sha[:12]} is not an ancestor of {sha[:12]}")
+            return 2
+    on_target = git(repo, "merge-base", "--is-ancestor", sha, tip)
+    if on_target.returncode == 1:
+        print(f"NOT VERIFIED: {sha[:12]} is not on {args.target} (tip {tip[:12]})")
+        return 1
+    if on_target.returncode != 0:
+        print(f"NOT CHECKED: {on_target.stderr.strip()}")
+        return 2
+
+    signals, gate_err, audited_ranges = audit_gates(repo, sha, base_sha)
+    if gate_err is not None:
+        print(f"NOT CHECKED: {gate_err}")
+        return 2
+
+    code = 0
+    if args.check:
+        code, detail = run_check(repo, tip, args.check)
+        if code is None:
+            print(f"NOT CHECKED: {detail}")
+            return 2
+        gate_blocked = args.strict_gates and bool(signals)
+        passed = code == 0 and not gate_blocked
+        verdict = "VERIFIED" if passed else "NOT VERIFIED"
+        suffix = f"check {'passed' if code == 0 else f'failed, exit {code}'}"
+        if gate_blocked:
+            suffix += f"; {len(signals)} gate signal(s) require countersign"
+        print(f"{verdict}: {sha[:12]} is on {args.target} (tip {tip[:12]}); {suffix}")
+        print(f"check: `{args.check}` in a clean worktree of {tip[:12]}; output in {detail}")
+        if gate_blocked:
+            code = 1
+    elif args.strict_gates and signals:
+        print(f"NOT VERIFIED: {sha[:12]} is on {args.target} (tip {tip[:12]}); {len(signals)} gate signal(s) require countersign")
+        code = 1
+    else:
+        print(f"VERIFIED: {sha[:12]} is on {args.target} (tip {tip[:12]})")
+    print("commit: " + git(repo, "show", "-s", "--format=%h %s (%an, %cI)", sha).stdout.strip())
+    if len(audited_ranges) > 1:
+        for label, _, pref in audited_ranges:
+            print(f"changed, against {label}:")
+            print(changes(repo, sha, base_ref=pref))
+    else:
+        _, _, pref = audited_ranges[0]
+        scope_desc = f"against {base_sha[:12]}:" if base_sha else "against its first parent:"
+        print(f"changed, {scope_desc}")
+        print(changes(repo, sha, base_ref=pref))
+    if signals:
+        hint = " (on merge commits, pass --base <last-verified-target-sha> to isolate this lane strictly)" if len(audited_ranges) > 1 else ""
+        print(f"GATE SIGNALS ({len(signals)}): inspect before accepting (countersign in RULES.md, isolate gate fix, or reset contract){hint}:")
+        for s in signals:
+            side = f" ({s['side']})" if s.get("side") else ""
+            print(f"  - [{s['category']}]{side} {s['file']}:{s['line']} — {s['reason']}: {s['snippet']}")
+    return 0 if code == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

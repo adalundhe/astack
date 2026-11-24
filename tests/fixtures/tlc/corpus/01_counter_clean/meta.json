@@ -1,4 +1,6 @@
 {
+  "module": "CounterClean",
+  "exit_code": 0,
   "states": 4,
   "transitions": 4,
   "violations": []

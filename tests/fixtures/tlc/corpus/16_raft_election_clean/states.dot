@@ -1,0 +1,18 @@
+strict digraph DiskGraph {
+nodesep=0.35;
+subgraph cluster_graph {
+color="white";
+1860433614546540123 [label="/\\ term = 1\n/\\ role = \"follower\"",style = filled]
+1860433614546540123 -> -3787854501015434728 [label="Timeout",color="black",fontcolor="black"];
+-3787854501015434728 [label="/\\ term = 2\n/\\ role = \"candidate\""];
+-3787854501015434728 -> 3755646970364987834 [label="WinQuorum",color="black",fontcolor="black"];
+3755646970364987834 [label="/\\ term = 2\n/\\ role = \"leader\""];
+3755646970364987834 -> 4518608696946152120 [label="StepDown",color="black",fontcolor="black"];
+4518608696946152120 [label="/\\ term = 2\n/\\ role = \"follower\""];
+4518608696946152120 -> 4518608696946152120 [label="Stay",color="black",fontcolor="black"];
+{rank = same; 1860433614546540123;}
+{rank = same; -3787854501015434728;}
+{rank = same; 3755646970364987834;}
+{rank = same; 4518608696946152120;}
+}
+}
