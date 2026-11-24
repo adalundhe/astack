@@ -110,6 +110,12 @@ def _unescape_dot(raw: str) -> str:
         ch = raw[i]
         if ch == "\\" and i + 1 < n:
             nxt = raw[i + 1]
+            if nxt in ("\n", "\r"):
+                # Graphviz DOT backslash-newline line continuation
+                i += 2
+                if nxt == "\r" and i < n and raw[i] == "\n":
+                    i += 1
+                continue
             if nxt in ("n", "l", "r"):
                 out.append("\n")
             elif nxt == "t":
@@ -220,8 +226,9 @@ def parse_dot(text: str) -> StateGraph:
 
     while pos < n and tokens[pos][0] != "{":
         pos += 1
-    if pos < n and tokens[pos][0] == "{":
-        pos += 1
+    if pos >= n or tokens[pos][0] != "{":
+        raise ValueError("invalid DOT input: missing graph block '{ ... }'")
+    pos += 1
 
     def ensure_node(node_id: str) -> None:
         if node_id not in graph.nodes:
@@ -848,6 +855,17 @@ def render_mermaid(
     return "\n".join(lines) + "\n", omitted
 
 
+def _add_violation_mark(violating_ids: dict[str, str], nid: str, name: str) -> None:
+    """Record a violation rule on nid without overwriting other rules broken on the same state."""
+    existing = violating_ids.get(nid)
+    if not existing:
+        violating_ids[nid] = name
+        return
+    parts = [p.strip() for p in existing.split(",")]
+    if name not in parts:
+        violating_ids[nid] = f"{existing}, {name}"
+
+
 def _graph_from_trace_violations(violations: list[Violation]) -> StateGraph:
     """Build a focused StateGraph directly from TLC trace counterexamples when no DOT was dumped."""
     graph = StateGraph()
@@ -864,10 +882,18 @@ def _graph_from_trace_violations(violations: list[Violation]) -> StateGraph:
                 graph.edges.append(Edge(src=prev_id, dst=nid, label=step.get("action", "")))
             prev_id = nid
         if prev_id is not None:
-            graph.violating_ids[prev_id] = v.name
+            _add_violation_mark(graph.violating_ids, prev_id, v.name)
             if v.cycle_back_to and v.cycle_back_to in step_ids:
                 graph.edges.append(Edge(src=prev_id, dst=step_ids[v.cycle_back_to], label="cycle"))
     return graph
+
+
+def _java_is_runnable(java_path: str) -> bool:
+    try:
+        proc = subprocess.run([java_path, "-version"], capture_output=True, text=True, timeout=5)
+        return proc.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
 
 
 def find_tlc(explicit_tlc: str | None, explicit_jar: str | None) -> list[str] | None:
@@ -880,7 +906,7 @@ def find_tlc(explicit_tlc: str | None, explicit_jar: str | None) -> list[str] | 
     java = shutil.which("java")
     if explicit_jar:
         jar_path = Path(explicit_jar).expanduser()
-        return [java, "-XX:+UseParallelGC", "-cp", str(jar_path), "tlc2.TLC"] if (java and jar_path.is_file()) else None
+        return [java, "-XX:+UseParallelGC", "-cp", str(jar_path), "tlc2.TLC"] if (java and jar_path.is_file() and _java_is_runnable(java)) else None
     if tlc := shutil.which("tlc"):
         return [tlc]
     jar_candidates = []
@@ -892,7 +918,7 @@ def find_tlc(explicit_tlc: str | None, explicit_jar: str | None) -> list[str] | 
         Path.home() / ".local" / "share" / "tla+" / "tla2tools.jar",
         Path("/Applications/TLA+ Toolbox.app/Contents/Eclipse/tla2tools.jar"),
     ])
-    if java:
+    if java and _java_is_runnable(java):
         for jar in jar_candidates:
             try:
                 if jar.is_file():
@@ -985,14 +1011,16 @@ def _merge_graph_and_trace(graph: StateGraph, trace_info: dict) -> tuple[StateGr
                     prev_id = synth_id
             if v.steps and "id" in v.steps[-1]:
                 last_id = v.steps[-1]["id"]
-                if last_id not in graph.violating_ids:
-                    graph.violating_ids[last_id] = v.name
+                _add_violation_mark(graph.violating_ids, last_id, v.name)
 
     graph_violations = _dedupe_shortest_violations(shortest_paths_to_violations(graph))
     if trace_violations:
         seen_names = {v.name for v in trace_violations}
-        combined = list(trace_violations) + [v for v in graph_violations if v.name not in seen_names]
-        violations = _dedupe_shortest_violations(combined)
+        extra = [
+            v for v in graph_violations
+            if not any(part.strip() in seen_names for part in v.name.split(","))
+        ]
+        violations = _dedupe_shortest_violations(list(trace_violations) + extra)
     else:
         violations = graph_violations
     return graph, violations
@@ -1033,7 +1061,11 @@ def cmd_render(args) -> int:
     if not dot_path.is_file():
         print(f"error: DOT file not found: {dot_path}", file=sys.stderr)
         return 2
-    graph = parse_dot(dot_path.read_text(encoding="utf-8", errors="replace"))
+    try:
+        graph = parse_dot(dot_path.read_text(encoding="utf-8", errors="replace"))
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     trace_info: dict = {"violations": [], "errors": []}
     if args.trace:
         trace_path = Path(args.trace).expanduser()
@@ -1069,7 +1101,7 @@ def cmd_check(args) -> int:
     tlc_cmd = find_tlc(args.tlc, args.jar)
     if not tlc_cmd:
         print(
-            "error: TLC not found. Install TLA+ tools (set TLA2TOOLS_JAR=/path/to/tla2tools.jar, "
+            "error: TLC not found (or no runnable Java runtime). Install TLA+ tools (set TLA2TOOLS_JAR=/path/to/tla2tools.jar, "
             "pass --jar/--tlc, or install `tlc` on PATH with Java).",
             file=sys.stderr,
         )
@@ -1082,19 +1114,33 @@ def cmd_check(args) -> int:
             *tlc_cmd,
             "-tool",
             "-workers", str(args.workers),
+            "-lncheck", "final",
             "-cleanup",
             "-dump", "dot,actionlabels", str(dot_out),
         ]
+        if args.no_deadlock:
+            cmd.append("-deadlock")
         if not args.stop_on_first:
             cmd.append("-continue")
         if cfg.is_file():
             cmd.extend(["-config", str(cfg)])
         cmd.append(str(model))
-        proc = subprocess.run(cmd, cwd=model.parent, capture_output=True, text=True)
+        try:
+            proc = subprocess.run(cmd, cwd=model.parent, capture_output=True, text=True, timeout=args.timeout)
+        except subprocess.TimeoutExpired:
+            print(f"error: TLC timed out after {args.timeout}s on {model.name}", file=sys.stderr)
+            return 2
         combined = proc.stdout + ("\n" + proc.stderr if proc.stderr else "")
         trace_info = parse_tlc_output(combined)
         dot_actual = dot_out if dot_out.is_file() else Path(str(dot_out) + ".dot")
-        graph = parse_dot(dot_actual.read_text(encoding="utf-8", errors="replace")) if dot_actual.is_file() else StateGraph()
+        if dot_actual.is_file():
+            try:
+                graph = parse_dot(dot_actual.read_text(encoding="utf-8", errors="replace"))
+            except ValueError as exc:
+                print(f"error: TLC produced unreadable DOT dump ({exc})", file=sys.stderr)
+                return 2
+        else:
+            graph = StateGraph()
         graph, violations = _merge_graph_and_trace(graph, trace_info)
 
         exit_code, violations = _classify_tlc_outcome(proc.returncode, violations, trace_info, combined)
@@ -1143,7 +1189,9 @@ def main(argv=None) -> int:
     p_check.add_argument("--dump-dot", help="save TLC DOT dump to this path")
     p_check.add_argument("--mermaid", help="write Mermaid stateDiagram-v2 to this file")
     p_check.add_argument("--max-states", type=int, help="cap rendered states (always keeping initial and failure-path states)")
-    p_check.add_argument("--workers", default="auto", help="TLC worker count (default: auto)")
+    p_check.add_argument("--workers", default="1", help="TLC worker count (default: 1 for strictly minimum-depth BFS)")
+    p_check.add_argument("--timeout", type=float, help="optional timeout in seconds for TLC invocation")
+    p_check.add_argument("--no-deadlock", action="store_true", help="pass -deadlock to TLC (disable deadlock checking)")
     p_check.add_argument("--stop-on-first", action="store_true", help="stop TLC at the first violation instead of passing -continue")
     p_check.add_argument("--json", action="store_true", dest="as_json")
 

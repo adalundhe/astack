@@ -24,7 +24,7 @@ codex plugin marketplace add adalundhe/astack
 codex plugin add astack@astack
 ```
 
-Start a new session and run `$astack-go setup` (copies `astack-worker.toml` and `astack-reviewer.toml` into `~/.codex/agents/` and enables the timestamp hook).
+Start a new session and run `$astack-go setup` (installs `astack-worker.toml` plus one `astack-reviewer-<slug>.toml` per Codex-routable model in `reviewer_pool` into `~/.codex/agents/`, and enables the timestamp hook).
 
 ## How it works
 
@@ -55,14 +55,14 @@ measured against the current release on the same machine. Merges go to main afte
 - `dagify`: breaks a goal into a reviewed dependency DAG of small, parallelizable tasks.
 - `workflow-this`: turns a `dagify` graph into a resumable automated workflow with explicit task states.
 - `lead`: executes a task DAG with parallel time-boxed workers in git worktrees, verified merges, and durable logs.
-- `setup`: configures timing, per-role model/provider/effort, and optional `astack-tools` packages.
+- `setup`: configures timing, per-role model/provider/effort, the approved `reviewer_pool`, and optional `astack-tools` packages.
 - `status`: shows active workers, timers, latest branch commits, open tasks, and waiting questions.
 - `whatsup`: catch-up brief and post-break context rebuild (waiting calls, bugs, milestones, experiments, research).
 - `track-it`: syncs DAG tasks and progress to GitHub Issues, Jira, Linear, or another tracker.
 
 ### Code review and PRs
 
-- `review`: runs adversarial reviewers in separate worktrees and keeps only reproduced findings, blockers first.
+- `review`: splits a change into risk-classified vectors, runs blind adversarial reviewers from `reviewer_pool` in separate worktrees (no cap), stops per vector on Chapman capture–recapture evidence (`astack-review-ledger`), and opens with a coverage map.
 - `adversarial-review`: single-reviewer playbook—reproduce before, confirm fix, attack edge cases, prove every finding.
 - `challenge`: peer-to-peer adversarial interrogation of hypotheses, repeated fixes, diagnoses, designs, or code.
 - `worrywart`: pushes back on wrong or unproven review points with concrete evidence.
@@ -149,12 +149,13 @@ Indexed in `go` and checked by `review`:
 - **CLI scripts (`bin/`):**
   - `astack-status`: active workers, timers, latest branch commits, and open questions (`--line` for status bars).
   - `astack-decisions`: query `decided:` entries and verbatim `person:` directives (`--query`, `--settled-by`, `--since`, `--json`).
-  - `astack-verify-merge`: verifies a claimed commit is on the target branch, audits the full lane range (`--base <ref>`) for gate-loosening signals (failing closed on checker errors; `--strict-gates` blocks without countersign), and can run checks in a clean worktree.
-  - `astack-check-gates`: structural tripwire auditing a git range (`<base>..<head>`) or commit for deleted/renamed tests, skips, lint/typecheck suppressions, assertion downgrades, loosened numeric tolerances, and CI/lint/gate config edits.
-  - `astack-statechart`: runs TLC in `-tool` mode with `-dump dot,actionlabels` (or parses DOT/trace output offline), follows TLC exit status strictly, finds shortest paths to broken invariants via full untruncated state matching, and renders collision-safe Mermaid `stateDiagram-v2`.
+  - `astack-verify-merge`: verifies a claimed commit is on the target branch, audits strictly `--base <last-verified-target>..<sha>` (or every parent side of a merge commit when `--base` is omitted, never trusting commit messages; fails closed on checker errors; `--strict-gates` blocks without countersign), and can run checks in a clean worktree.
+  - `astack-check-gates`: structural tripwire auditing a git range (`<base>..<head>`) or commit for deleted/renamed tests, skips, lint/typecheck suppressions, assertion downgrades, cross-diff test swaps, tautologies, loosened numeric tolerances, and CI/lint/gate config edits.
+  - `astack-review-ledger`: evaluates vectored review progress per vector using the Chapman capture–recapture estimator, recommends unused non-worker models from `reviewer_pool`, flags `POOL EXHAUSTED`, renders the Markdown coverage map, and emits `LANES.md` review-count lines.
+  - `astack-statechart`: runs TLC in `-tool` mode with `-dump dot,actionlabels`, single-worker minimum-depth BFS default (`--workers 1`), `--timeout`, and `--no-deadlock` (or parses DOT/trace output offline, rejecting malformed input), follows TLC exit status strictly, preserves multiple broken invariants per state, finds shortest paths via full untruncated state matching, and renders collision-safe Mermaid `stateDiagram-v2` (tested against live TLC 2.19 + differential BFS fuzzing in CI).
   - `astack-stamp` (+ post-edit hook): timestamps new lines appended to `LANES.md`.
   - `astack-tools`: links `astack-*` CLI scripts onto `PATH` (`link-bin`), provisions Python `>=3.11` via `uv` across macOS/Linux/Windows (arm64 & amd64), and manages an isolated venv for `taskex`, `orchestral`, and `werkflow` (`doctor`, `install`, `link-bin`, `python`, `werkflow`, `env`, `path`).
-- **Evals & CI:** 11 Claude Code evals under `evals/` (worker wind-down/reports, Go-mode routing & dedicated worker/reviewer agent spawning, 6 coding rules) and GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).
+- **Evals & CI:** 13 Claude Code evals under `evals/` (worker wind-down/reports, Go-mode routing & dedicated worker/reviewer agent spawning, vectored concurrency vs. low-risk review dispatch, 6 coding rules) and GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).
 
 ## Working on astack
 

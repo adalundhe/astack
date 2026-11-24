@@ -9,7 +9,6 @@ The first line is the verdict. Exit 0: verified. 1: not verified. 2: could not c
 """
 import argparse
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -40,50 +39,20 @@ def resolve(repo, ref):
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def _is_target_back_merge(repo, merge_sha, target_branch):
-    """Return True when merge_sha's commit message shows it merged target_branch into a lane (so ^2 is target)."""
-    subject = git(repo, "show", "-s", "--format=%s", merge_sha).stdout.strip()
-    if not subject or not target_branch:
-        return False
-    esc = re.escape(target_branch)
-    # Reject forward merges like "Merge branch 'lane/x' into main"
-    if re.search(rf"\binto\s+['\"]?(?:[^'\"\s]+/)?{esc}['\"]?(?:\s|$)", subject, re.I):
-        return False
-    # Match "Merge branch 'main'", "Merge remote-tracking branch 'origin/main' into lane/x", or "merge main"
-    if re.search(rf"\bmerge\b.*(?:branch\s+['\"](?:[^'\"]+/)?{esc}['\"]|\b(?:[^/\s]+/)?{esc}\b)", subject, re.I):
-        return True
-    return False
+def resolve_diff_ranges(repo, sha, base_sha):
+    """Return list of (label, range_spec, base_ref) to audit without ever trusting commit messages.
 
-
-def effective_lane_base(repo, sha, base_sha, target):
-    """Determine the diff base that isolates this lane's own changes, excluding commits merged in from target."""
-    target_branch = target.split("/")[-1] if target else "main"
-
+    - With --base: audit strictly base_sha..sha (unforgeable tree diff; never rewrites base from messages).
+    - Without --base on a merge commit: audit EVERY parent (p_i..sha) so neither parent-order flipping
+      nor forged merge messages can hide a gamed lane.
+    - Without --base on a non-merge commit: audit first-parent..sha (or root..sha).
+    """
     if base_sha:
-        # Walk first-parent history from sha back to base_sha; if this lane merged target in,
-        # diff against the latest integrated target commit (M^2) so other lanes' commits on target aren't blamed here.
-        rev_list = git(repo, "rev-list", "--first-parent", f"{base_sha}..{sha}").stdout.splitlines()
-        for commit_sha in rev_list:
-            parents = git(repo, "rev-list", "--parents", "-n", "1", commit_sha).stdout.split()[1:]
-            if len(parents) < 2:
-                continue
-            p1, p2 = parents[0], parents[1]
-            # If base_sha is an ancestor of both parents, this merge integrated a parallel branch (e.g. target)
-            p1_after = git(repo, "merge-base", "--is-ancestor", base_sha, p1).returncode == 0
-            p2_after = git(repo, "merge-base", "--is-ancestor", base_sha, p2).returncode == 0
-            if p1_after and p2_after:
-                if _is_target_back_merge(repo, commit_sha, target_branch):
-                    return p2
-                if commit_sha == sha:
-                    return p1
-        return base_sha
-
+        return [("base", f"{base_sha}..{sha}", base_sha)]
     parents = git(repo, "rev-list", "--parents", "-n", "1", sha).stdout.split()[1:]
     if len(parents) >= 2:
-        if _is_target_back_merge(repo, sha, target_branch):
-            return parents[1]
-        return parents[0]
-    return None
+        return [(f"parent {idx + 1} ({p[:12]})", f"{p}..{sha}", p) for idx, p in enumerate(parents)]
+    return [("commit", sha, parents[0] if parents else None)]
 
 
 def changes(repo, sha, base_ref=None):
@@ -108,12 +77,11 @@ def run_check(repo, tip, command):
     return code, str(log)
 
 
-def gate_signals(repo, sha, base_ref=None):
-    """Run astack-check-gates across <base>..<sha> (or <sha>); fail closed on checker errors."""
+def gate_signals_for_target(repo, target):
+    """Run astack-check-gates on target; fail closed on checker errors."""
     checker = Path(__file__).resolve().parent / "astack-check-gates"
     if not checker.is_file():
         return None, f"missing gate checker script: {checker}"
-    target = f"{base_ref}..{sha}" if base_ref else sha
     res = subprocess.run(
         [sys.executable, str(checker), target, "--repo", str(repo), "--json"],
         capture_output=True, text=True,
@@ -131,11 +99,32 @@ def gate_signals(repo, sha, base_ref=None):
         return None, f"could not parse astack-check-gates output: {exc}"
 
 
+def audit_gates(repo, sha, base_sha):
+    """Audit all required diff ranges and deduplicate findings, tagging parent side on merges."""
+    ranges = resolve_diff_ranges(repo, sha, base_sha)
+    all_signals = []
+    seen = set()
+    multi = len(ranges) > 1
+    for label, target, _ in ranges:
+        sigs, err = gate_signals_for_target(repo, target)
+        if err is not None:
+            return None, err, ranges
+        for s in sigs:
+            key = (s.get("category"), s.get("file"), s.get("line"), s.get("reason"), s.get("snippet"))
+            if key not in seen:
+                seen.add(key)
+                entry = dict(s)
+                if multi:
+                    entry["side"] = label
+                all_signals.append(entry)
+    return all_signals, None, ranges
+
+
 def main():
     parser = argparse.ArgumentParser(description="Verify that a claimed merge is on the target branch.")
     parser.add_argument("sha")
     parser.add_argument("--target", default="origin/main")
-    parser.add_argument("--base", help="base commit/ref of the lane (checks the full range BASE..SHA instead of only the final commit)")
+    parser.add_argument("--base", help="last verified target commit/ref before this lane landed (audits strictly BASE..SHA without trusting commit messages)")
     parser.add_argument("--repo", default=".")
     parser.add_argument("--check", help="command to run in a clean worktree of the target's tip")
     parser.add_argument("--strict-gates", action="store_true", help="fail verification (exit 1) if gate-loosening signals are detected")
@@ -163,6 +152,9 @@ def main():
         if not base_sha:
             print(f"NOT CHECKED: base {args.base} is not a commit in {repo}")
             return 2
+        if git(repo, "merge-base", "--is-ancestor", base_sha, sha).returncode != 0:
+            print(f"NOT CHECKED: base {base_sha[:12]} is not an ancestor of {sha[:12]}")
+            return 2
     on_target = git(repo, "merge-base", "--is-ancestor", sha, tip)
     if on_target.returncode == 1:
         print(f"NOT VERIFIED: {sha[:12]} is not on {args.target} (tip {tip[:12]})")
@@ -171,8 +163,7 @@ def main():
         print(f"NOT CHECKED: {on_target.stderr.strip()}")
         return 2
 
-    diff_base = effective_lane_base(repo, sha, base_sha, args.target)
-    signals, gate_err = gate_signals(repo, sha, base_ref=diff_base)
+    signals, gate_err, audited_ranges = audit_gates(repo, sha, base_sha)
     if gate_err is not None:
         print(f"NOT CHECKED: {gate_err}")
         return 2
@@ -199,13 +190,21 @@ def main():
     else:
         print(f"VERIFIED: {sha[:12]} is on {args.target} (tip {tip[:12]})")
     print("commit: " + git(repo, "show", "-s", "--format=%h %s (%an, %cI)", sha).stdout.strip())
-    scope_desc = f"against {diff_base[:12]}:" if diff_base else "against its first parent:"
-    print(f"changed, {scope_desc}")
-    print(changes(repo, sha, base_ref=diff_base))
+    if len(audited_ranges) > 1:
+        for label, _, pref in audited_ranges:
+            print(f"changed, against {label}:")
+            print(changes(repo, sha, base_ref=pref))
+    else:
+        _, _, pref = audited_ranges[0]
+        scope_desc = f"against {base_sha[:12]}:" if base_sha else "against its first parent:"
+        print(f"changed, {scope_desc}")
+        print(changes(repo, sha, base_ref=pref))
     if signals:
-        print(f"GATE SIGNALS ({len(signals)}): inspect before accepting (countersign in RULES.md, isolate gate fix, or reset contract):")
+        hint = " (on merge commits, pass --base <last-verified-target-sha> to isolate this lane strictly)" if len(audited_ranges) > 1 else ""
+        print(f"GATE SIGNALS ({len(signals)}): inspect before accepting (countersign in RULES.md, isolate gate fix, or reset contract){hint}:")
         for s in signals:
-            print(f"  - [{s['category']}] {s['file']}:{s['line']} — {s['reason']}: {s['snippet']}")
+            side = f" ({s['side']})" if s.get("side") else ""
+            print(f"  - [{s['category']}]{side} {s['file']}:{s['line']} — {s['reason']}: {s['snippet']}")
     return 0 if code == 0 else 1
 
 

@@ -202,9 +202,45 @@ class BuildTest(unittest.TestCase):
         # Codex
         cx_go = (HARNESS / "codex/skills/astack-go/SKILL.md").read_text()
         cx_review = (HARNESS / "codex/skills/astack-review/SKILL.md").read_text()
+        cx_setup = (HARNESS / "codex/skills/astack-setup/SKILL.md").read_text()
         self.assertIn('agent_type: "astack-worker"', cx_go)
-        self.assertIn('agent_type: "astack-reviewer"', cx_go)
-        self.assertIn('agent_type: "astack-reviewer"', cx_review)
+        self.assertIn('"astack-reviewer-<slug>"', cx_go)
+        self.assertIn('"astack-reviewer-<slug>"', cx_review)
+        self.assertIn("one reviewer agent `.toml` per Codex-routable model in `reviewer_pool`", cx_setup)
+        self.assertIn("astack-reviewer-<slug>.toml", cx_setup)
+
+    def test_vectored_review_replaces_old_panel_form_in_all_three_harnesses(self):
+        for tool, prefix in (("claude-code", ""), ("cursor", "astack-"), ("codex", "astack-")):
+            go = (HARNESS / tool / "skills" / f"{prefix}go" / "SKILL.md").read_text()
+            review = (HARNESS / tool / "skills" / f"{prefix}review" / "SKILL.md").read_text()
+            setup = (HARNESS / tool / "skills" / f"{prefix}setup" / "SKILL.md").read_text()
+            lead = (HARNESS / tool / "skills" / f"{prefix}lead" / "SKILL.md").read_text()
+            dagify = (HARNESS / tool / "skills" / "dagify" / "SKILL.md").read_text()
+            reviewer_agent = (
+                HARNESS / tool / "agents" / ("reviewer.md" if tool == "claude-code" else "astack-reviewer.md" if tool == "cursor" else "astack-reviewer.toml")
+            ).read_text()
+
+            # Every reader uses reviewer_pool and vectored review; old panel form is completely gone
+            for text, label in ((go, "go"), (review, "review"), (setup, "setup"), (lead, "lead"), (dagify, "dagify")):
+                self.assertIn("reviewer_pool", text, f"{tool}/{label} missing reviewer_pool")
+                self.assertNotIn("panel", text.lower(), f"{tool}/{label} still references old panel form")
+            for text, label in ((go, "go"), (review, "review"), (lead, "lead"), (dagify, "dagify")):
+                self.assertNotIn("roles.reviewer", text, f"{tool}/{label} still references retired roles.reviewer")
+
+            # Vectored review invariants present in every harness's review skill
+            self.assertIn("seams", review, f"{tool}/review missing seams vector rule")
+            self.assertIn("blast-radius", review, f"{tool}/review missing blast-radius reference")
+            self.assertIn("astack-review-ledger", review, f"{tool}/review missing astack-review-ledger")
+            self.assertIn("blind to each other", review, f"{tool}/review missing blind-independence rule")
+            self.assertIn("Combine, never vote", review, f"{tool}/review missing combine-never-vote rule")
+            self.assertIn("POOL EXHAUSTED", review, f"{tool}/review missing POOL EXHAUSTED")
+            self.assertIn("NOT ASSIGNED", review, f"{tool}/review missing NOT ASSIGNED")
+            self.assertIn("COULD NOT TEST", review, f"{tool}/review missing COULD NOT TEST")
+            self.assertIn("Coverage map", review, f"{tool}/review missing Coverage map")
+            self.assertIn("LANES.md", review, f"{tool}/review missing LANES.md count logging")
+            self.assertIn("which vendors/providers see their code", setup, f"{tool}/setup missing vendor-visibility warning")
+            self.assertIn("VECTOR:", reviewer_agent, f"{tool}/reviewer agent missing VECTOR header")
+            self.assertIn("MODEL:", reviewer_agent, f"{tool}/reviewer agent missing MODEL header")
 
     @unittest.skipUnless(shutil.which("codex"), "codex CLI not installed")
     def test_codex_registers_worker_and_reviewer_agents_in_prompt_input(self):
@@ -212,6 +248,13 @@ class BuildTest(unittest.TestCase):
             root = Path(scratch)
             shutil.copytree(HARNESS / "codex/skills", root / "skills")
             shutil.copytree(HARNESS / "codex/agents", root / "agents")
+            # Simulate installing one reviewer agent per approved model from $astack-setup
+            tmpl = (root / "agents/astack-reviewer.toml").read_text()
+            for slug, model in (("openai-gpt-5-4-high", "gpt-5.4"), ("openai-o3-high", "o3")):
+                body = tmpl.replace('name = "astack-reviewer"', f'name = "astack-reviewer-{slug}"', 1)
+                body = body.replace('developer_instructions = ', f'model = "{model}"\nmodel_reasoning_effort = "high"\ndeveloper_instructions = ', 1)
+                (root / f"agents/astack-reviewer-{slug}.toml").write_text(body)
+            (root / "agents/astack-reviewer.toml").unlink()
             env = {**os.environ, "CODEX_HOME": str(root)}
             proc = subprocess.run(
                 ["codex", "debug", "prompt-input", "hello"],
@@ -219,11 +262,12 @@ class BuildTest(unittest.TestCase):
             )
             self.assertEqual(proc.returncode, 0, proc.stderr)
             self.assertIn("astack-worker", proc.stdout)
-            self.assertIn("astack-reviewer", proc.stdout)
+            self.assertIn("astack-reviewer-openai-gpt-5-4-high", proc.stdout)
+            self.assertIn("astack-reviewer-openai-o3-high", proc.stdout)
 
     def test_the_scripts_are_executable_in_every_package(self):
         for tool in ("claude-code", "cursor", "codex"):
-            for script in ("astack-check-gates", "astack-decisions", "astack-stamp", "astack-stamp-hook", "astack-statechart", "astack-status", "astack-tools", "astack-verify-merge"):
+            for script in ("astack-check-gates", "astack-decisions", "astack-review-ledger", "astack-stamp", "astack-stamp-hook", "astack-statechart", "astack-status", "astack-tools", "astack-verify-merge"):
                 self.assertTrue((HARNESS / tool / "bin" / script).stat().st_mode & 0o111, f"{tool}/{script}")
 
     def test_readme_lists_every_skill_and_notice_attributions_hold(self):

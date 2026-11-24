@@ -13,7 +13,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Fetch pinned TLC 2.19 (tla2tools.jar v1.7.4) with SHA-256 verification
+        run: |
+          mkdir -p "$RUNNER_TEMP/tlc"
+          curl -fsSL -o "$RUNNER_TEMP/tlc/tla2tools.jar" \
+            https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar
+          echo "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88  $RUNNER_TEMP/tlc/tla2tools.jar" | sha256sum -c -
+          echo "TLA2TOOLS_JAR=$RUNNER_TEMP/tlc/tla2tools.jar" >> "$GITHUB_ENV"
       - name: Check generated packages are up to date
         run: python3 scripts/build.py --check
-      - name: Run test suite
+      - name: Run full test suite (including live TLC & differential fuzzing)
         run: python3 -m unittest discover -s tests -v

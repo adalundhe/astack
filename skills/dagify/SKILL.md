@@ -26,7 +26,7 @@ Break a request into tasks that one agent each can complete and verify, ordered 
 5. **Add dependency edges.** Draw an edge only when task B needs task A's output, or when both write the same file, data, or interface (**no-shared-writes**). Order prerequisites cleanly: failing test before fix, deletion before reshape, baseline before optimization.
 6. **Parallelize independent tasks** up to what the machine can actually handle (**no-picked-constants**).
 7. **Write the graph** where requested (or in the program folder, in an astack program): every task with its fields, explicit edges, and a Mermaid diagram. Each task should be directly usable as a worker brief.
-8. **Review the plan before starting,** dispatching a fresh `astack:reviewer` subagent who didn't author it. Check that tasks are:
+8. **Review the plan before starting,** dispatching fresh `astack:reviewer` subagent(s) from `reviewer_pool` (using a model other than the plan author's when the pool allows): start with one reviewer for a small, low-risk plan, or at least two blind reviewers on different approved models when the plan touches high-risk triggers (shared interfaces, concurrency, persistence, auth/security, or a large graph), stopping via `astack-review-ledger` (**review**). Check that tasks are:
    - **Coherent:** together they satisfy the goal with no gaps or overlap, and edges match actual data/file dependencies.
    - **In scope:** one deliverable each, nothing unrequested added, nothing requested omitted.
    - **Self-contained:** an agent can execute from the task alone without hidden context.

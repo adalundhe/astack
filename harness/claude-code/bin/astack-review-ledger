@@ -1,0 +1,588 @@
+#!/usr/bin/env python3
+"""Compute per-vector stop/continue/flag decisions and a coverage map for vectored review.
+
+Implements Chapman capture-recapture stopping per vector over verified root-cause findings:
+  N = (n1 + 1) * (n2 + 1) / (m + 1) - 1
+  unfound = N - (n1 + n2 - m)
+
+Usage:
+  astack-review-ledger [INPUT.json | -] [--json | --markdown] [--lanes]
+
+Exit codes:
+  0 = evaluated successfully (inspect per-vector action: stop | continue | flag)
+  2 = invalid input, schema error, or unapproved reviewer model
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from dataclasses import dataclass
+from fractions import Fraction
+from pathlib import Path
+from typing import Any
+
+
+VALID_RISKS = ("low", "risky")
+
+
+class ValidationError(ValueError):
+    """Typed boundary error for malformed ledger inputs."""
+
+
+@dataclass(frozen=True)
+class ModelSpec:
+    provider: str
+    model: str
+    effort: str = ""
+
+    @property
+    def key(self) -> tuple[str, str]:
+        return (self.provider, self.model)
+
+    @property
+    def label(self) -> str:
+        base = f"{self.provider}/{self.model}"
+        return f"{base} ({self.effort})" if self.effort else base
+
+    def to_dict(self) -> dict[str, str]:
+        out = {"provider": self.provider, "model": self.model}
+        if self.effort:
+            out["effort"] = self.effort
+        return out
+
+
+@dataclass(frozen=True)
+class VectorSpec:
+    name: str
+    risk: str
+    kind: str
+    triggers: tuple[str, ...]
+    could_not_test: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ReviewRun:
+    index: int
+    vector: str
+    model: ModelSpec
+    verified_by_vector: dict[str, frozenset[str]]
+    verified_total: int
+    dropped: int
+
+
+def _non_empty_str(val: Any, field: str) -> str:
+    if not isinstance(val, str) or not val.strip():
+        raise ValidationError(f"{field} must be a non-empty string")
+    return val.strip()
+
+
+def _parse_model(raw: Any, field: str) -> ModelSpec:
+    if not isinstance(raw, dict):
+        raise ValidationError(f"{field} must be an object with provider and model")
+    provider = _non_empty_str(raw.get("provider"), f"{field}.provider")
+    model = _non_empty_str(raw.get("model"), f"{field}.model")
+    effort_raw = raw.get("effort", "")
+    if effort_raw is None:
+        effort = ""
+    elif isinstance(effort_raw, str):
+        effort = effort_raw.strip()
+    else:
+        raise ValidationError(f"{field}.effort must be a string")
+    return ModelSpec(provider=provider, model=model, effort=effort)
+
+
+def parse_input(payload: Any) -> tuple[str, ModelSpec | None, list[ModelSpec], list[VectorSpec], list[ReviewRun]]:
+    if not isinstance(payload, dict):
+        raise ValidationError("input must be a JSON object")
+
+    if "roles" in payload and isinstance(payload["roles"], dict) and "reviewer" in payload["roles"]:
+        raise ValidationError("retired roles.reviewer format is not accepted; pass reviewer_pool as a list")
+
+    target_raw = payload.get("target", "review")
+    target = _non_empty_str(target_raw, "target") if target_raw is not None else "review"
+
+    worker_raw = payload.get("worker_model")
+    worker_model = _parse_model(worker_raw, "worker_model") if worker_raw is not None else None
+
+    pool_raw = payload.get("reviewer_pool")
+    if not isinstance(pool_raw, list):
+        raise ValidationError("reviewer_pool must be a list of {provider, model, effort} objects")
+    pool: list[ModelSpec] = []
+    seen_keys: set[tuple[str, str]] = set()
+    for i, entry in enumerate(pool_raw):
+        spec = _parse_model(entry, f"reviewer_pool[{i}]")
+        if spec.key not in seen_keys:
+            seen_keys.add(spec.key)
+            pool.append(spec)
+    pool_by_key = {m.key: m for m in pool}
+
+    vectors_raw = payload.get("vectors")
+    if not isinstance(vectors_raw, list) or not vectors_raw:
+        raise ValidationError("vectors must be a non-empty list")
+    vectors: list[VectorSpec] = []
+    vector_names: set[str] = set()
+    for i, raw in enumerate(vectors_raw):
+        if not isinstance(raw, dict):
+            raise ValidationError(f"vectors[{i}] must be an object")
+        name = _non_empty_str(raw.get("name"), f"vectors[{i}].name")
+        if name in vector_names:
+            raise ValidationError(f"duplicate vector name {name!r}")
+        vector_names.add(name)
+        risk = _non_empty_str(raw.get("risk"), f"vectors[{i}].risk")
+        if risk not in VALID_RISKS:
+            raise ValidationError(f"vectors[{i}].risk must be one of {VALID_RISKS}, got {risk!r}")
+        kind_raw = raw.get("kind", "")
+        if kind_raw is None:
+            kind = ""
+        elif isinstance(kind_raw, str):
+            kind = kind_raw.strip()
+        else:
+            raise ValidationError(f"vectors[{i}].kind must be a string")
+        triggers_raw = raw.get("triggers", [])
+        if not isinstance(triggers_raw, list) or not all(isinstance(t, str) and t.strip() for t in triggers_raw):
+            raise ValidationError(f"vectors[{i}].triggers must be a list of non-empty strings")
+        cnt_raw = raw.get("could_not_test", [])
+        if not isinstance(cnt_raw, list) or not all(isinstance(c, str) and c.strip() for c in cnt_raw):
+            raise ValidationError(f"vectors[{i}].could_not_test must be a list of non-empty strings")
+        vectors.append(
+            VectorSpec(
+                name=name,
+                risk=risk,
+                kind=kind,
+                triggers=tuple(t.strip() for t in triggers_raw),
+                could_not_test=tuple(c.strip() for c in cnt_raw),
+            )
+        )
+
+    reviews_raw = payload.get("reviews", [])
+    if not isinstance(reviews_raw, list):
+        raise ValidationError("reviews must be a list")
+    reviews: list[ReviewRun] = []
+    for i, raw in enumerate(reviews_raw):
+        if not isinstance(raw, dict):
+            raise ValidationError(f"reviews[{i}] must be an object")
+        vec = _non_empty_str(raw.get("vector"), f"reviews[{i}].vector")
+        if vec not in vector_names:
+            raise ValidationError(f"reviews[{i}].vector {vec!r} is not declared in vectors")
+        model = _parse_model(raw, f"reviews[{i}]")
+        if model.key not in pool_by_key:
+            raise ValidationError(
+                f"reviews[{i}] model {model.provider}/{model.model} is not in approved reviewer_pool"
+            )
+        if not model.effort and pool_by_key[model.key].effort:
+            model = pool_by_key[model.key]
+
+        dropped = raw.get("dropped", 0)
+        if isinstance(dropped, bool) or not isinstance(dropped, int) or dropped < 0:
+            raise ValidationError(f"reviews[{i}].dropped must be a non-negative integer")
+
+        verified_raw = raw.get("verified", [])
+        if not isinstance(verified_raw, list):
+            raise ValidationError(f"reviews[{i}].verified must be a list")
+        by_vec: dict[str, set[str]] = {}
+        all_rc_pairs: set[tuple[str, str]] = set()
+        for j, item in enumerate(verified_raw):
+            if isinstance(item, str):
+                rc = _non_empty_str(item, f"reviews[{i}].verified[{j}]")
+                target_vec = vec
+            elif isinstance(item, dict):
+                rc = _non_empty_str(item.get("root_cause"), f"reviews[{i}].verified[{j}].root_cause")
+                v_raw = item.get("vector", vec)
+                target_vec = _non_empty_str(v_raw, f"reviews[{i}].verified[{j}].vector")
+                if target_vec not in vector_names:
+                    raise ValidationError(
+                        f"reviews[{i}].verified[{j}].vector {target_vec!r} is not declared in vectors"
+                    )
+            else:
+                raise ValidationError(f"reviews[{i}].verified[{j}] must be a root_cause string or object")
+            by_vec.setdefault(target_vec, set()).add(rc)
+            all_rc_pairs.add((target_vec, rc))
+
+        reviews.append(
+            ReviewRun(
+                index=i,
+                vector=vec,
+                model=model,
+                verified_by_vector={k: frozenset(v) for k, v in by_vec.items()},
+                verified_total=len(all_rc_pairs),
+                dropped=dropped,
+            )
+        )
+
+    return target, worker_model, pool, vectors, reviews
+
+
+def chapman_estimate(n1: int, n2: int, m: int) -> dict[str, Any]:
+    """Compute exact Chapman capture-recapture totals and stopping informativeness."""
+    total_frac = Fraction((n1 + 1) * (n2 + 1), m + 1) - 1
+    observed = n1 + n2 - m
+    unfound_frac = total_frac - observed
+    informative = (m >= 1) or (n1 == 0 and n2 == 0)
+    can_stop = informative and (unfound_frac < 1)
+    return {
+        "n1": n1,
+        "n2": n2,
+        "m": m,
+        "observed": observed,
+        "estimated_total": float(total_frac),
+        "estimated_unfound": float(unfound_frac),
+        "informative": informative,
+        "can_stop": can_stop,
+    }
+
+
+def _pick_next_models(
+    pool: list[ModelSpec],
+    used_keys: set[tuple[str, str]],
+    worker_model: ModelSpec | None,
+    has_non_worker: bool,
+    count: int = 1,
+) -> list[ModelSpec]:
+    unused = [m for m in pool if m.key not in used_keys]
+    if not unused or count <= 0:
+        return []
+    ordered = list(unused)
+    if worker_model is not None and not has_non_worker:
+        non_worker = [m for m in ordered if m.key != worker_model.key]
+        same_worker = [m for m in ordered if m.key == worker_model.key]
+        ordered = non_worker + same_worker
+    return ordered[:count]
+
+
+def evaluate_ledger(payload: Any) -> dict[str, Any]:
+    target, worker_model, pool, vectors, reviews = parse_input(payload)
+
+    vector_results: list[dict[str, Any]] = []
+    not_assigned: list[str] = []
+    pool_exhausted: list[dict[str, Any]] = []
+    could_not_test: list[dict[str, Any]] = []
+    lanes_log_lines: list[str] = []
+    by_model: dict[str, dict[str, int]] = {}
+    by_vector: dict[str, dict[str, int]] = {}
+
+    for rev in reviews:
+        mkey = f"{rev.model.provider}/{rev.model.model}"
+        mstats = by_model.setdefault(mkey, {"reviews": 0, "verified": 0, "dropped": 0})
+        mstats["reviews"] += 1
+        mstats["verified"] += rev.verified_total
+        mstats["dropped"] += rev.dropped
+
+    for vec in vectors:
+        assigned = [r for r in reviews if r.vector == vec.name]
+        external_rcs: set[str] = set()
+        external_sources: list[dict[str, Any]] = []
+        for r in reviews:
+            if r.vector != vec.name and vec.name in r.verified_by_vector:
+                rcs = r.verified_by_vector[vec.name]
+                external_rcs.update(rcs)
+                external_sources.append(
+                    {
+                        "from_vector": r.vector,
+                        "model": r.model.label,
+                        "root_causes": sorted(rcs),
+                    }
+                )
+
+        if vec.could_not_test:
+            could_not_test.append({"vector": vec.name, "items": list(vec.could_not_test)})
+
+        used_keys: list[tuple[str, str]] = []
+        used_key_set: set[tuple[str, str]] = set()
+        reviewer_summaries: list[dict[str, Any]] = []
+        all_assigned_rcs: set[str] = set()
+        total_dropped = 0
+        has_non_worker = False
+
+        for r in assigned:
+            in_vec = r.verified_by_vector.get(vec.name, frozenset())
+            elsewhere = {
+                k: sorted(v) for k, v in r.verified_by_vector.items() if k != vec.name
+            }
+            all_assigned_rcs.update(in_vec)
+            total_dropped += r.dropped
+            if r.model.key not in used_key_set:
+                used_key_set.add(r.model.key)
+                used_keys.append(r.model.key)
+            if worker_model is None or r.model.key != worker_model.key:
+                has_non_worker = True
+
+            reviewer_summaries.append(
+                {
+                    "provider": r.model.provider,
+                    "model": r.model.model,
+                    "effort": r.model.effort,
+                    "label": r.model.label,
+                    "verified_in_vector": len(in_vec),
+                    "verified_total": r.verified_total,
+                    "dropped": r.dropped,
+                    "root_causes": sorted(in_vec),
+                    "filed_elsewhere": elsewhere,
+                }
+            )
+            extra_note = f" filed_elsewhere={sum(len(v) for v in elsewhere.values())}" if elsewhere else ""
+            lanes_log_lines.append(
+                f"review {target}: vector={vec.name} risk={vec.risk} "
+                f"model={r.model.provider}/{r.model.model} verified={r.verified_total} dropped={r.dropped}{extra_note}"
+            )
+
+        all_rcs_under_vector = all_assigned_rcs | external_rcs
+        by_vector[vec.name] = {
+            "reviews": len(assigned),
+            "verified_root_causes": len(all_rcs_under_vector),
+            "dropped": total_dropped,
+        }
+
+        estimate: dict[str, Any] | None = None
+        min_initial = 2 if vec.risk == "risky" else 1
+        recommended_next: list[ModelSpec] = []
+
+        if len(assigned) == 0:
+            not_assigned.append(vec.name)
+            recommended_next = _pick_next_models(
+                pool, used_key_set, worker_model, has_non_worker=False, count=min_initial
+            )
+            if len(pool) == 0:
+                action = "flag"
+                status = "POOL EXHAUSTED"
+                reason = "no approved reviewer models in reviewer_pool"
+                pool_exhausted.append({"vector": vec.name, "risk": vec.risk, "reason": reason, "estimate": None})
+            else:
+                action = "continue"
+                status = "NOT ASSIGNED"
+                reason = (
+                    f"risky vector needs at least 2 models to start"
+                    if vec.risk == "risky"
+                    else "low-risk vector needs 1 model to start"
+                )
+        elif len(used_key_set) < 2:
+            # Either 1 reviewer so far, or repeated runs on the same model without a second distinct model
+            if vec.risk == "low" and len(assigned) == 1 and len(all_rcs_under_vector) == 0:
+                action = "stop"
+                status = "STOPPED (clean single review)"
+                reason = "clean_single_review"
+            else:
+                recommended_next = _pick_next_models(
+                    pool, used_key_set, worker_model, has_non_worker=has_non_worker, count=1
+                )
+                if recommended_next:
+                    action = "continue"
+                    status = "CONTINUE"
+                    if vec.risk == "risky":
+                        reason = "risky_vector_requires_second_model"
+                    elif len(all_assigned_rcs) == 0 and len(external_rcs) > 0:
+                        reason = "external_verified_bug_on_low_risk_vector"
+                    else:
+                        reason = "verified_bug_on_low_risk_vector"
+                else:
+                    action = "flag"
+                    status = "POOL EXHAUSTED"
+                    reason = (
+                        "single_model_pool_cannot_supply_second_model"
+                        if len(pool) <= 1
+                        else "pool_exhausted_before_second_model"
+                    )
+                    pool_exhausted.append({"vector": vec.name, "risk": vec.risk, "reason": reason, "estimate": None})
+        else:
+            # 2+ distinct models on this vector: compare latest assigned reviewer against union of earlier findings
+            latest = assigned[-1]
+            earlier_rcs: set[str] = set(external_rcs)
+            for prev in assigned[:-1]:
+                earlier_rcs.update(prev.verified_by_vector.get(vec.name, frozenset()))
+            new_rcs = set(latest.verified_by_vector.get(vec.name, frozenset()))
+            shared_rcs = earlier_rcs & new_rcs
+
+            estimate = chapman_estimate(len(earlier_rcs), len(new_rcs), len(shared_rcs))
+            if estimate["can_stop"]:
+                action = "stop"
+                status = "STOPPED (estimate)"
+                if estimate["n1"] == 0 and estimate["n2"] == 0:
+                    reason = "both_found_nothing"
+                elif estimate["estimated_unfound"] == 0:
+                    reason = "no_new_root_causes"
+                else:
+                    reason = "unfound_below_one"
+            else:
+                recommended_next = _pick_next_models(
+                    pool, used_key_set, worker_model, has_non_worker=has_non_worker, count=1
+                )
+                if recommended_next:
+                    action = "continue"
+                    status = "CONTINUE"
+                    reason = (
+                        "uninformative_one_sided_zero"
+                        if not estimate["informative"] and estimate["estimated_unfound"] < 1
+                        else "estimated_unfound_at_least_one"
+                    )
+                else:
+                    action = "flag"
+                    status = "POOL EXHAUSTED"
+                    reason = "pool_exhausted_with_unmet_stop_condition"
+                    pool_exhausted.append(
+                        {"vector": vec.name, "risk": vec.risk, "reason": reason, "estimate": estimate}
+                    )
+
+        non_worker_covered = any(
+            worker_model is None or k != worker_model.key for k in used_key_set
+        )
+        vector_results.append(
+            {
+                "name": vec.name,
+                "risk": vec.risk,
+                "kind": vec.kind,
+                "triggers": list(vec.triggers),
+                "action": action,
+                "status": status,
+                "reason": reason,
+                "reviewers": reviewer_summaries,
+                "external_findings": external_sources,
+                "verified_root_causes": sorted(all_rcs_under_vector),
+                "verified_count": len(all_rcs_under_vector),
+                "dropped_count": total_dropped,
+                "non_worker_model_used": non_worker_covered if assigned else False,
+                "estimate": estimate,
+                "next_models": [m.to_dict() for m in recommended_next],
+            }
+        )
+
+    actions = {v["action"] for v in vector_results}
+    if "flag" in actions:
+        overall = "flagged"
+    elif "continue" in actions:
+        overall = "continue"
+    else:
+        overall = "complete"
+
+    return {
+        "target": target,
+        "overall": overall,
+        "pool_size": len(pool),
+        "vectors": vector_results,
+        "not_assigned": not_assigned,
+        "pool_exhausted": pool_exhausted,
+        "could_not_test": could_not_test,
+        "by_model": by_model,
+        "by_vector": by_vector,
+        "lanes_log_lines": lanes_log_lines,
+    }
+
+
+def _fmt_num(x: float) -> str:
+    return str(int(x)) if x == int(x) else f"{x:.2f}".rstrip("0").rstrip(".")
+
+
+def format_markdown(result: dict[str, Any]) -> str:
+    lines = [
+        f"## Coverage map (`{result['target']}`)",
+        "",
+        "| Vector | Risk | Models (verified/dropped) | Overlap & estimate | Status |",
+        "|---|---|---|---|---|",
+    ]
+    for v in result["vectors"]:
+        if v["reviewers"]:
+            models_str = ", ".join(
+                f"{r['provider']}/{r['model']} ({r['verified_in_vector']}v/{r['dropped']}d)"
+                for r in v["reviewers"]
+            )
+        else:
+            models_str = "none"
+        if v["external_findings"]:
+            ext_count = sum(len(e["root_causes"]) for e in v["external_findings"])
+            models_str += f" (+{ext_count} external)"
+
+        est = v["estimate"]
+        if est is None:
+            est_str = "—"
+        else:
+            info_tag = "" if est["informative"] else " [uninformative]"
+            est_str = (
+                f"n1={est['n1']}, n2={est['n2']}, m={est['m']} -> "
+                f"N={_fmt_num(est['estimated_total'])}, unfound={_fmt_num(est['estimated_unfound'])}{info_tag}"
+            )
+
+        status_str = v["status"]
+        if v["action"] == "continue" and v["next_models"]:
+            nxt = ", ".join(f"{m['provider']}/{m['model']}" for m in v["next_models"])
+            status_str = f"{status_str} (add {nxt})"
+        elif v["action"] == "stop":
+            status_str = f"{status_str}"
+        elif v["action"] == "flag":
+            status_str = f"{status_str} ({v['reason']})"
+
+        lines.append(f"| {v['name']} | {v['risk']} | {models_str} | {est_str} | {status_str} |")
+
+    lines.append("")
+    lines.append("NOT ASSIGNED")
+    if result["not_assigned"]:
+        for name in result["not_assigned"]:
+            lines.append(f"- {name}")
+    else:
+        lines.append("- none")
+
+    lines.append("")
+    lines.append("POOL EXHAUSTED")
+    if result["pool_exhausted"]:
+        for item in result["pool_exhausted"]:
+            est = item["estimate"]
+            if est is not None:
+                est_note = (
+                    f" (n1={est['n1']}, n2={est['n2']}, m={est['m']}, "
+                    f"N={_fmt_num(est['estimated_total'])}, unfound={_fmt_num(est['estimated_unfound'])})"
+                )
+            else:
+                est_note = ""
+            lines.append(f"- {item['vector']} ({item['risk']}): {item['reason']}{est_note}")
+    else:
+        lines.append("- none")
+
+    lines.append("")
+    lines.append("COULD NOT TEST")
+    if result["could_not_test"]:
+        for entry in result["could_not_test"]:
+            for item in entry["items"]:
+                lines.append(f"- {entry['vector']}: {item}")
+    else:
+        lines.append("- none")
+
+    return "\n".join(lines) + "\n"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Compute Chapman capture-recapture stop/continue/flag decisions and a coverage map for vectored review."
+    )
+    parser.add_argument(
+        "input",
+        nargs="?",
+        default="-",
+        help="Path to review ledger JSON file, or '-' for stdin (default: -)",
+    )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--json", action="store_true", dest="as_json", help="Emit structured JSON output")
+    mode.add_argument("--markdown", action="store_true", help="Emit Markdown coverage map (default)")
+    mode.add_argument("--lanes", action="store_true", help="Emit append-only LANES.md log lines")
+    args = parser.parse_args(argv)
+
+    try:
+        if args.input == "-":
+            raw_text = sys.stdin.read()
+        else:
+            raw_text = Path(args.input).read_text()
+        payload = json.loads(raw_text)
+        result = evaluate_ledger(payload)
+    except (OSError, json.JSONDecodeError, ValidationError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.as_json:
+        print(json.dumps(result, indent=2))
+    elif args.lanes:
+        for line in result["lanes_log_lines"]:
+            print(line)
+    else:
+        print(format_markdown(result), end="")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

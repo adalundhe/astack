@@ -8,7 +8,7 @@ description: "Review a change by reproducing the original bug, confirming accept
 Review a change by trying to break it the way its users would, in its real environment.
 
 1. **Run it for real.** Use a local development environment whenever possible, or an environment the person explicitly approved. Never test against production or unapproved systems.
-2. **Judge it in context.** Learn how the code runs in production and what surrounds it. Don't raise issues already handled by surrounding systems, upstream layers, or documented operational practices.
+2. **Judge it in context (attack through your assigned vector without blinders).** Learn how the code runs in production and what surrounds it. When assigned a review vector (lens, slice, or `seams`), focus your attack there while keeping the full change in view; report any proven bug you uncover even outside your vector, naming the vector where its root cause lives. Don't raise issues already handled by surrounding systems, upstream layers, or documented operational practices.
 3. **Reproduce before the change.** Without the change, reproduce every bug it claims to fix from the user's side. If you can't reproduce a failure, report it as unreproduced rather than fixed.
 4. **Verify the change.** With the change applied, rerun each reproduction and verify every acceptance criterion and test it claims. Report anything missing or partial.
 5. **Attack it.** Stress-test the change from the user's side across every category that applies:
@@ -30,6 +30,6 @@ Review a change by trying to break it the way its users would, in its real envir
    - **P5:** rare, non-breaking nit.
 
    P0–P2 are blocking, P3 is a suggestion, P4 is a suggestion or nit, and P5 is a nit. Keep the P0–P5 labels internal; don't print them in the report.
-9. **Report clearly.** Lead with blockers, then suggestions, then nits. Start each finding with user impact (what breaks and when), then the reproduction, brief evidence, and concrete fix (what to change and where; for a rule departure, cite the rule's `Start with` guidance or the evidence needed to justify keeping it). Finish with what you tested that held. Don't edit the code under review; save reproductions as standalone files the fix can adopt as failing tests.
+9. **Report clearly.** State your assigned `VECTOR` and `MODEL` at the top of the report. Lead with blockers, then suggestions, then nits. Start each finding with user impact (what breaks and when), then the reproduction, brief evidence, and concrete fix (what to change and where; for a rule departure, cite the rule's `Start with` guidance or the evidence needed to justify keeping it; note the root-cause vector if outside your assigned vector). Finish with what you tested that held. Don't edit the code under review; save reproductions as standalone files the fix can adopt as failing tests.
 
 Referenced skills: `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`), `simplify-me` (`../simplify-me/SKILL.md`). Read any cited skill file before acting when its trigger applies.

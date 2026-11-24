@@ -16,13 +16,13 @@ Classify every verification as **verified**, **not verified**, or **inconclusive
 
 ## The trust ladder
 
-From weakest to strongest evidence:
+From weakest to strongest evidence (aligned with **research-this** source trust weights):
 
 1. Your own (or another agent's) reasoning or memory.
 2. Unverified code you just wrote, or results backed only by mocks/proxies.
 3. Existing code or docs you read without running.
-4. Running the real system—tests, benchmarks, A/B comparisons, or reference implementations.
-5. Published reference datasets, peer-reviewed research, and foundational specifications.
+4. Authoritative external references: foundational specifications, standards, official docs, peer-reviewed research, and published reference datasets (weights `0.85–0.90` in **research-this**).
+5. Running and measuring the real system—end-to-end tests, live reproductions, controlled benchmarks, and A/B comparisons on the actual artifact (strongest proof of what this system does; weight `0.95` in **research-this**).
 
 Push every claim as high up the ladder as practical and state which rung it rests on. Challenge weak claims (yours or another agent's) by asking which rung they stand on and bringing evidence from a higher one.
 
@@ -36,5 +36,7 @@ Don't assume the person shares your context. Present findings in order:
 4. **Evidence:** raw data, outputs, profiles, traces, or benchmarks.
 
 Include something the person can run directly (a command, script, minimal repro, or demo)—for failures as well as successes.
+
+Referenced skills: `research-this` (`../research-this/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's prove-it-works principle and the verdicts of its figure-it-out skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

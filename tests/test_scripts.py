@@ -2,14 +2,11 @@
 import json
 import os
 import platform
-import random
-import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
-from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -418,7 +415,7 @@ class ToolsTest(Scratch):
         bin_dir = self.dir / "user-bin"
         first = run("astack-tools", "link-bin", "--bin-dir", str(bin_dir))
         self.assertEqual(first.returncode, 0, first.stderr)
-        for name in ("astack-tools", "astack-status", "astack-decisions", "astack-verify-merge", "astack-check-gates", "astack-statechart", "astack-stamp"):
+        for name in ("astack-tools", "astack-status", "astack-decisions", "astack-verify-merge", "astack-check-gates", "astack-review-ledger", "astack-statechart", "astack-stamp"):
             linked = bin_dir / name
             self.assertTrue(linked.is_symlink(), f"missing symlink {linked}")
             self.assertEqual(linked.resolve(), (BIN / name).resolve())
@@ -502,506 +499,6 @@ class ToolsTest(Scratch):
         path_res = run("astack-tools", "path", "--venv", str(venv))
         self.assertEqual(path_res.returncode, 0)
         self.assertTrue(path_res.stdout.strip().endswith("/python"))
-
-
-def _has_real_tlc():
-    if shutil.which("tlc"):
-        return True
-    if not shutil.which("java"):
-        return False
-    candidates = [
-        Path(os.environ["TLA2TOOLS_JAR"]).expanduser() if os.environ.get("TLA2TOOLS_JAR") else None,
-        Path("/opt/homebrew/share/tla+/tla2tools.jar"),
-        Path("/usr/local/share/tla+/tla2tools.jar"),
-        Path.home() / ".local" / "share" / "tla+" / "tla2tools.jar",
-        Path("/Applications/TLA+ Toolbox.app/Contents/Eclipse/tla2tools.jar"),
-    ]
-    return any(p is not None and p.is_file() for p in candidates)
-
-
-def _dot_escape(text):
-    return text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
-
-
-def _independent_min_hops(initial_ids, edges, target_id):
-    """Independent BFS oracle for verifying shortest-path distances."""
-    adj = {}
-    for src, dst in edges:
-        adj.setdefault(src, []).append(dst)
-    dist = {}
-    q = deque()
-    for init in initial_ids:
-        if init not in dist:
-            dist[init] = 0
-            q.append(init)
-    while q:
-        cur = q.popleft()
-        if cur == target_id:
-            return dist[cur]
-        for nxt in adj.get(cur, ()):
-            if nxt not in dist:
-                dist[nxt] = dist[cur] + 1
-                q.append(nxt)
-    return -1
-
-
-class StatechartTest(Scratch):
-    def test_render_dot_finds_shortest_path_to_each_broken_invariant_and_draws_mermaid(self):
-        dot = self.dir / "states.dot"
-        dot.write_text(
-            'digraph DiskGraph {\n'
-            '  -1001 [label="/\\\\ x = 0\\n/\\\\ y = 0", style = filled];\n'
-            '  2002 [label="/\\\\ x = 1\\n/\\\\ y = 0"];\n'
-            '  3003 [label="/\\\\ x = 2\\n/\\\\ y = 0"];\n'
-            '  4004 [label="/\\\\ x = 3\\n/\\\\ y = 1", color=red, invariant="InvA"];\n'
-            '  5005 [label="/\\\\ x = 0\\n/\\\\ y = 9", color=red, invariant="InvB"];\n'
-            '  6006 [label="isolated bad", color=red, invariant="InvUnreachable"];\n'
-            '  -1001 -> 2002 [label="Slow1"];\n'
-            '  2002 -> 3003 [label="Slow2"];\n'
-            '  3003 -> 4004 [label="Slow3"];\n'
-            '  -1001 -> 4004 [label="Shortcut"];\n'
-            '  2002 -> 5005 [label="BreakB"];\n'
-            '}\n'
-        )
-        res = run("astack-statechart", "render", str(dot), "--json")
-        self.assertEqual(res.returncode, 0, res.stderr)
-        data = json.loads(res.stdout)
-        self.assertEqual(data["states"], 6)
-        self.assertEqual(data["transitions"], 5)
-        by_name = {v["name"]: v for v in data["violations"]}
-        self.assertEqual(by_name["InvA"]["hops"], 1)
-        self.assertEqual([s["action"] for s in by_name["InvA"]["steps"]], ["Initial", "Shortcut"])
-        self.assertEqual(by_name["InvB"]["hops"], 2)
-        self.assertEqual(by_name["InvUnreachable"]["hops"], -1)
-        mmd = data["mermaid"]
-        self.assertTrue(mmd.startswith("stateDiagram-v2\n"))
-        self.assertIn("[*] --> s0", mmd)
-        self.assertIn("[VIOLATION: InvA]", mmd)
-        self.assertIn("classDef violation", mmd)
-
-    def test_render_with_tlc_trace_parses_invariant_deadlock_and_temporal_cycle(self):
-        dot = self.dir / "empty.dot"
-        dot.write_text("digraph G {}\n")
-        trace = self.dir / "tlc.out"
-        trace.write_text(
-            "Model checking completed.\n"
-            "Error: Invariant Bounded is violated.\n"
-            "Error: The behavior up to this point is:\n"
-            "State 1: <Initial predicate>\n"
-            "/\\ x = 0\n"
-            "State 2: <Step>\n"
-            "/\\ x = 1\n"
-            "State 3: <Step>\n"
-            "/\\ x = 2\n"
-            "State 4: <Step>\n"
-            "/\\ x = 3\n"
-            "Error: Invariant Bounded is violated.\n"
-            "Error: The behavior up to this point is:\n"
-            "State 1: <Initial predicate>\n"
-            "/\\ x = 0\n"
-            "State 2: <Jump>\n"
-            "/\\ x = 3\n"
-            "Error: Deadlock reached.\n"
-            "Error: The behavior up to this point is:\n"
-            "State 1: <Initial predicate>\n"
-            "/\\ lock = \"free\"\n"
-            "State 2: <Acquire>\n"
-            "/\\ lock = \"stuck\"\n"
-            "Error: Temporal properties were violated.\n"
-            "Error: The behavior up to this point is:\n"
-            "State 1: <Initial predicate>\n"
-            "/\\ phase = \"wait\"\n"
-            "State 2: <Retry>\n"
-            "/\\ phase = \"retry\"\n"
-            "Back to state 1: <Loop>\n"
-            "128 states generated, 42 distinct states found, 0 states left on queue.\n"
-            "The depth of the complete state graph search is 7.\n"
-        )
-        res = run("astack-statechart", "render", str(dot), "--trace", str(trace), "--json")
-        self.assertEqual(res.returncode, 0, res.stderr)
-        data = json.loads(res.stdout)
-        by_key = {(v["kind"], v["name"]): v for v in data["violations"]}
-        self.assertEqual(by_key[("invariant", "Bounded")]["hops"], 1)
-        self.assertEqual(by_key[("deadlock", "Deadlock")]["hops"], 1)
-        self.assertEqual(by_key[("temporal", "TemporalProperty")]["cycle_back_to"], 1)
-        self.assertIn("cycle", data["mermaid"])
-
-    def test_max_states_always_preserves_initial_and_shortest_failure_path(self):
-        lines = ["digraph Big {", '  n0 [label="init", style=filled];']
-        for i in range(1, 21):
-            lines.append(f'  decoy_{i} [label="decoy {i}"];')
-            lines.append(f'  n0 -> decoy_{i} [label="branch_{i}"];')
-        lines.append('  p1 [label="step 1"];')
-        lines.append('  p2 [label="step 2"];')
-        lines.append('  p3 [label="step 3"];')
-        lines.append('  bad [label="broken state", color=red, invariant="Safety"];')
-        lines.append('  n0 -> p1 [label="e1"];')
-        lines.append('  p1 -> p2 [label="e2"];')
-        lines.append('  p2 -> p3 [label="e3"];')
-        lines.append('  p3 -> bad [label="e4"];')
-        lines.append("}")
-        dot = self.dir / "big.dot"
-        dot.write_text("\n".join(lines) + "\n")
-        res = run("astack-statechart", "render", str(dot), "--max-states", "6", "--json")
-        self.assertEqual(res.returncode, 0, res.stderr)
-        data = json.loads(res.stdout)
-        self.assertEqual(data["states"], 25)
-        self.assertEqual(data["omitted_states"], 19)
-        mmd = data["mermaid"]
-        for must_have in ("init", "step 1", "step 2", "step 3", "broken state [VIOLATION: Safety]", "19 additional states omitted"):
-            self.assertIn(must_have, mmd)
-
-    def test_property_based_adversarial_names_and_bfs_minimality(self):
-        adversarial = [
-            "__proto__",
-            "constructor",
-            "prototype",
-            "toString",
-            "hasOwnProperty",
-            "valueOf",
-            "end",
-            "state",
-            "note",
-            "classDef",
-            "node",
-            "edge",
-            "digraph",
-            "[*]",
-            "-->",
-            "a --> b",
-            'quote"inside',
-            "line1\nline2",
-            "comment%%here",
-            "trailing\\",
-            "a:b:c",
-            "/\\ x = 0\n/\\ y = 1",
-            "",
-        ]
-        rng = random.Random(20261124)
-        state_decl_re = re.compile(r'^    state "([^"]*)" as (s\d+)$')
-        edge_re = re.compile(r"^    (\[\*\]|s\d+) --> (s\d+)(?:: .*)?$")
-
-        for trial in range(30):
-            n_nodes = rng.randint(4, 14)
-            # Always include literal __proto__, constructor, [*], and end with strictly unique node IDs
-            pinned = ["__proto__", "constructor", "[*]", "end"]
-            rest = [name for name in adversarial if name not in pinned]
-            rng.shuffle(rest)
-            node_ids = list(pinned) + rest[: n_nodes - len(pinned)]
-            self.assertEqual(len(set(node_ids)), n_nodes)
-
-            initial = [node_ids[0]]
-            violating = {}
-            for idx in rng.sample(range(1, n_nodes), k=rng.randint(1, min(3, n_nodes - 1))):
-                inv_name = f"Inv_{adversarial[(idx + trial) % len(adversarial)]}_{idx}"
-                violating[node_ids[idx]] = inv_name
-
-            edges = []
-            dot_lines = ["digraph Prop {"]
-            for nid in node_ids:
-                lbl = rng.choice(adversarial)
-                attrs = [f'label="{_dot_escape(lbl)}"']
-                if nid in initial:
-                    attrs.append("style=filled")
-                if nid in violating:
-                    attrs.append('color=red')
-                    attrs.append(f'invariant="{_dot_escape(violating[nid])}"')
-                dot_lines.append(f'  "{_dot_escape(nid)}" [{", ".join(attrs)}];')
-
-            for _ in range(rng.randint(n_nodes, n_nodes * 2)):
-                src = rng.choice(node_ids)
-                dst = rng.choice(node_ids)
-                elbl = rng.choice(adversarial)
-                edges.append((src, dst))
-                dot_lines.append(f'  "{_dot_escape(src)}" -> "{_dot_escape(dst)}" [label="{_dot_escape(elbl)}"];')
-            dot_lines.append("}")
-
-            dot_path = self.dir / f"prop_{trial}.dot"
-            dot_path.write_text("\n".join(dot_lines) + "\n")
-            res = run("astack-statechart", "render", str(dot_path), "--json")
-            self.assertEqual(res.returncode, 0, f"trial {trial}: {res.stderr}")
-            data = json.loads(res.stdout)
-            self.assertEqual(data["states"], n_nodes, f"trial {trial}")
-
-            # Verify every violation's hop count against the independent BFS oracle
-            by_inv = {v["name"]: v["hops"] for v in data["violations"]}
-            for bad_id, inv_name in violating.items():
-                expected_hops = _independent_min_hops(initial, edges, bad_id)
-                self.assertEqual(by_inv[inv_name], expected_hops, f"trial {trial} {inv_name}")
-
-            # Verify Mermaid output syntax safety against all adversarial names
-            mmd_lines = data["mermaid"].splitlines()
-            self.assertEqual(mmd_lines[0], "stateDiagram-v2")
-            declared = set()
-            for line in mmd_lines[1:]:
-                if line.startswith("    classDef ") or line.startswith("    class ") or line.startswith("    %% "):
-                    continue
-                if m := state_decl_re.match(line):
-                    label_body, sid = m.group(1), m.group(2)
-                    self.assertNotIn("%%", label_body, f"trial {trial}: comment leaked in {line!r}")
-                    self.assertNotIn("-->", label_body, f"trial {trial}: arrow leaked in {line!r}")
-                    self.assertNotIn("[*]", label_body, f"trial {trial}: [*] leaked in {line!r}")
-                    self.assertFalse(label_body.endswith("\\"), f"trial {trial}: trailing backslash in {line!r}")
-                    declared.add(sid)
-                elif m := edge_re.match(line):
-                    src_id, dst_id = m.group(1), m.group(2)
-                    if src_id != "[*]":
-                        self.assertIn(src_id, declared, f"trial {trial}: undeclared {src_id}")
-                    self.assertIn(dst_id, declared, f"trial {trial}: undeclared {dst_id}")
-                else:
-                    self.fail(f"trial {trial}: unexpected Mermaid line {line!r}")
-            self.assertEqual(len(declared), n_nodes, f"trial {trial}")
-
-    def test_check_invokes_tlc_and_returns_expected_exit_codes(self):
-        # Missing model -> exit 2
-        missing = run("astack-statechart", "check", str(self.dir / "missing.tla"))
-        self.assertEqual(missing.returncode, 2)
-
-        model = self.dir / "Mini.tla"
-        model.write_text("---- MODULE Mini ----\n====\n")
-
-        # Missing TLC -> exit 2
-        env_no_tlc = {"HOME": str(self.dir), "PATH": "/usr/bin:/bin"}
-        no_tlc = subprocess.run(
-            [sys.executable, str(BIN / "astack-statechart"), "check", str(model), "--jar", str(self.dir / "nope.jar")],
-            capture_output=True, text=True, env=env_no_tlc,
-        )
-        self.assertEqual(no_tlc.returncode, 2)
-
-        # Fake TLC stub (clean pass -> exit 0, writes DOT, verifies -tool and -dump dot,actionlabels)
-        args_log = self.dir / "tlc_args.txt"
-        tlc_ok = self.dir / "fake-tlc-ok"
-        tlc_ok.write_text(
-            "#!/bin/sh\n"
-            f'printf "%s\\n" "$@" > "{args_log}"\n'
-            'dot_file=""\n'
-            'prev=""\n'
-            'for a in "$@"; do\n'
-            '  if [ "$prev" = "dot,actionlabels" ] || [ "$prev" = "dot" ]; then dot_file="$a"; fi\n'
-            '  prev="$a"\n'
-            'done\n'
-            'printf \'strict digraph DiskGraph { -1 [label="x = 0", style = filled]; 2 [label="x = 1"]; -1 -> 2 [label="Inc", color="black"]; }\\n\' > "$dot_file"\n'
-            "printf '%s\\n' '@!@!@STARTMSG 2199:0 @!@!@' '2 states generated, 2 distinct states found, 0 states left on queue.' '@!@!@ENDMSG 2199 @!@!@'\n"
-            "printf '%s\\n' '@!@!@STARTMSG 2194:0 @!@!@' 'The depth of the complete state graph search is 1.' '@!@!@ENDMSG 2194 @!@!@'\n"
-            'exit 0\n'
-        )
-        tlc_ok.chmod(0o755)
-        out_mmd = self.dir / "out.mmd"
-        ok = run("astack-statechart", "check", str(model), "--tlc", str(tlc_ok), "--mermaid", str(out_mmd), "--json")
-        self.assertEqual(ok.returncode, 0, ok.stderr)
-        passed_args = args_log.read_text().splitlines()
-        self.assertIn("-tool", passed_args)
-        self.assertIn("dot,actionlabels", passed_args)
-        self.assertIn("-continue", passed_args)
-        self.assertTrue(out_mmd.is_file())
-        ok_data = json.loads(ok.stdout)
-        self.assertEqual(ok_data["distinct_states"], 2)
-        self.assertEqual(ok_data["parser_mode"], "tool")
-        self.assertIn("Inc", ok_data["mermaid"])
-
-        # --stop-on-first omits -continue
-        ok2 = run("astack-statechart", "check", str(model), "--tlc", str(tlc_ok), "--stop-on-first", "--json")
-        self.assertEqual(ok2.returncode, 0, ok2.stderr)
-        self.assertNotIn("-continue", args_log.read_text().splitlines())
-
-        # Fake TLC stub with -tool violation -> exit 1
-        tlc_fail = self.dir / "fake-tlc-fail"
-        tlc_fail.write_text(
-            "#!/bin/sh\n"
-            "printf '%s\\n' '@!@!@STARTMSG 2110:1 @!@!@' 'Invariant NoOverflow is violated.' '@!@!@ENDMSG 2110 @!@!@'\n"
-            "printf '%s\\n' '@!@!@STARTMSG 2217:4 @!@!@' '1: <Initial predicate>' '/\\ x = 0' '@!@!@ENDMSG 2217 @!@!@'\n"
-            "printf '%s\\n' '@!@!@STARTMSG 2217:4 @!@!@' '2: <Inc line 4, col 5 to line 4, col 12 of module Mini>' '/\\ x = 1' '@!@!@ENDMSG 2217 @!@!@'\n"
-            "exit 12\n"
-        )
-        tlc_fail.chmod(0o755)
-        viol = run("astack-statechart", "check", str(model), "--tlc", str(tlc_fail), "--json")
-        self.assertEqual(viol.returncode, 1, viol.stderr)
-        vdata = json.loads(viol.stdout)
-        self.assertEqual(vdata["violations"][0]["name"], "NoOverflow")
-        self.assertEqual(vdata["violations"][0]["hops"], 1)
-        self.assertEqual(vdata["violations"][0]["steps"][1]["action"], "Inc")
-
-        # PROBE 1A: TLC writes a DOT graph then exits 12 with an unrecognized error -> MUST exit 1, NEVER false-pass!
-        tlc_unrec_12 = self.dir / "fake-tlc-unrec-12"
-        tlc_unrec_12.write_text(
-            "#!/bin/sh\n"
-            'dot_file=""\n'
-            'prev=""\n'
-            'for a in "$@"; do\n'
-            '  if [ "$prev" = "dot,actionlabels" ] || [ "$prev" = "dot" ]; then dot_file="$a"; fi\n'
-            '  prev="$a"\n'
-            'done\n'
-            'printf \'digraph G { 1 [label="x = 0", style=filled]; 2 [label="x = 1"]; 1 -> 2 [label="Step"]; }\\n\' > "$dot_file"\n'
-            "printf '%s\\n' 'Error: Assertion failed in Check.'\n"
-            "exit 12\n"
-        )
-        tlc_unrec_12.chmod(0o755)
-        res12 = run("astack-statechart", "check", str(model), "--tlc", str(tlc_unrec_12))
-        self.assertEqual(res12.returncode, 1, res12.stdout + res12.stderr)
-        self.assertNotIn("All checked invariants held", res12.stdout)
-
-        # PROBE 1B: TLC writes a partial DOT graph then crashes with exit 255 -> MUST exit 2, NEVER exit 0!
-        tlc_crash_255 = self.dir / "fake-tlc-crash-255"
-        tlc_crash_255.write_text(
-            "#!/bin/sh\n"
-            'dot_file=""\n'
-            'prev=""\n'
-            'for a in "$@"; do\n'
-            '  if [ "$prev" = "dot,actionlabels" ] || [ "$prev" = "dot" ]; then dot_file="$a"; fi\n'
-            '  prev="$a"\n'
-            'done\n'
-            'printf \'digraph G { 1 [label="x = 0", style=filled]; }\\n\' > "$dot_file"\n'
-            "printf '%s\\n' 'Exception in thread main: java.lang.OutOfMemoryError' >&2\n"
-            "exit 255\n"
-        )
-        tlc_crash_255.chmod(0o755)
-        res255 = run("astack-statechart", "check", str(model), "--tlc", str(tlc_crash_255))
-        self.assertEqual(res255.returncode, 2, res255.stdout + res255.stderr)
-        self.assertNotIn("All checked invariants held", res255.stdout)
-
-        # Fake TLC stub with parse/tool error -> exit 2
-        tlc_err = self.dir / "fake-tlc-err"
-        tlc_err.write_text("#!/bin/sh\necho 'Fatal syntax error' >&2\nexit 1\n")
-        tlc_err.chmod(0o755)
-        err = run("astack-statechart", "check", str(model), "--tlc", str(tlc_err))
-        self.assertEqual(err.returncode, 2)
-
-    def test_long_shared_prefix_states_mark_exact_violating_node_and_disambiguate_labels(self):
-        # PROBE 2: Two states sharing >120-char queue prefix differing only at the end (y = 0 vs y = 1)
-        long_q = "<<" + ", ".join(str(i) for i in range(1, 45)) + ">>"
-        healthy_state = f"/\\ q = {long_q}\n/\\ y = 0"
-        broken_state = f"/\\ q = {long_q}\n/\\ y = 1"
-        self.assertGreater(len(long_q), 150)
-
-        dot = self.dir / "long_prefix.dot"
-        dot.write_text(
-            "strict digraph DiskGraph {\n"
-            f'  -100 [label="{_dot_escape(healthy_state)}", style = filled];\n'
-            f'  -200 [label="{_dot_escape(broken_state)}"];\n'
-            '  -100 -> -200 [label="Flip", color="black"];\n'
-            "}\n"
-        )
-        trace = self.dir / "long_prefix.tool.out"
-        trace.write_text(
-            "@!@!@STARTMSG 2110:1 @!@!@\n"
-            "Invariant YZero is violated.\n"
-            "@!@!@ENDMSG 2110 @!@!@\n"
-            "@!@!@STARTMSG 2217:4 @!@!@\n"
-            "1: <Initial predicate>\n"
-            f"{healthy_state}\n"
-            "@!@!@ENDMSG 2217 @!@!@\n"
-            "@!@!@STARTMSG 2217:4 @!@!@\n"
-            "2: <Flip line 10, col 1 to line 10, col 12 of module Q>\n"
-            f"{broken_state}\n"
-            "@!@!@ENDMSG 2217 @!@!@\n"
-        )
-        res = run("astack-statechart", "render", str(dot), "--trace", str(trace), "--json")
-        self.assertEqual(res.returncode, 0, res.stderr)
-        data = json.loads(res.stdout)
-        # Violation MUST be marked on -200 (y = 1), NEVER on -100 (y = 0)
-        self.assertEqual(data["violating_states"], {"-200": "YZero"})
-        self.assertNotIn("-100", data["violating_states"])
-
-        # Rendered Mermaid labels for the two states must be distinct and reveal y = 0 vs y = 1
-        state_lines = [ln for ln in data["mermaid"].splitlines() if ln.strip().startswith('state "')]
-        self.assertEqual(len(state_lines), 2)
-        self.assertNotEqual(state_lines[0], state_lines[1])
-        self.assertIn("y = 0", state_lines[0])
-        self.assertNotIn("[VIOLATION:", state_lines[0])
-        self.assertIn("y = 1", state_lines[1])
-        self.assertIn("[VIOLATION: YZero]", state_lines[1])
-
-    def test_recorded_tlc_219_tool_fixtures(self):
-        fixtures = Path(__file__).resolve().parent / "fixtures" / "tlc"
-
-        # 1. Deadlock with real TLC 2.19 -tool output + -dump dot,actionlabels
-        dl = run(
-            "astack-statechart", "render",
-            str(fixtures / "counter_deadlock.dot"),
-            "--trace", str(fixtures / "counter_deadlock.tool.out"),
-            "--json",
-        )
-        self.assertEqual(dl.returncode, 0, dl.stderr)
-        dl_data = json.loads(dl.stdout)
-        self.assertEqual(dl_data["states"], 4)
-        self.assertEqual(dl_data["transitions"], 3)
-        self.assertEqual(dl_data["violating_states"], {"-4900539538744082733": "Deadlock"})
-        self.assertEqual(dl_data["violations"][0]["kind"], "deadlock")
-        self.assertEqual(dl_data["violations"][0]["hops"], 3)
-        self.assertEqual(dl_data["violations"][0]["steps"][1]["action"], "Inc")
-        self.assertIn("s0 --> s1: Inc", dl_data["mermaid"])
-
-        # 2. Initial-state invariant violation (EC 2107) with empty DOT
-        empty_dot = self.dir / "empty_init.dot"
-        empty_dot.write_text("strict digraph DiskGraph { subgraph cluster_graph { color=\"white\"; } }\n")
-        init_v = run(
-            "astack-statechart", "render",
-            str(empty_dot),
-            "--trace", str(fixtures / "initial_violation.tool.out"),
-            "--json",
-        )
-        self.assertEqual(init_v.returncode, 0, init_v.stderr)
-        init_data = json.loads(init_v.stdout)
-        self.assertEqual(init_data["violations"][0]["kind"], "invariant")
-        self.assertEqual(init_data["violations"][0]["name"], "NotNine")
-        self.assertEqual(init_data["violations"][0]["hops"], 0)
-        self.assertIn("x = 9 [VIOLATION: NotNine]", init_data["mermaid"])
-
-        # 3. Temporal loop (EC 2116 + 2122)
-        loop_v = run(
-            "astack-statechart", "render",
-            str(empty_dot),
-            "--trace", str(fixtures / "temporal_loop.tool.out"),
-            "--json",
-        )
-        self.assertEqual(loop_v.returncode, 0, loop_v.stderr)
-        loop_data = json.loads(loop_v.stdout)
-        self.assertEqual(loop_data["violations"][0]["kind"], "temporal")
-        self.assertEqual(loop_data["violations"][0]["hops"], 2)
-        self.assertEqual(loop_data["violations"][0]["cycle_back_to"], 2)
-        self.assertIn("cycle", loop_data["mermaid"])
-
-        # 4. Action property (EC 2112) + stuttering liveness (EC 2218)
-        act_v = run(
-            "astack-statechart", "render",
-            str(empty_dot),
-            "--trace", str(fixtures / "action_and_stuttering.tool.out"),
-            "--json",
-        )
-        self.assertEqual(act_v.returncode, 0, act_v.stderr)
-        act_data = json.loads(act_v.stdout)
-        by_name = {v["name"]: v for v in act_data["violations"]}
-        self.assertEqual(by_name["Monotonic"]["kind"], "property")
-        self.assertEqual(by_name["Monotonic"]["hops"], 1)
-        self.assertEqual(by_name["Monotonic"]["steps"][1]["action"], "Drop")
-        self.assertEqual(by_name["TemporalProperty"]["cycle_back_to"], 1)
-
-    @unittest.skipUnless(_has_real_tlc(), "TLC / tla2tools.jar not installed")
-    def test_check_against_real_tlc_when_installed(self):
-        tla = self.dir / "Counter.tla"
-        tla.write_text(
-            "---- MODULE Counter ----\n"
-            "EXTENDS Naturals\n"
-            "VARIABLE x\n"
-            "Init == x = 0\n"
-            "Next == x < 4 /\\ x' = x + 1\n"
-            "Safe == x <= 4\n"
-            "Broken == x <= 2\n"
-            "====\n"
-        )
-        cfg_ok = self.dir / "ok.cfg"
-        cfg_ok.write_text("INIT Init\nNEXT Next\nINVARIANT Safe\n")
-        ok = run("astack-statechart", "check", str(tla), "--cfg", str(cfg_ok), "--json")
-        self.assertEqual(ok.returncode, 0, ok.stderr)
-        self.assertEqual(json.loads(ok.stdout)["violations"], [])
-
-        cfg_bad = self.dir / "bad.cfg"
-        cfg_bad.write_text("INIT Init\nNEXT Next\nINVARIANT Broken\n")
-        bad = run("astack-statechart", "check", str(tla), "--cfg", str(cfg_bad), "--json")
-        self.assertEqual(bad.returncode, 1, bad.stderr)
-        bdata = json.loads(bad.stdout)
-        self.assertEqual(bdata["violations"][0]["name"], "Broken")
-        self.assertEqual(bdata["violations"][0]["hops"], 3)
 
 
 class CheckGatesTest(Scratch):
@@ -1161,12 +658,12 @@ class CheckGatesTest(Scratch):
         commit(
             self.repo,
             "tests/test_pytest_style.py",
-            "import pytest\ndef test_calc():\n    result = 6\n    assert result == 6\n    assert result == pytest.approx(6.0, rel=1e-9, abs=1e-9)\n",
+            "import pytest\ndef test_calc():\n    result = calc(3)\n    assert result == 6\n    assert result == pytest.approx(6.0, rel=1e-9, abs=1e-9)\n",
         )
         sha_pt = commit(
             self.repo,
             "tests/test_pytest_style.py",
-            "import pytest\ndef test_calc():\n    result = 6\n    assert result\n    assert result == pytest.approx(6.0, rel=0.5, abs=0.2)\n",
+            "import pytest\ndef test_calc():\n    result = calc(3)\n    assert result\n    assert result == pytest.approx(6.0, rel=0.5, abs=0.2)\n",
         )
         res_pt = run("astack-check-gates", sha_pt, "--repo", str(self.repo), "--json")
         self.assertEqual(res_pt.returncode, 1, res_pt.stdout)
@@ -1174,14 +671,14 @@ class CheckGatesTest(Scratch):
         self.assertTrue(any("weaker presence/truthiness" in r for r in pt_reasons), pt_reasons)
         self.assertTrue(any("rel " in r or "abs " in r for r in pt_reasons), pt_reasons)
 
-        # 2. Moving a test between files (refactor) produces ZERO false flags
+        # 2. Moving a real test between files (refactor) produces ZERO false flags
         move_base = commit(
             self.repo,
             "tests/test_src.py",
-            "def test_one():\n    assert 1 == 1\n    assert 2 == 2\ndef test_two():\n    assert 3 == 3\n",
+            "def test_one():\n    assert compute(1) == 2\n    assert compute(2) == 4\ndef test_two():\n    assert compute(3) == 6\n",
         )
-        (self.repo / "tests" / "test_src.py").write_text("def test_one():\n    assert 1 == 1\n    assert 2 == 2\n")
-        (self.repo / "tests" / "test_dst.py").write_text("def test_two():\n    assert 3 == 3\n")
+        (self.repo / "tests" / "test_src.py").write_text("def test_one():\n    assert compute(1) == 2\n    assert compute(2) == 4\n")
+        (self.repo / "tests" / "test_dst.py").write_text("def test_two():\n    assert compute(3) == 6\n")
         git(self.repo, "add", "tests/test_src.py", "tests/test_dst.py")
         git(self.repo, "commit", "-q", "-m", "move test_two to test_dst")
         move_head = git(self.repo, "rev-parse", "HEAD")
@@ -1189,65 +686,194 @@ class CheckGatesTest(Scratch):
         self.assertEqual(res_move.returncode, 0, res_move.stdout)
         self.assertTrue(json.loads(res_move.stdout)["clean"])
 
-        # 3. Lane-1 merges main (which contains Lane-2's countersigned skip) and fast-forwards main:
-        #    verifying Lane-1 with --base <lane-base> or bare <merge-sha> must NOT blame Lane-1 for Lane-2's skip!
+        # 3. Test swaps (deleting a real test and adding a trivial one elsewhere) MUST be caught!
+        # 3a. Constant tautology swap (assert 1 == 1)
+        swap_base = git(self.repo, "rev-parse", "HEAD")
+        (self.repo / "tests" / "test_dst.py").write_text("# removed\n")
+        (self.repo / "tests" / "test_fake1.py").write_text("def test_trivial():\n    assert 1 == 1\n")
+        git(self.repo, "add", "tests/test_dst.py", "tests/test_fake1.py")
+        git(self.repo, "commit", "-q", "-m", "swap real test for constant tautology")
+        res_swap1 = run("astack-check-gates", f"{swap_base}..HEAD", "--repo", str(self.repo), "--json")
+        self.assertEqual(res_swap1.returncode, 1, res_swap1.stdout)
+        self.assertIn("weakened-assertion", {f["category"] for f in json.loads(res_swap1.stdout)["findings"]})
+
+        # 3b. Cross-file strong->weak swap (assert compute(2) == 4 -> assert res in another file)
+        swap2_base = git(self.repo, "rev-parse", "HEAD")
+        (self.repo / "tests" / "test_src.py").write_text("def test_one():\n    assert compute(1) == 2\n")
+        (self.repo / "tests" / "test_fake2.py").write_text("def test_weak():\n    res = compute(2)\n    assert res\n")
+        git(self.repo, "add", "tests/test_src.py", "tests/test_fake2.py")
+        git(self.repo, "commit", "-q", "-m", "swap strong assert for bare truthiness elsewhere")
+        res_swap2 = run("astack-check-gates", f"{swap2_base}..HEAD", "--repo", str(self.repo), "--json")
+        self.assertEqual(res_swap2.returncode, 1, res_swap2.stdout)
+        self.assertTrue(any("cross-diff test swap" in f["reason"] for f in json.loads(res_swap2.stdout)["findings"]), res_swap2.stdout)
+
+        # 3c. Assertion-free stub test swap (`def test_stub(): pass`)
+        swap3_base = git(self.repo, "rev-parse", "HEAD")
+        (self.repo / "tests" / "test_fake3.py").write_text("def test_stub():\n    pass\n")
+        git(self.repo, "add", "tests/test_fake3.py")
+        git(self.repo, "commit", "-q", "-m", "add assertion-free test")
+        res_swap3 = run("astack-check-gates", f"{swap3_base}..HEAD", "--repo", str(self.repo), "--json")
+        self.assertEqual(res_swap3.returncode, 1, res_swap3.stdout)
+        self.assertTrue(any("without any assertion" in f["reason"] for f in json.loads(res_swap3.stdout)["findings"]), res_swap3.stdout)
+
+        # 4. Merge spoofing MUST fail closed (astack-verify-merge NEVER trusts commit messages!):
         git(self.repo, "push", "-q", "origin", "main")
         fork_base = git(self.repo, "rev-parse", "HEAD")
 
-        # Lane-1 branches from fork_base and makes a clean change
-        git(self.repo, "checkout", "-q", "-b", "lane/one", fork_base)
-        commit(self.repo, "lane1.py", "def ok():\n    return True\n")
-
-        # Meanwhile Lane-2 lands a countersigned skip on main
-        git(self.repo, "checkout", "-q", "main")
+        # Attack A: gamed lane merged into clean main WITH forged commit message "Merge branch 'main'"
+        git(self.repo, "checkout", "-q", "-b", "lane/spoof-a", fork_base)
         commit(
             self.repo,
-            "tests/test_lane2.py",
-            "import unittest\nclass L2(unittest.TestCase):\n    @unittest.skip('countersigned')\n    def test_l2(self):\n        self.assertEqual(1, 1)\n",
+            "tests/test_spoof_a.py",
+            "import unittest\nclass SA(unittest.TestCase):\n    @unittest.skip('gamed')\n    def test_sa(self):\n        self.assertEqual(calc(1), 2)\n",
         )
+        git(self.repo, "checkout", "-q", "main")
+        main_before_a = commit(self.repo, "other_a.py", "A = 1\n")
+        git(self.repo, "merge", "-q", "--no-ff", "-m", "Merge branch 'main'", "lane/spoof-a")
+        spoof_a = git(self.repo, "rev-parse", "HEAD")
         git(self.repo, "push", "-q", "origin", "main")
 
-        # Lane-1 merges origin/main in, then fast-forwards main to that merge commit
-        git(self.repo, "checkout", "-q", "lane/one")
+        res_spoof_a_bare = run("astack-verify-merge", spoof_a, "--strict-gates", "--repo", str(self.repo), cache=self.dir / "cache")
+        self.assertEqual(res_spoof_a_bare.returncode, 1, res_spoof_a_bare.stdout)
+        self.assertIn("test-skip", res_spoof_a_bare.stdout)
+
+        res_spoof_a_base = run("astack-verify-merge", spoof_a, "--base", main_before_a, "--strict-gates", "--repo", str(self.repo), cache=self.dir / "cache")
+        self.assertEqual(res_spoof_a_base.returncode, 1, res_spoof_a_base.stdout)
+        self.assertIn("test-skip", res_spoof_a_base.stdout)
+
+        # Attack B: gamed lane back-merges clean main WITH custom message "Sync upstream" (no "main")
+        fork_b = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "checkout", "-q", "-b", "lane/spoof-b", fork_b)
+        commit(
+            self.repo,
+            "tests/test_spoof_b.py",
+            "import unittest\nclass SB(unittest.TestCase):\n    @unittest.skip('gamed')\n    def test_sb(self):\n        self.assertEqual(calc(2), 4)\n",
+        )
+        git(self.repo, "checkout", "-q", "main")
+        main_before_b = commit(self.repo, "other_b.py", "B = 2\n")
+        git(self.repo, "push", "-q", "origin", "main")
+        git(self.repo, "checkout", "-q", "lane/spoof-b")
+        git(self.repo, "merge", "-q", "-m", "Sync upstream", "origin/main")
+        spoof_b = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "checkout", "-q", "main")
+        git(self.repo, "merge", "-q", "--ff-only", "lane/spoof-b")
+        git(self.repo, "push", "-q", "origin", "main")
+
+        res_spoof_b_bare = run("astack-verify-merge", spoof_b, "--strict-gates", "--repo", str(self.repo), cache=self.dir / "cache")
+        self.assertEqual(res_spoof_b_bare.returncode, 1, res_spoof_b_bare.stdout)
+        self.assertIn("test-skip", res_spoof_b_bare.stdout)
+
+        res_spoof_b_base = run("astack-verify-merge", spoof_b, "--base", main_before_b, "--strict-gates", "--repo", str(self.repo), cache=self.dir / "cache")
+        self.assertEqual(res_spoof_b_base.returncode, 1, res_spoof_b_base.stdout)
+        self.assertIn("test-skip", res_spoof_b_base.stdout)
+
+        # 5. Clean Lane-1 back-merges main containing Lane-2's countersigned skip:
+        #    verifying with --base <last-verified-main (lane2_sha)> isolates Lane-1 strictly and passes CLEAN!
+        fork_c = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "checkout", "-q", "-b", "lane/clean-c", fork_c)
+        commit(self.repo, "lane1.py", "def ok():\n    return True\n")
+        git(self.repo, "checkout", "-q", "main")
+        lane2_sha = commit(
+            self.repo,
+            "tests/test_lane2.py",
+            "import unittest\nclass L2(unittest.TestCase):\n    @unittest.skip('countersigned')\n    def test_l2(self):\n        self.assertEqual(calc(3), 6)\n",
+        )
+        git(self.repo, "push", "-q", "origin", "main")
+        git(self.repo, "checkout", "-q", "lane/clean-c")
         git(self.repo, "merge", "-q", "--no-edit", "origin/main")
         lane1_merge = git(self.repo, "rev-parse", "HEAD")
         git(self.repo, "checkout", "-q", "main")
-        git(self.repo, "merge", "-q", "--ff-only", "lane/one")
+        git(self.repo, "merge", "-q", "--ff-only", "lane/clean-c")
         git(self.repo, "push", "-q", "origin", "main")
 
-        # Both with --base fork_base and bare lane1_merge, Lane-1 verifies CLEAN under --strict-gates!
-        v_with_base = run(
-            "astack-verify-merge", lane1_merge, "--base", fork_base, "--strict-gates",
+        # Strict tree diff against last verified target commit (lane2_sha) is 100% clean
+        v_strict = run(
+            "astack-verify-merge", lane1_merge, "--base", lane2_sha, "--strict-gates",
             "--repo", str(self.repo), cache=self.dir / "cache",
         )
-        self.assertEqual(v_with_base.returncode, 0, v_with_base.stdout + v_with_base.stderr)
-        self.assertTrue(v_with_base.stdout.startswith("VERIFIED:"), v_with_base.stdout)
-        self.assertIn("lane1.py", v_with_base.stdout)
-        self.assertNotIn("test_lane2.py", v_with_base.stdout)
+        self.assertEqual(v_strict.returncode, 0, v_strict.stdout + v_strict.stderr)
+        self.assertTrue(v_strict.stdout.startswith("VERIFIED:"), v_strict.stdout)
+        self.assertIn("lane1.py", v_strict.stdout)
+        self.assertNotIn("test_lane2.py", v_strict.stdout)
 
-        v_bare = run(
+        # Without --base, merge commit audits BOTH parents and surfaces parent 1's skip with --base guidance
+        v_no_base = run(
             "astack-verify-merge", lane1_merge, "--strict-gates",
             "--repo", str(self.repo), cache=self.dir / "cache",
         )
-        self.assertEqual(v_bare.returncode, 0, v_bare.stdout + v_bare.stderr)
-        self.assertTrue(v_bare.stdout.startswith("VERIFIED:"), v_bare.stdout)
-        self.assertIn("lane1.py", v_bare.stdout)
-        self.assertNotIn("test_lane2.py", v_bare.stdout)
+        self.assertEqual(v_no_base.returncode, 1, v_no_base.stdout)
+        self.assertIn("pass --base <last-verified-target-sha>", v_no_base.stdout)
 
-        # And if Lane-1 adds a clean follow-up commit after back-merging main, --base fork_base still isolates Lane-1
-        git(self.repo, "checkout", "-q", "lane/one")
-        lane1_followup = commit(self.repo, "lane1_extra.py", "EXTRA = 1\n")
-        git(self.repo, "checkout", "-q", "main")
-        git(self.repo, "merge", "-q", "--ff-only", "lane/one")
-        git(self.repo, "push", "-q", "origin", "main")
-        v_followup = run(
-            "astack-verify-merge", lane1_followup, "--base", fork_base, "--strict-gates",
-            "--repo", str(self.repo), cache=self.dir / "cache",
+    def test_ordinary_new_tests_pass_clean_while_swaps_and_stubs_fail(self):
+        # 1. Ordinary new tests across pytest.raises, np.testing.assert_allclose, Go testify require.Equal,
+        #    Rust #[test] / #[should_panic], and custom helper calls (with nothing removed) MUST pass clean!
+        base = git(self.repo, "rev-parse", "HEAD")
+        commit(
+            self.repo,
+            "tests/test_raises_and_np.py",
+            "import numpy as np\nimport pytest\n\n"
+            "def test_bad_input():\n"
+            "    with pytest.raises(ValueError):\n"
+            "        parse('bad')\n\n"
+            "def test_numerics():\n"
+            "    np.testing.assert_allclose(compute_vec(), [1.0, 2.0], rtol=1e-6)\n\n"
+            "def test_custom_helper():\n"
+            "    verify_roundtrip({'k': 'v'})\n",
         )
-        self.assertEqual(v_followup.returncode, 0, v_followup.stdout + v_followup.stderr)
-        self.assertIn("lane1.py", v_followup.stdout)
-        self.assertIn("lane1_extra.py", v_followup.stdout)
-        self.assertNotIn("test_lane2.py", v_followup.stdout)
+        commit(
+            self.repo,
+            "math_test.go",
+            "package mathx\nimport (\n    \"testing\"\n    \"github.com/stretchr/testify/require\"\n)\n"
+            "func TestAdd(t *testing.T) {\n"
+            "    require.Equal(t, 4, Add(2, 2))\n"
+            "}\n"
+            "func TestOneLine(t *testing.T) { require.NoError(t, Run()) }\n",
+        )
+        commit(
+            self.repo,
+            "tests/lib_test.rs",
+            "#[test]\n"
+            "fn test_sum() {\n"
+            "    assert_eq!(add(2, 2), 4);\n"
+            "}\n"
+            "#[test]\n"
+            "#[should_panic(expected = \"boom\")]\n"
+            "fn test_panics() {\n"
+            "    explode();\n"
+            "}\n",
+        )
+        clean_res = run("astack-check-gates", f"{base}..HEAD", "--repo", str(self.repo), "--json")
+        self.assertEqual(clean_res.returncode, 0, clean_res.stdout + clean_res.stderr)
+        self.assertTrue(json.loads(clean_res.stdout)["clean"], clean_res.stdout)
+
+        # 2. Swapping a real assertion for `assert isinstance(...)` MUST be flagged
+        commit(self.repo, "tests/test_swap_isinstance.py", "def test_val():\n    res = calc(3)\n    assert res == 6\n")
+        sha_inst = commit(self.repo, "tests/test_swap_isinstance.py", "def test_val():\n    res = calc(3)\n    assert isinstance(res, int)\n")
+        res_inst = run("astack-check-gates", sha_inst, "--repo", str(self.repo), "--json")
+        self.assertEqual(res_inst.returncode, 1, res_inst.stdout)
+        self.assertIn("weakened-assertion", {f["category"] for f in json.loads(res_inst.stdout)["findings"]})
+
+        # 3. Go testify tautology `require.Equal(t, 1, 1)` MUST be flagged
+        sha_go_taut = commit(
+            self.repo,
+            "taut_test.go",
+            "package mathx\nfunc TestFake(t *testing.T) {\n    require.Equal(t, 1, 1)\n}\n",
+        )
+        res_go_taut = run("astack-check-gates", sha_go_taut, "--repo", str(self.repo), "--json")
+        self.assertEqual(res_go_taut.returncode, 1, res_go_taut.stdout)
+
+        # 4. Empty Go stub test `func TestStub(t *testing.T) {}` MUST be flagged even with nothing removed
+        sha_go_stub = commit(self.repo, "stub_test.go", "package mathx\nfunc TestStub(t *testing.T) {}\n")
+        res_go_stub = run("astack-check-gates", sha_go_stub, "--repo", str(self.repo), "--json")
+        self.assertEqual(res_go_stub.returncode, 1, res_go_stub.stdout)
+        self.assertTrue(any("empty/stub" in f["reason"] for f in json.loads(res_go_stub.stdout)["findings"]), res_go_stub.stdout)
+
+        # 5. Swapping a real test for an assertion-free call (`def test_fake(): calc(3)`) MUST be flagged
+        swap_base = commit(self.repo, "tests/test_real_swap.py", "def test_real():\n    assert calc(3) == 6\n")
+        sha_fake_swap = commit(self.repo, "tests/test_real_swap.py", "def test_fake():\n    calc(3)\n")
+        res_fake_swap = run("astack-check-gates", f"{swap_base}..{sha_fake_swap}", "--repo", str(self.repo), "--json")
+        self.assertEqual(res_fake_swap.returncode, 1, res_fake_swap.stdout)
+        self.assertIn("weakened-assertion", {f["category"] for f in json.loads(res_fake_swap.stdout)["findings"]})
 
 
 if __name__ == "__main__":

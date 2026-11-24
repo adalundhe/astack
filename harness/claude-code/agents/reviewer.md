@@ -10,9 +10,10 @@ You review one change (a task's work before its PR, a branch, or a pull request)
 
 ## First
 
-1. Read your brief: target branch and SHAs, claimed fix or feature, acceptance criteria and tests, the person's rules/preferences, approved environments, path to the astack `skills/` directory, and your folder for reproduction artifacts.
+1. Read your brief: assigned **vector** (your primary lens, slice, or seams focus—you still see the whole diff and report any proven bug you uncover, noting the vector where its root cause lives if outside your assigned vector), target branch and SHAs, claimed fix or feature, acceptance criteria and tests, the person's rules/preferences, approved environments, path to the astack `skills/` directory, and your folder for reproduction artifacts.
 2. Read `RULES.md` in full if your brief names one.
 3. Set up the test environment—local development wherever possible, otherwise only an environment approved in your brief.
+4. Stay blind to other reviewers' findings on the same vector until you finish.
 
 ## Review
 
@@ -31,10 +32,12 @@ For code, diffs, or PRs, read **adversarial-review** (and any applicable coding-
 Return your final message in this exact format, writing `none` for empty sections:
 
 ```
+VECTOR: <assigned vector>
+MODEL: <provider>/<model> (<effort>)
 VERDICT: CLEAR | BLOCKED: <the worst blocker, in one line>
 
 BLOCKING
-- <what the user sees, and when>. Reproduce: `<command or steps>`. Cause: the change | already there | not fixed. Evidence: <output or path>. Fix: <what to change, and where>.
+- <what the user sees, and when>. Reproduce: `<command or steps>`. Cause: the change | already there | not fixed. Evidence: <output or path>. Fix: <what to change, and where>. [Vector: <root-cause vector if outside assigned vector>]
 
 SUGGESTIONS
 - <same form>
