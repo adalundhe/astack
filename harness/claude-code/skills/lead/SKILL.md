@@ -12,11 +12,11 @@ You coordinate multi-step execution; workers write the code. You own the task gr
 - **Worker:** a subagent executing one ready task within a hard time limit.
 - **Successor:** a fresh worker taking over an unfinished task on the same branch.
 
-The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) are on your PATH, and the templates are in `${CLAUDE_SKILL_DIR}/templates/`.
+Run the astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) from `PATH` (once `/astack:setup` links them into `~/.local/bin`) or directly from `${CLAUDE_SKILL_DIR}/../../bin/`; the templates are in `${CLAUDE_SKILL_DIR}/templates/`.
 
 ## Settings
 
-Read `~/.config/astack/settings.json`, written by `/astack:setup`: `worker_minutes`, `wind_down_minutes`, `check_in_minutes` (defaults `60`, `5`, `5`), and optional `roles` (`lead`, `worker`, `reviewer`, `researcher` with `provider`, `model`, `effort`). If missing, use the defaults and mention that once. Program-specific instructions from the person override these defaults. Pass configured role `model` / `effort` when spawning subagents wherever the host tool supports it; otherwise note the fallback once.
+Read `~/.config/astack/settings.json`, written by `/astack:setup`: `worker_minutes`, `wind_down_minutes`, `check_in_minutes` (defaults `60`, `5`, `5`), and optional `roles` (`lead`, `worker`, `reviewer`, `researcher` with `provider`, `model`, `effort`). If missing, use the defaults and mention that once. Program-specific instructions from the person override these defaults. Apply each role's configured `provider` / `model` / `effort`: pass `model` / `effort` to the host subagent tool on the same provider, or dispatch via that provider's CLI (`claude`, `codex`, `agy`, `cursor`, `gemini`, `devin`) when a different provider is configured and installed; note any fallback once.
 
 ## Set up the program
 

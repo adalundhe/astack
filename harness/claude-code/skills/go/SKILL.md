@@ -9,11 +9,11 @@ You are running in astack Go mode. Every other astack skill is hidden from the m
 
 Skill files live beside this one at `${CLAUDE_SKILL_DIR}/../<name>/SKILL.md`. Never guess a skill's instructions from the one-line summary below—read the file first when it applies.
 
-The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) are on your PATH.
+Run the astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) from `PATH` (once `/astack:setup` links them into `~/.local/bin`) or directly from `${CLAUDE_SKILL_DIR}/../../bin/`.
 
 ## Startup
 
-1. Read `~/.config/astack/settings.json` (or `$XDG_CONFIG_HOME/astack/settings.json`) if present: timing (`worker_minutes`, `wind_down_minutes`, `check_in_minutes`, defaults `60 / 5 / 5`), per-role `provider`, `model`, and `effort` (`lead`, `worker`, `reviewer`, `researcher`, defaulting to the active session when `"default"` or unset), and `automation.mode` (`agentic-only` default vs `python-stack` with managed `uv` venv). Apply configured role models/effort when spawning subagents where the tool supports it, and default to pure-agentic workflows when `automation.mode` is `agentic-only`.
+1. Read `~/.config/astack/settings.json` (or `$XDG_CONFIG_HOME/astack/settings.json`) if present: timing (`worker_minutes`, `wind_down_minutes`, `check_in_minutes`, defaults `60 / 5 / 5`), per-role `provider`, `model`, and `effort` (`lead`, `worker`, `reviewer`, `researcher`, defaulting to the active session when `"default"` or unset), and `automation.mode` (`agentic-only` default vs `python-stack` with managed `uv` venv). Apply configured role provider/model/effort when dispatching work (using the host subagent tool on the same provider, or the configured provider's CLI such as `claude`, `codex`, `agy`, `cursor`, `gemini`, or `devin` when cross-provider and installed; note any fallback once), and default to pure-agentic workflows when `automation.mode` is `agentic-only`.
 2. Route immediately based on what the person asked for—don't pause to ask for permission before reading the matching skill(s).
 3. Follow astack's core sequence on all engineering work: **work -> robust -> fast**, verify on the real system, settle technical questions yourself with evidence and log why, and interrupt the person only for genuine human calls.
 

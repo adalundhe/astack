@@ -1,6 +1,7 @@
 """Behaviour tests for astack's scripts: what a lead or a hook sees when it runs them."""
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -354,6 +355,81 @@ class ToolsTest(Scratch):
         self.assertEqual(env_out.returncode, 0, env_out.stderr)
         self.assertIn(f"export VIRTUAL_ENV={venv}", env_out.stdout)
         self.assertIn(f"export PATH={venv / 'bin'}:", env_out.stdout)
+
+        ps_out = run("astack-tools", "env", "--venv", str(venv), "--shell", "powershell")
+        self.assertEqual(ps_out.returncode, 0, ps_out.stderr)
+        self.assertIn(f"$env:VIRTUAL_ENV = '{venv}'", ps_out.stdout)
+        self.assertIn("$env:PATH =", ps_out.stdout)
+
+        cmd_out = run("astack-tools", "env", "--venv", str(venv), "--shell", "cmd")
+        self.assertEqual(cmd_out.returncode, 0, cmd_out.stderr)
+        self.assertIn(f'set "VIRTUAL_ENV={venv}"', cmd_out.stdout)
+
+    def test_all_bin_python_scripts_work_under_system_python3_and_find_uv_outside_path(self):
+        interpreters = [sys.executable]
+        if Path("/usr/bin/python3").is_file() and str(Path("/usr/bin/python3").resolve()) != str(Path(sys.executable).resolve()):
+            interpreters.append("/usr/bin/python3")
+
+        py_scripts = [p for p in sorted(BIN.iterdir()) if p.is_file() and p.read_text().startswith("#!/usr/bin/env python3")]
+        self.assertGreaterEqual(len(py_scripts), 5)
+
+        fake_home = self.dir / "home"
+        bin_home = fake_home / ".local" / "bin"
+        bin_home.mkdir(parents=True)
+        uv_path = bin_home / "uv"
+        uv_path.write_text("#!/bin/sh\nif [ \"$1\" = \"python\" ] && [ \"$2\" = \"find\" ]; then echo /fake/py312; exit 0; fi\nexit 0\n")
+        uv_path.chmod(0o755)
+        for cli in ("claude", "codex", "agy"):
+            stub = bin_home / cli
+            stub.write_text("#!/bin/sh\nexit 0\n")
+            stub.chmod(0o755)
+        stripped_env = {"HOME": str(fake_home), "PATH": "/usr/bin:/bin"}
+
+        for py in interpreters:
+            for script in py_scripts:
+                if script.name == "astack-stamp":
+                    res = subprocess.run(
+                        [py, "-B", "-c", "import pathlib, sys; compile(pathlib.Path(sys.argv[1]).read_text(), sys.argv[1], 'exec')", str(script)],
+                        capture_output=True, text=True,
+                    )
+                else:
+                    res = subprocess.run([py, "-B", str(script), "--help"], capture_output=True, text=True)
+                self.assertEqual(res.returncode, 0, f"{py} {script.name}: {res.stderr}")
+
+            # Verify astack-tools doctor runs cleanly even under macOS /usr/bin/python3 (3.9)
+            # AND discovers ~/.local/bin/uv and agent harnesses even when PATH is stripped!
+            doc = subprocess.run(
+                [py, str(BIN / "astack-tools"), "doctor", "--venv", str(self.dir / "missing-venv"), "--json"],
+                capture_output=True, text=True, env=stripped_env,
+            )
+            self.assertEqual(doc.returncode, 1, doc.stderr)
+            data = json.loads(doc.stdout)
+            self.assertEqual(data["uv"], str(uv_path), f"{py} missed ~/.local/bin/uv")
+            self.assertEqual(data["compatible_python"], "/fake/py312")
+            self.assertIn(data["arch"], ("arm64", "amd64", platform.machine().lower()))
+            self.assertEqual(data["harnesses"]["claude"]["provider"], "anthropic")
+            self.assertEqual(data["harnesses"]["codex"]["provider"], "openai")
+            self.assertEqual(data["harnesses"]["agy"]["provider"], "google")
+
+    def test_link_bin_installs_scripts_idempotently_and_supports_copy(self):
+        bin_dir = self.dir / "user-bin"
+        first = run("astack-tools", "link-bin", "--bin-dir", str(bin_dir))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        for name in ("astack-tools", "astack-status", "astack-decisions", "astack-verify-merge", "astack-stamp"):
+            linked = bin_dir / name
+            self.assertTrue(linked.is_symlink(), f"missing symlink {linked}")
+            self.assertEqual(linked.resolve(), (BIN / name).resolve())
+
+        # Re-running is idempotent
+        second = run("astack-tools", "link-bin", "--bin-dir", str(bin_dir))
+        self.assertEqual(second.returncode, 0, second.stderr)
+
+        # --copy mode writes executable copies
+        copy_dir = self.dir / "user-bin-copy"
+        copied = run("astack-tools", "link-bin", "--bin-dir", str(copy_dir), "--copy")
+        self.assertEqual(copied.returncode, 0, copied.stderr)
+        self.assertTrue((copy_dir / "astack-tools").is_file())
+        self.assertFalse((copy_dir / "astack-tools").is_symlink())
 
     def test_install_provisions_python_via_uv_when_missing(self):
         fake_bin = self.dir / "fake-bin"

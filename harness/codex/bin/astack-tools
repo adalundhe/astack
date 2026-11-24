@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
-"""Install, inspect, load, and run astack's Python automation stack (taskex, orchestral, werkflow + werkflow-modules).
+"""Install, inspect, link, load, and run astack's Python automation stack (taskex, orchestral, werkflow + werkflow-modules).
 
 Usage:
   astack-tools doctor [--venv DIR] [--json]
   astack-tools install [--profile core|standard|all] [--modules LIST] [--from-github] [--python SPEC] [--venv DIR] [--dry-run]
+  astack-tools link-bin [--bin-dir DIR] [--copy] [--dry-run]
   astack-tools python [--venv DIR] [ARGS...]
   astack-tools werkflow [--venv DIR] [ARGS...]
-  astack-tools env [--venv DIR]
+  astack-tools env [--venv DIR] [--shell sh|powershell|cmd]
   astack-tools path [--venv DIR]
 
-Manages an isolated uv/Python venv at ${XDG_DATA_HOME:-~/.local/share}/astack/venv (override with ASTACK_VENV or --venv)
-so automation scripts never pollute a target repository's environment.
+Manages an isolated uv/Python venv (override with ASTACK_VENV or --venv) across macOS, Linux, and Windows
+(arm64 and amd64) so automation scripts never pollute a target repository's environment.
 """
+from __future__ import annotations
+
 import argparse
+import glob
 import json
 import os
+import platform
 import shlex
 import shutil
 import subprocess
@@ -46,6 +51,15 @@ ALL_KNOWN = CORE_PACKAGES + ("werkflow-core",) + ALL_MODULES
 MIN_PYTHON_SPEC = ">=3.11"
 DEFAULT_UV_PYTHON_INSTALL = "3.12"
 
+HARNESS_PROBES = (
+    ("claude", "anthropic", ("claude",)),
+    ("codex", "openai", ("codex",)),
+    ("agy", "google", ("agy", "antigravity")),
+    ("gemini", "google", ("gemini",)),
+    ("cursor", "cursor", ("cursor", "agent")),
+    ("devin", "devin", ("devin",)),
+)
+
 GITHUB_REPOS = {
     "taskex": "git+https://github.com/adalundhe/taskex.git",
     "orchestral": "git+https://github.com/adalundhe/orchestral.git",
@@ -54,11 +68,31 @@ GITHUB_REPOS = {
 WERKFLOW_MODULES_GIT = "git+https://github.com/adalundhe/werkflow-modules.git"
 
 
+def normalized_arch() -> str:
+    machine = platform.machine().lower()
+    if machine in ("aarch64", "arm64"):
+        return "arm64"
+    if machine in ("x86_64", "amd64", "x64"):
+        return "amd64"
+    return machine or "unknown"
+
+
 def default_venv() -> Path:
     if env_venv := os.environ.get("ASTACK_VENV"):
         return Path(env_venv).expanduser()
-    base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
-    return base / "astack" / "venv"
+    if xdg := os.environ.get("XDG_DATA_HOME"):
+        return Path(xdg).expanduser() / "astack" / "venv"
+    if os.name == "nt":
+        local_app = os.environ.get("LOCALAPPDATA")
+        base = Path(local_app) if local_app else Path.home() / "AppData" / "Local"
+        return base / "astack" / "venv"
+    return Path.home() / ".local" / "share" / "astack" / "venv"
+
+
+def default_bin_dir() -> Path:
+    if xdg_bin := os.environ.get("XDG_BIN_HOME"):
+        return Path(xdg_bin).expanduser()
+    return Path.home() / ".local" / "bin"
 
 
 def venv_bin_dir(venv: Path) -> Path:
@@ -66,13 +100,93 @@ def venv_bin_dir(venv: Path) -> Path:
 
 
 def venv_bin(venv: Path, name: str) -> Path:
-    return venv_bin_dir(venv) / name
+    directory = venv_bin_dir(venv)
+    if os.name == "nt":
+        for ext in (".exe", ".cmd", ".bat", ""):
+            candidate = directory / f"{name}{ext}"
+            if _is_file_safe(candidate):
+                return candidate
+        return directory / f"{name}.exe"
+    return directory / name
+
+
+def _is_file_safe(path: Path) -> bool:
+    try:
+        return path.is_file()
+    except OSError:
+        return False
+
+
+def _is_executable_file(path: Path) -> bool:
+    try:
+        if not path.is_file():
+            return False
+        return True if os.name == "nt" else os.access(path, os.X_OK)
+    except OSError:
+        return False
+
+
+def _standard_bin_dirs() -> list[Path]:
+    dirs: list[Path] = []
+    if xdg_bin := os.environ.get("XDG_BIN_HOME"):
+        dirs.append(Path(xdg_bin).expanduser())
+    if os.name == "nt":
+        local_app = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
+        app_data = Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+        program_data = Path(os.environ.get("ProgramData") or "C:/ProgramData")
+        dirs.extend([
+            Path.home() / ".local" / "bin",
+            Path.home() / ".cargo" / "bin",
+            local_app / "uv",
+            local_app / "Microsoft" / "WinGet" / "Links",
+            app_data / "npm",
+            Path.home() / "scoop" / "shims",
+            program_data / "chocolatey" / "bin",
+        ])
+    else:
+        dirs.extend([
+            Path.home() / ".local" / "bin",
+            Path.home() / ".cargo" / "bin",
+            Path("/opt/homebrew/bin"),
+            Path("/usr/local/bin"),
+            Path("/home/linuxbrew/.linuxbrew/bin"),
+            Path("/usr/bin"),
+        ])
+    return dirs
+
+
+def find_cli(names: tuple[str, ...]) -> str | None:
+    for name in names:
+        if found := shutil.which(name):
+            return found
+    exts = (".exe", ".cmd", ".bat", "") if os.name == "nt" else ("",)
+    for directory in _standard_bin_dirs():
+        for name in names:
+            for ext in exts:
+                path = directory / f"{name}{ext}"
+                if _is_executable_file(path):
+                    return str(path)
+    return None
+
+
+def find_uv() -> str | None:
+    return find_cli(("uv",))
+
+
+def detect_harnesses() -> dict[str, dict[str, str]]:
+    found: dict[str, dict[str, str]] = {}
+    for key, provider, binaries in HARNESS_PROBES:
+        if path := find_cli(binaries):
+            found[key] = {"provider": provider, "path": path}
+    return found
 
 
 def is_compatible_python(path: str) -> bool:
-    if not path or not Path(path).exists():
+    if not path:
         return False
     try:
+        if not Path(path).exists():
+            return False
         probe = subprocess.run(
             [path, "-c", "import sys; print(sys.version_info >= (3, 11))"],
             capture_output=True, text=True,
@@ -98,9 +212,41 @@ def find_python(explicit: str | None) -> str | None:
     if explicit:
         resolved = explicit if Path(explicit).is_absolute() else shutil.which(explicit)
         return resolved if resolved and is_compatible_python(resolved) else None
-    for candidate in ("python3.13", "python3.12", "python3.11", "/opt/homebrew/bin/python3", "python3", sys.executable):
-        path = candidate if Path(candidate).is_absolute() else shutil.which(candidate)
-        if path and is_compatible_python(path):
+    candidates: list[str] = []
+    if os.name == "nt":
+        if py_launcher := shutil.which("py"):
+            for minor in ("3.14", "3.13", "3.12", "3.11", "3"):
+                try:
+                    probe = subprocess.run(
+                        [py_launcher, f"-{minor}", "-c", "import sys; print(sys.executable)"],
+                        capture_output=True, text=True,
+                    )
+                except OSError:
+                    break
+                if probe.returncode == 0 and probe.stdout.strip():
+                    candidates.append(probe.stdout.strip())
+        for name in ("python3.14", "python3.13", "python3.12", "python3.11", "python3", "python"):
+            if found := shutil.which(name):
+                candidates.append(found)
+        local_app = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        for match in sorted(glob.glob(str(Path(local_app) / "Programs" / "Python" / "Python3*" / "python.exe")), reverse=True):
+            candidates.append(match)
+        candidates.append(sys.executable)
+    else:
+        for item in (
+            "python3.14", "python3.13", "python3.12", "python3.11",
+            "/opt/homebrew/bin/python3", "/usr/local/bin/python3",
+            "python3", "/usr/bin/python3", sys.executable,
+        ):
+            path = item if Path(item).is_absolute() else shutil.which(item)
+            if path:
+                candidates.append(path)
+    seen: set[str] = set()
+    for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        if is_compatible_python(path):
             return path
     return None
 
@@ -146,17 +292,25 @@ def resolve_packages(profile: str, modules: str | None, from_github: bool) -> li
 def inspect_venv(venv: Path) -> dict:
     py = venv_bin(venv, "python")
     wf_cli = venv_bin(venv, "werkflow")
-    uv = shutil.which("uv")
+    uv = find_uv()
     compatible_python = find_uv_python(uv, MIN_PYTHON_SPEC) if uv else None
     if not compatible_python:
         compatible_python = find_python(None)
+    on_path = shutil.which("astack-tools")
+    harnesses = detect_harnesses()
+    py_exists = _is_file_safe(py)
+    wf_exists = _is_file_safe(wf_cli)
     info = {
+        "platform": sys.platform,
+        "arch": normalized_arch(),
+        "astack_tools_on_path": on_path,
+        "harnesses": harnesses,
         "venv": str(venv),
-        "venv_exists": py.is_file(),
-        "python": str(py) if py.is_file() else None,
+        "venv_exists": py_exists,
+        "python": str(py) if py_exists else None,
         "python_version": None,
         "compatible_python": compatible_python,
-        "werkflow_cli": str(wf_cli) if wf_cli.is_file() else None,
+        "werkflow_cli": str(wf_cli) if wf_exists else None,
         "uv": uv,
         "packages": {pkg: None for pkg in ALL_KNOWN},
         "capabilities": {
@@ -165,7 +319,7 @@ def inspect_venv(venv: Path) -> dict:
             "orchestral_checkpoints": False,
         },
     }
-    if not py.is_file():
+    if not py_exists:
         return info
     probe_code = (
         "import importlib, importlib.metadata, json, sys\n"
@@ -201,6 +355,12 @@ def inspect_venv(venv: Path) -> dict:
     return info
 
 
+def uv_install_hint() -> str:
+    if os.name == "nt":
+        return 'powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex" (or winget install --id=astral-sh.uv -e)'
+    return "curl -LsSf https://astral.sh/uv/install.sh | sh (or brew install uv)"
+
+
 def cmd_doctor(args) -> int:
     info = inspect_venv(args.venv)
     core_ok = all(info["packages"].get(p) for p in CORE_PACKAGES)
@@ -209,11 +369,17 @@ def cmd_doctor(args) -> int:
         return 0 if core_ok else 1
 
     print(f"astack-tools venv: {info['venv']} ({'ready' if info['venv_exists'] else 'missing'})")
+    print(f"  platform: {info['platform']} ({info['arch']})")
+    print(f"  on PATH: {info['astack_tools_on_path'] or 'no (run `astack-tools link-bin` to link into ~/.local/bin)'}")
     if info["python_version"]:
         print(f"  venv python: {info['python']} ({info['python_version']})")
-    print(f"  uv: {info['uv'] or 'not found (install uv or provide Python >=3.11)'}")
+    print(f"  uv: {info['uv'] or 'not found (' + uv_install_hint() + ')'}")
     print(f"  python >=3.11: {info['compatible_python'] or 'not found (uv python install can provision one)'}")
     print(f"  werkflow cli: {info['werkflow_cli'] or 'missing'}")
+    if info["harnesses"]:
+        print("\nDetected agent harnesses")
+        for key, meta in info["harnesses"].items():
+            print(f"  {key} ({meta['provider']}): {meta['path']}")
     print("\nCore packages")
     caps = info["capabilities"]
     orch_feats = []
@@ -255,9 +421,9 @@ def cmd_install(args) -> int:
         print(f"error: {err}", file=sys.stderr)
         return 2
 
-    uv = shutil.which("uv")
+    uv = find_uv()
     py_venv = venv_bin(args.venv, "python")
-    commands = []
+    commands: list[list[str]] = []
 
     if not py_venv.is_file():
         if uv:
@@ -274,9 +440,8 @@ def cmd_install(args) -> int:
             py_host = find_python(args.python)
             if not py_host:
                 print(
-                    "error: Python >=3.11 is required and `uv` is not installed. "
-                    "Install uv (https://docs.astral.sh/uv/getting-started/installation/) "
-                    "or pass --python <path-to-python3.11+>.",
+                    f"error: Python >=3.11 is required and `uv` was not found. "
+                    f"Install uv with `{uv_install_hint()}` or pass --python <path-to-python3.11+>.",
                     file=sys.stderr,
                 )
                 return 1
@@ -300,14 +465,98 @@ def cmd_install(args) -> int:
     return cmd_doctor(argparse.Namespace(venv=args.venv, as_json=False))
 
 
+def _dir_on_path(target_dir: Path) -> bool:
+    resolved = str(target_dir.resolve()) if target_dir.exists() else str(target_dir.expanduser())
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if not entry:
+            continue
+        try:
+            if str(Path(entry).expanduser().resolve()) == resolved:
+                return True
+        except OSError:
+            if os.path.normcase(entry) == os.path.normcase(resolved):
+                return True
+    return False
+
+
+def cmd_link_bin(args) -> int:
+    source_dir = Path(__file__).resolve().parent
+    scripts = sorted(p for p in source_dir.iterdir() if p.is_file() and p.name.startswith("astack-"))
+    if not scripts:
+        print(f"error: no astack-* scripts found in {source_dir}", file=sys.stderr)
+        return 1
+
+    target_dir = args.bin_dir.expanduser()
+    actions: list[str] = []
+    if not args.dry_run:
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+    for src in scripts:
+        if os.name == "nt":
+            if src.name.endswith("-hook"):
+                continue
+            target_py = target_dir / src.name if args.copy else src
+            if args.copy:
+                actions.append(f"copy {src} -> {target_py}")
+                if not args.dry_run and src.resolve() != target_py.resolve():
+                    shutil.copy2(src, target_py)
+            shim = target_dir / f"{src.name}.cmd"
+            actions.append(f"write {shim} -> {target_py}")
+            if not args.dry_run:
+                shim.write_text(
+                    "@echo off\r\n"
+                    f"where py >nul 2>nul && (py -3 \"{target_py}\" %* & exit /b %ERRORLEVEL%)\r\n"
+                    f"python \"{target_py}\" %*\r\n"
+                )
+        else:
+            dst = target_dir / src.name
+            if dst.exists() and dst.resolve() == src.resolve() and not dst.is_symlink():
+                actions.append(f"keep {dst} (already in place)")
+                continue
+            if args.copy:
+                actions.append(f"copy {src} -> {dst}")
+                if not args.dry_run:
+                    tmp = target_dir / f".{src.name}.astack-tmp"
+                    shutil.copy2(src, tmp)
+                    os.chmod(tmp, 0o755)
+                    os.replace(tmp, dst)
+            else:
+                actions.append(f"link {dst} -> {src}")
+                if not args.dry_run:
+                    tmp = target_dir / f".{src.name}.astack-tmp"
+                    tmp.unlink(missing_ok=True)
+                    tmp.symlink_to(src)
+                    os.replace(tmp, dst)
+
+    for line in actions:
+        print(line)
+    if not _dir_on_path(target_dir):
+        if os.name == "nt":
+            print(f'\nNote: {target_dir} is not on PATH. Add it in PowerShell with:')
+            print(f'  [Environment]::SetEnvironmentVariable("Path", $env:Path + ";{target_dir}", "User")')
+        else:
+            print(f'\nNote: {target_dir} is not on PATH. Add it to your shell profile:')
+            print(f'  export PATH="{target_dir}:$PATH"')
+    return 0
+
+
 def cmd_env(args) -> int:
     py = venv_bin(args.venv, "python")
     if not py.is_file():
         print(f"astack-tools: venv not installed at {args.venv}. Run `astack-tools install`.", file=sys.stderr)
         return 1
+    shell = args.shell or ("powershell" if os.name == "nt" else "sh")
     bin_dir = str(venv_bin_dir(args.venv))
-    print(f"export VIRTUAL_ENV={shlex.quote(str(args.venv))}")
-    print(f'export PATH={shlex.quote(bin_dir)}:"$PATH"')
+    venv_str = str(args.venv)
+    if shell == "powershell":
+        print(f"$env:VIRTUAL_ENV = '{venv_str.replace(chr(39), chr(39)*2)}'")
+        print(f"$env:PATH = '{bin_dir.replace(chr(39), chr(39)*2)};' + $env:PATH")
+    elif shell == "cmd":
+        print(f'set "VIRTUAL_ENV={venv_str}"')
+        print(f'set "PATH={bin_dir};%PATH%"')
+    else:
+        print(f"export VIRTUAL_ENV={shlex.quote(venv_str)}")
+        print(f'export PATH={shlex.quote(bin_dir)}:"$PATH"')
     return 0
 
 
@@ -337,7 +586,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Manage and run astack's Python automation stack.")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_doc = sub.add_parser("doctor", aliases=["status"], help="check uv, Python >=3.11, and installed automation tools")
+    p_doc = sub.add_parser("doctor", aliases=["status"], help="check uv, Python >=3.11, PATH, and installed automation tools")
     p_doc.add_argument("--venv", type=Path, default=default_venv())
     p_doc.add_argument("--json", action="store_true", dest="as_json")
 
@@ -349,11 +598,17 @@ def main(argv=None) -> int:
     p_inst.add_argument("--python", help="Python version/interpreter spec for uv or venv (>=3.11)")
     p_inst.add_argument("--dry-run", action="store_true", help="print commands without executing")
 
+    p_link = sub.add_parser("link-bin", help="link (or copy) astack-* CLI scripts onto PATH (default ~/.local/bin)")
+    p_link.add_argument("--bin-dir", type=Path, default=default_bin_dir())
+    p_link.add_argument("--copy", action="store_true", help="copy scripts instead of symlinking")
+    p_link.add_argument("--dry-run", action="store_true", help="print actions without modifying files")
+
     sub.add_parser("python", help="run python inside the managed venv")
     sub.add_parser("werkflow", help="run the werkflow CLI inside the managed venv")
 
-    p_env = sub.add_parser("env", help="print shell exports to load the managed venv (`eval \"$(astack-tools env)\"`)")
+    p_env = sub.add_parser("env", help="print shell exports to load the managed venv")
     p_env.add_argument("--venv", type=Path, default=default_venv())
+    p_env.add_argument("--shell", choices=("sh", "powershell", "cmd"), help="shell syntax (default: auto)")
 
     p_path = sub.add_parser("path", help="print the managed venv's python path")
     p_path.add_argument("--venv", type=Path, default=default_venv())
@@ -363,6 +618,8 @@ def main(argv=None) -> int:
         return cmd_doctor(args)
     if args.command == "install":
         return cmd_install(args)
+    if args.command == "link-bin":
+        return cmd_link_bin(args)
     if args.command == "env":
         return cmd_env(args)
     if args.command == "path":

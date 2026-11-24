@@ -150,7 +150,7 @@ Indexed in `go` and checked by `review`:
   - `astack-decisions`: query `decided:` entries and verbatim `person:` directives (`--query`, `--settled-by`, `--since`, `--json`).
   - `astack-verify-merge`: verifies a claimed commit is on the target branch and can run checks in a clean worktree.
   - `astack-stamp` (+ post-edit hook): timestamps new lines appended to `LANES.md`.
-  - `astack-tools`: provisions Python `>=3.11` via `uv` and manages an isolated venv (`~/.local/share/astack/venv`) for `taskex`, `orchestral`, and `werkflow` (`doctor`, `install`, `python`, `werkflow`, `env`, `path`).
+  - `astack-tools`: links `astack-*` CLI scripts onto `PATH` (`link-bin`), provisions Python `>=3.11` via `uv` across macOS/Linux/Windows (arm64 & amd64), and manages an isolated venv for `taskex`, `orchestral`, and `werkflow` (`doctor`, `install`, `link-bin`, `python`, `werkflow`, `env`, `path`).
 - **Evals & CI:** 9 Claude Code evals under `evals/` (worker wind-down/reports, Go-mode routing, 6 coding rules) and GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).
 
 ## Working on astack

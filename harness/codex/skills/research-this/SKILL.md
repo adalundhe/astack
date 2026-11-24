@@ -13,7 +13,7 @@ Investigate a question across internal and external sources, quote every source,
 2. **Search inside:** code, measurements, data, logs, traces, metrics, docs, media on your machines, and past records (earlier conversations, plans, CI runs, deployments).
 3. **Search outside:** standards and official docs, peer-reviewed papers (arXiv, Semantic Scholar, Crossref, PubMed), books, preprints/news, blogs, and forums.
 4. **Cover both sides.** Research isn't complete without both internal and external sources—or an explicit reason why one side has none.
-5. **Parallelize lookups:** when subagents are available, fan out independent strands to read-only subagents, collecting viable competing implementations to prototype and measure (**explore-the-limits**, **ab-test**) alongside any proven limits.
+5. **Parallelize lookups:** when subagents or configured provider CLIs are available, check `roles.researcher` (`provider`, `model`, `effort`) in `~/.config/astack/settings.json` if present and fan out independent strands to read-only researchers, collecting viable competing implementations to prototype and measure (**explore-the-limits**, **ab-test**) alongside any proven limits.
 
 ## Record what you find
 
