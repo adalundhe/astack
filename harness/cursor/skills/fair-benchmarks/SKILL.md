@@ -5,9 +5,7 @@ description: "Compare against other systems fairly: same client, same platform, 
 
 # Fair benchmarks
 
-Every system in a comparison runs on the same platform and is driven by the same client.
-
-**Why:** with different clients or platforms, the gap measures the clients or platforms, not the systems.
+Compare against other systems fairly: the same platform and the same client for every system.
 
 - One driver for every system, with the same concurrency, batching, pacing and timeouts. Each system may speak its own protocol inside it.
 - Same machine, OS, disk and filesystem. Containers for all or for none.
