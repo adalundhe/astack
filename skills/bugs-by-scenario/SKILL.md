@@ -5,9 +5,7 @@ description: "A failing test or suspected bug is real only when a real scenario 
 
 # Bugs are proven by scenarios
 
-A failing test or suspected bug is real when a real scenario shows it: the query, the workload, or the benchmark against competitors, run the way a user runs it.
-
-**Why:** lists of failing tests never end, and many entries are about the test, the machine or the clock. The scenario shows what users get.
+Confirm a bug with a real scenario before fixing it: the query, the workload, or the benchmark against competitors, run the way a user runs it.
 
 - Run the scenario. If it misbehaves, write a test that fails for the reason a user sees, then fix the cause.
 - If it behaves, write one line and move on.
