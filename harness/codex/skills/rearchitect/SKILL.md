@@ -20,7 +20,8 @@ Find where a codebase's structure gets in the way, show how to fix it, and start
 6. **Respect earlier decisions.** If a candidate goes against a recorded architecture decision, raise it only when the friction is serious enough to reopen that decision, and say so on its card.
 7. **Present the report** without waiting to be asked: a page outside the repository, in a cache folder, with the candidates ranked and your top pick and why (**play-with-me**).
 8. **Start on the top pick,** on its own branch, and keep going unless the person redirects. Record it as the project's next architecture decision (**create-adc**), with the candidates you passed over and why, so a later review doesn't suggest them again.
-9. **Change it safely:** pin today's behaviour with tests first (**tests-assert-behaviour**), plan the moves (**dagify**), and restructure in small steps that each pass (**modularize** for splits). When the right interface isn't clear, build two and compare them (**ab-test**).
-10. **Use the project's own words** for what you name, and add new terms to its glossary if it keeps one.
+9. **Plan it with dagify** (**dagify**): break the restructure into small tasks, each with its acceptance criteria and tests, starting with tests that pin today's behaviour (**tests-assert-behaviour**) and ending in review, ordered so independent moves run in parallel. The tasks are reviewed before any starts.
+10. **Make the moves in small steps that each pass** (**modularize** for splits). When the right interface isn't clear, build two and compare them (**ab-test**).
+11. **Use the project's own words** for what you name, and add new terms to its glossary if it keeps one.
 
 <!-- Adapts the improve-codebase-architecture skill of mattpocock/skills (MIT, Copyright (c) 2026 Matt Pocock). See NOTICE.md. -->
