@@ -5,9 +5,7 @@ description: "Work out an architecture decision with the person, one evidenced d
 
 # Create ADC
 
-Work the decision out with the person the way a well-tenured architect would, then write it up as the project's next architecture decision: a document of record that says what was decided, why, what it costs, and how to check it.
-
-**Why:** a decision that isn't written down gets argued again, and one written down without its evidence can't be trusted or revisited.
+Work out an architecture decision with the person, then record it as the project's next architecture decision: what was decided, why, what it costs, and how to check it.
 
 ## The design tree
 

@@ -10,8 +10,6 @@ You run the program. Workers write the code. You own the rules, the briefs, the 
 
 A **lane** is one deliverable and its done-when. A **worker** is the subagent that builds it within a time limit. A **successor** is a new worker on the same lane.
 
-**Why:** left alone, agents expand scope without end. One deliverable per lane, a hard limit per worker, and a lead that checks every claim get work finished.
-
 The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`) are in this package's `bin/` folder, two folders up from this file; run them by that path. The templates are in `templates/`, beside this file.
 
 ## Settings
@@ -26,6 +24,7 @@ Read `~/.config/astack/settings.json`, written by `/astack-setup`: `worker_minut
 4. Give each lane one deliverable and the evidence that it is done: a command and its output, a scenario that behaves, a SHA on main. No evidence, no lane: a worker given four things finishes none.
 5. Order the lanes: work, then robust, then fast. Numbers measured on unfinished code are wasted.
 6. Schedule a check-in every `check_in_minutes` with `/loop`. Drift and the clock send no event, so the schedule catches them.
+7. If the person tracks work in an issue tracker, create an issue for each lane and keep it up to date (**track-it**). Only you update the tracker; workers report to you.
 
 ## Start a worker
 
@@ -52,7 +51,7 @@ Send one short message that stands alone: stop X, do Y, because Z. Cursor docume
 
 1. Read its report, losses first.
 2. Verify every claimed merge with `astack-verify-merge <sha>` (add `--check "<touched tests>"` when they are quick), and check the done-when evidence. A report is a claim.
-3. Log the end and what it decided by data. If the done-when holds, close the lane; if not, start a successor now.
+3. Log the end, and each decision it reported as a `decided:` line. If the done-when holds, close the lane; if not, start a successor now.
 4. Log findings, one line each. A finding becomes work only if it blocks a lane or the person says so.
 5. Take anything under NEEDS THE PERSON through the steps under Decisions first. Ask only what survives them.
 
@@ -68,15 +67,15 @@ LANES.md is the program's memory: one line per event, appended, never rewritten.
 
 ## Decisions
 
-- Workers settle their own design choices with **ab-test**. Settle choices that span lanes the same way, and log each result.
+- You and the workers are free to explore, research, form hypotheses, try things, succeed, fail, learn and improve. Workers settle their own choices; settle choices that span lanes the same way, with an A/B (**ab-test**) or a proof of concept (**play-with-me**) where one can decide. Log every decision with what settled it, as a `decided:` line.
 - Before asking the person anything, work through their earlier decisions (in the log), the repository, outside research, and an A/B where measuring can answer it.
 - Bring the person only what none of those settles: an action only they can take (signing in, installing as root, spending money), a trade of functionality or durability, or an irreversible or outward step they haven't authorized.
 - Ask outright, as a plain choice with your pick (**decisions-in-plain-words**), with Cursor's question tool, and keep working on everything else.
-- Never ask about retries, flakes, machines, merge mechanics or whether to continue.
+- Never ask for confirmation, for approval the person has already given, or about retries, flakes, machines, merge mechanics or whether to continue.
 - Log the person's words verbatim and pass them to the workers they affect.
 
 ## Report
 
-Plain words, losses first: what didn't land and why, what landed (verified SHAs), each lane's state, and the questions waiting.
+Plain words, losses first: what didn't land and why, what landed (verified SHAs), each lane's state, the decisions made and what settled them, and the questions waiting.
 
 <!-- Adapts pstack's Orchestrate playbook and poteto-mode Subagents section (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

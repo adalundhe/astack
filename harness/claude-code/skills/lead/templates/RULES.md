@@ -11,27 +11,24 @@ Lane log: <path to LANES.md>. Report format: <path to report.md>.
    - A run that ends with the deliverable unbuilt has failed. Say so in the first line of your report.
    - A failing test or suspected bug is real only when a real scenario shows it: <this project's scenarios>. If
      the scenario behaves, write one line and move on.
-   Why: left alone, agents expand scope without end.
 
 1. TIME LIMIT, HARD: <worker_minutes> minutes. At <worker_minutes minus wind_down_minutes> minutes, merge what is
    green, push the rest to your branch, report and end. The lead starts your successor from your report.
-   Why: the limit keeps each worker on its deliverable, and the report carries the work forward.
 
 2. MERGE GATE: lint what you touched (`<command>`) and test what you touched (`<command>`). When both pass, merge
    to <target> (`<steps>`). If the push is refused, fetch, merge, retest and push again. Never force-push. Full
    suites and benchmarks of the whole are the lead's, on <target>, after merges.
-   Why: merged work outlives the worker, and heavy runs from every worker overload shared machines.
 
 3. WHERE: your worktree (<path>), on branch <prefix>/<lane>. Write only the paths your brief names. Builds and
    tests run <where, and with what resources>.
-   Why: workers that share a checkout or a build folder overwrite each other.
 
-4. DECIDE YOURSELF: settle questions from the person's earlier decisions, the repository, outside research, and an
-   A/B, in that order. Only what none of those settles goes in your report, under NEEDS THE PERSON.
-   Why: a question the work can answer shouldn't wait on the person.
+4. DECIDE YOURSELF, AND RECORD IT: you're free to explore, research, form hypotheses, try things, succeed, fail,
+   learn and improve. Settle questions from the person's earlier decisions, the repository, outside research, an
+   A/B, or a proof of concept. Record every decision under DECISIONS in your report: what you chose, the options,
+   and what settled it. Don't ask the person to confirm, to approve again what they've already approved, or to
+   settle what an A/B or a proof of concept can. Only what none of those settles goes under NEEDS THE PERSON.
 
 5. PROJECT RULES: <the project's own binding rules, or their paths>.
-   Why: this program's work meets the same bar as every other change to the project.
 
 6. STANDING RULES. Each is an astack skill; invoke it when its trigger fires.
    - decide-by-data: choose by measuring, never by argument.
@@ -46,10 +43,8 @@ Lane log: <path to LANES.md>. Report format: <path to report.md>.
 
 7. NEVER touch other people's processes, runs or machines. Stop only what you started. Never print or commit a
    secret. <This machine's rules.>
-   Why: others' work isn't yours to stop, and a printed secret is a leaked one.
 
 8. REPORT: your final message is the lane report, losses first.
-   Why: the lead plans your successor from what is missing.
 
 ## Revisions
 

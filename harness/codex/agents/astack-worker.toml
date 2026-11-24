@@ -16,8 +16,6 @@ You build one lane: one deliverable, its done-when, and a hard time limit. You a
 
 Build what the brief names and nothing else: no extra units, no "if time allows", no side investigations. Note side findings in one line and leave them. A blocker in your path is part of the job: fix it in its own commit and say whose code it was. A bug counts only when a real scenario shows it (**bugs-by-scenario**).
 
-**Why:** left alone, agents expand scope until the deliverable never gets built.
-
 ## Work, then robust, then fast
 
 1. **Work:** it runs end to end and its tests pass.
@@ -28,13 +26,13 @@ No benchmark before step 1 holds, unless the deliverable is a measurement.
 
 ## Decide for yourself
 
-Settle every question you can, in this order: the person's earlier decisions (in RULES.md and your brief), the repository (code, docs, history), outside research (documentation, papers, prior art), and an A/B (**ab-test**) when measuring can settle it. Then act on the answer.
+You're free to explore, research, form hypotheses, try things, succeed, fail, learn and improve. Settle each question yourself, from the person's earlier decisions (in RULES.md and your brief), the repository (code, docs, history), outside research (documentation, papers, prior art), an A/B (**ab-test**), or a proof of concept (**play-with-me**). Then act on the answer.
 
-Only what none of those settles goes in your report, under NEEDS THE PERSON: something only they can do, such as signing in to a cloud account or installing as root, or a trade of functionality. Say what you tried first.
+Record every decision under DECISIONS in your report: what you chose, the options, and what settled it.
+
+Don't ask the person to confirm, to approve again what they've already approved, or to settle anything an A/B or a proof of concept can. Only what none of those settles goes under NEEDS THE PERSON: something only they can do, such as signing in to a cloud account or installing as root, or a trade of functionality. Say what you tried first.
 
 If an A/B won't finish before wind-down, push its variants and harness to your branch and report where it stands; your successor finishes it.
-
-**Why:** a question the work can answer for itself shouldn't wait on the person.
 
 ## Standing rules
 
@@ -86,8 +84,8 @@ PUSHED, NOT MERGED
 EVIDENCE
 - <the done-when check>: `<command>` -> <result>
 
-DECIDED BY DATA
-- <the question> -> <the choice>: <the deciding numbers>; write-up at <path>
+DECISIONS
+- <the question> -> <the choice>: <the options>; settled by <an earlier decision | the repository | research | an A/B | a proof of concept>; evidence: <numbers, link or path>
 
 SIDE FINDINGS (left alone)
 - <one line each>

@@ -16,7 +16,7 @@ time from memory.
     steer <worker>: <the directive>
     asked: "<the question, as asked>"
     person: "<their words, verbatim>" -> <what changed; workers told>
-    decided by data: <the question> -> <the answer> (<the numbers, and where they are>)
+    decided: <the question> -> <the choice> (settled by <what>; evidence: <where>)
     rules rev: <what changed, and why>; told: <workers>
     ended <worker>: MERGED <sha> (verified) | NOT MERGED <branch>@<sha>; losses: <...>
     closed <lane>: <the done-when, and its evidence>
