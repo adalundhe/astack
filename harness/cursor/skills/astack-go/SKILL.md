@@ -9,7 +9,7 @@ You are running in astack Go mode. Every other astack skill is hidden from the m
 
 Skill files live beside this one at `../<name>/SKILL.md`. Never guess a skill's instructions from the one-line summary below—read the file first when it applies.
 
-The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`) are in this package's `bin/` folder, two folders up from this file; run them by that path.
+The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) are in this package's `bin/` folder, two folders up from this file; run them by that path.
 
 ## Startup
 
@@ -65,6 +65,9 @@ Read the matching skill file(s) before starting:
   - Rewrite unclear/jargon-heavy output cleanly: `../wat/SKILL.md`
   - Write or update concrete, verified documentation: `../technical-writing/SKILL.md`
   - Replace repeated commands/polling with scripts and watchers: `../automate-this/SKILL.md`
+  - Author/manage async tasks, shell runners, and watchers (`taskex`): `../taskex/SKILL.md`
+  - Author/manage multi-stage concurrent pipelines (`orchestral`): `../orchestral/SKILL.md`
+  - Author/manage modular DAG workflows and integrations (`werkflow` + `werkflow-modules`): `../werkflow/SKILL.md`
   - Remove temp files, build artifacts, and leftover processes: `../cleanup/SKILL.md`
   - Capture session lessons and enforce fixes structurally: `../make-it-stick/SKILL.md`
 

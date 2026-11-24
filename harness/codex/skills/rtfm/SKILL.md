@@ -1,7 +1,6 @@
 ---
 name: rtfm
 description: "Check the user's message, repo docs/code/history, local environment, and official tool docs before asking questions or claiming to be blocked. Use before asking the person anything."
-disable-model-invocation: true
 ---
 
 # RTFM
@@ -18,3 +17,5 @@ Before asking a question, declaring yourself blocked, calling a requirement uncl
 Then actually test what you read—run the command, inspect the source, call the API.
 
 Only ask if nothing above resolves it, and include what you already checked and tried (**decisions-in-plain-words**). Don't ask anything the existing material already answers.
+
+Referenced skills: `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.

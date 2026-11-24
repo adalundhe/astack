@@ -18,3 +18,5 @@ Push back on an incorrect or overstated review point with concrete evidence inst
 4. **Reply once,** impact first, with the evidence attached. The reviewer either withdraws the point or supplies a working reproduction.
 
 If an agent reviewer repeatedly raises points that fail verification, replace it with a fresh reviewer.
+
+Referenced skills: `research-this` (`${CLAUDE_SKILL_DIR}/../research-this/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.

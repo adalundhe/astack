@@ -32,3 +32,5 @@ Review a change by trying to break it the way its users would, in its real envir
 
    P0–P2 are blocking, P3 is a suggestion, P4 is a suggestion or nit, and P5 is a nit. Keep the P0–P5 labels internal; don't print them in the report.
 9. **Report clearly.** Lead with blockers, then suggestions, then nits. Start each finding with user impact (what breaks and when), then the reproduction, brief evidence, and concrete fix (what to change and where; for a rule departure, cite the rule's `Start with` guidance or the evidence needed to justify keeping it). Finish with what you tested that held. Don't edit the code under review; save reproductions as standalone files the fix can adopt as failing tests.
+
+Referenced skills: `full-spectrum-testing` (`${CLAUDE_SKILL_DIR}/../full-spectrum-testing/SKILL.md`), `simplify-me` (`${CLAUDE_SKILL_DIR}/../simplify-me/SKILL.md`). Read any cited skill file before acting when its trigger applies.

@@ -22,4 +22,6 @@ Send reviewer subagents to break the change, and keep only findings confirmed by
 
 Never modify the code under review. Hand findings back to the author (or, in an astack program, the lead turns them into lanes).
 
+Referenced skills: `run-it-back` (`../run-it-back/SKILL.md`), `data-structures-first` (`../data-structures-first/SKILL.md`), `no-implicit-states` (`../no-implicit-states/SKILL.md`), `no-hidden-flow-control` (`../no-hidden-flow-control/SKILL.md`), `no-hidden-config` (`../no-hidden-config/SKILL.md`), `minimize-state-stores` (`../minimize-state-stores/SKILL.md`), `check-your-boundaries` (`../check-your-boundaries/SKILL.md`), `no-shared-writes` (`../no-shared-writes/SKILL.md`), `safe-to-rerun` (`../safe-to-rerun/SKILL.md`), `no-bolt-ons` (`../no-bolt-ons/SKILL.md`), `yagni` (`../yagni/SKILL.md`), `comment-cop` (`../comment-cop/SKILL.md`), `delight-users` (`../delight-users/SKILL.md`), `no-picked-constants` (`../no-picked-constants/SKILL.md`), `event-driven` (`../event-driven/SKILL.md`), `never-trade-functionality` (`../never-trade-functionality/SKILL.md`), `adversarial-review` (`../adversarial-review/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's interrogate skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

@@ -34,4 +34,6 @@ Prioritize the consumer's experience over implementation convenience.
 - an explicit recorded choice by the person;
 - an alternative backed by measurements (**ab-test**), with the reasoning noted.
 
+Referenced skills: `never-trade-functionality` (`../never-trade-functionality/SKILL.md`), `play-with-me` (`../play-with-me/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's experience-first principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

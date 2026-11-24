@@ -73,4 +73,6 @@ Optimize correctness, then robustness, then efficiency, weighed against complexi
 
 Implementation is separate work: the AD's acceptance criteria become the done-when checks of the lanes that build it (`/astack:lead`).
 
+Referenced skills: `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts the grilling skill of mattpocock/skills, as modified in adalundhe/mp-skills (MIT, Copyright (c) 2026 Matt Pocock). See NOTICE.md. -->

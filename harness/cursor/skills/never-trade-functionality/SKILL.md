@@ -30,3 +30,5 @@ Acknowledging writes before durability; disabling validation or checks; stale, a
 - an approximation explicitly requested by the spec (e.g. an estimate or progress indicator).
 
 **Showing it:** run old and new implementations on identical inputs—including edge cases and failure modes—and diff what users observe.
+
+Referenced skills: `clamber` (`../clamber/SKILL.md`), `minimize-state-stores` (`../minimize-state-stores/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `explore-the-limits` (`../explore-the-limits/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.

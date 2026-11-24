@@ -29,3 +29,5 @@ Behavior-driving numbers: limits, buffer/batch/pool sizes, thresholds, timeouts,
 - deterministic test inputs and seeds.
 
 **Showing it:** run the code where the picked constant breaks down—different hardware, heavier load, or larger inputs (**benchmarking**).
+
+Referenced skills: `no-hidden-config` (`${CLAUDE_SKILL_DIR}/../no-hidden-config/SKILL.md`), `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`). Read any cited skill file before acting when its trigger applies.

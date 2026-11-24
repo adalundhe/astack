@@ -15,3 +15,5 @@ Make recently written code (or code under review) smaller, clearer, and easier t
 5. **Verify every simplification:** keep changes only if all tests pass and robustness/performance don't regress. Benchmark if speed or memory could shift (**benchmarking**), and run **ab-test** if two options look close.
 6. **Never drop behavior to simplify** (**never-trade-functionality**), and don't add structure that merely looks tidier.
 7. **Summarize** what you cut or simplified, what you intentionally kept as-is, and why.
+
+Referenced skills: `comment-cop` (`../comment-cop/SKILL.md`), `yagni` (`../yagni/SKILL.md`), `minimize-state-stores` (`../minimize-state-stores/SKILL.md`), `no-implicit-states` (`../no-implicit-states/SKILL.md`), `check-your-boundaries` (`../check-your-boundaries/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `never-trade-functionality` (`../never-trade-functionality/SKILL.md`). Read any cited skill file before acting when its trigger applies.

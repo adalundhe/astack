@@ -19,3 +19,5 @@ Close every review finding and PR comment by fixing it, answering it, or disprov
 5. **Re-request review** and repeat until it comes back clear.
 
 If the same work keeps coming back with new rounds of feedback, escalate to whoever assigned it (or the lead, in an astack program) so they can adjust the plan or add help.
+
+Referenced skills: `bugs-by-scenario` (`../bugs-by-scenario/SKILL.md`), `worrywart` (`../worrywart/SKILL.md`). Read any cited skill file before acting when its trigger applies.

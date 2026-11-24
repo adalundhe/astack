@@ -280,5 +280,54 @@ class DecisionsTest(Scratch):
         self.assertEqual(bad.returncode, 2)
 
 
+class ToolsTest(Scratch):
+    def test_doctor_reports_missing_venv_and_exits_one(self):
+        venv = self.dir / "venv"
+        result = run("astack-tools", "doctor", "--venv", str(venv), "--json")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        data = json.loads(result.stdout)
+        self.assertFalse(data["venv_exists"])
+        self.assertFalse(data["core_ready"])
+        self.assertIsNone(data["packages"]["taskex"])
+        self.assertIsNone(data["packages"]["orchestral"])
+        self.assertIsNone(data["packages"]["werkflow"])
+
+    def test_install_dry_run_resolves_profiles_modules_and_github(self):
+        venv = self.dir / "venv"
+        core = run("astack-tools", "install", "--venv", str(venv), "--profile", "core", "--dry-run")
+        self.assertEqual(core.returncode, 0, core.stderr)
+        self.assertIn("taskex orchestral werkflow", core.stdout)
+        self.assertNotIn("werkflow-shell", core.stdout)
+
+        all_prof = run("astack-tools", "install", "--venv", str(venv), "--profile", "all", "--dry-run")
+        self.assertEqual(all_prof.returncode, 0, all_prof.stderr)
+        self.assertIn("werkflow-metrikflow", all_prof.stdout)
+        self.assertNotIn("werkflow-metrik ", all_prof.stdout)
+        self.assertIn("werkflow-docker", all_prof.stdout)
+
+        extra = run("astack-tools", "install", "--venv", str(venv), "--profile", "core", "--modules", "docker,jira", "--dry-run")
+        self.assertEqual(extra.returncode, 0, extra.stderr)
+        self.assertIn("werkflow-docker", extra.stdout)
+        self.assertIn("werkflow-jira", extra.stdout)
+
+        gh = run("astack-tools", "install", "--venv", str(venv), "--profile", "core", "--modules", "shell", "--from-github", "--dry-run")
+        self.assertEqual(gh.returncode, 0, gh.stderr)
+        self.assertIn("git+https://github.com/adalundhe/taskex.git", gh.stdout)
+        self.assertIn("git+https://github.com/adalundhe/orchestral.git", gh.stdout)
+        self.assertIn("git+https://github.com/adalundhe/werkflow.git", gh.stdout)
+        self.assertIn("werkflow-modules.git#subdirectory=werkflow-shell", gh.stdout)
+        self.assertIn("werkflow-modules.git#subdirectory=werkflow-core", gh.stdout)
+
+    def test_unknown_module_exits_two_and_missing_exec_exits_one(self):
+        venv = self.dir / "venv"
+        bad = run("astack-tools", "install", "--venv", str(venv), "--modules", "nope", "--dry-run")
+        self.assertEqual(bad.returncode, 2)
+        missing_py = run("astack-tools", "python", "--venv", str(venv), "-c", "print(1)")
+        self.assertEqual(missing_py.returncode, 1)
+        path_res = run("astack-tools", "path", "--venv", str(venv))
+        self.assertEqual(path_res.returncode, 0)
+        self.assertTrue(path_res.stdout.strip().endswith("/python"))
+
+
 if __name__ == "__main__":
     unittest.main()

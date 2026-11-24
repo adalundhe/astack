@@ -16,4 +16,6 @@ If the question is ambiguous, state which interpretation you're answering and pr
 4. **Write for an engineer new to this area:** what it does for users; main components and what each owns; end-to-end request/event flow; where state lives and what mutates it; and surprising behavior or gotchas. Cite `file:line` for each claim, define unfamiliar terms inline, and include a diagram (**talk-to-me**, **show-the-states**) plus one concrete end-to-end example.
 5. **For "where should this live":** show where analogous code already lives and which way dependencies point, then give a clear recommendation.
 
+Referenced skills: `rtfm` (`${CLAUDE_SKILL_DIR}/../rtfm/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`), `talk-to-me` (`${CLAUDE_SKILL_DIR}/../talk-to-me/SKILL.md`), `show-the-states` (`${CLAUDE_SKILL_DIR}/../show-the-states/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's how skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

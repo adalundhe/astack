@@ -17,4 +17,6 @@ Answer four questions, then rewrite the task:
 
 Keep the original deliverable and done-when without growing scope. Settle anything testable by experiment (**ab-test**) and report the result. For untestable calls (product direction or taste), follow earlier decisions and escalate only when none apply.
 
+Referenced skills: `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's sharpen skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

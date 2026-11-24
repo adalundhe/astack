@@ -34,3 +34,5 @@ Keep one source of truth for every piece of data. Only introduce caches, copies,
 - an alternative backed by measurements (**ab-test**), with the trade-off documented.
 
 **Showing it:** mutate the source of truth and read stale data from the copy, or run under load and show unbounded memory/storage growth.
+
+Referenced skills: `benchmarking` (`../benchmarking/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.

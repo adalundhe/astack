@@ -1,7 +1,6 @@
 ---
 name: modularize
 description: "Split monolithic packages, files, or functions into single-purpose modules behind narrow interfaces in the repo's style, without needless abstraction. Use when code is too large or tangled to change safely."
-disable-model-invocation: true
 ---
 
 # Modularize
@@ -23,3 +22,5 @@ For splits larger than moving one module, plan the sequence as a task graph firs
 - purely by line count (a long single-purpose file like a lookup or transition table belongs together);
 - one cohesive idea across multiple files where splitting hurts readability;
 - just to introduce a single-implementation interface with no real boundary behind it.
+
+Referenced skills: `how-it-works` (`../how-it-works/SKILL.md`), `show-the-states` (`../show-the-states/SKILL.md`), `tests-assert-behaviour` (`../tests-assert-behaviour/SKILL.md`), `minimize-state-stores` (`../minimize-state-stores/SKILL.md`), `no-shared-writes` (`../no-shared-writes/SKILL.md`), `no-implicit-states` (`../no-implicit-states/SKILL.md`), `check-your-boundaries` (`../check-your-boundaries/SKILL.md`), `yagni` (`../yagni/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`), `dagify` (`../dagify/SKILL.md`). Read any cited skill file before acting when its trigger applies.

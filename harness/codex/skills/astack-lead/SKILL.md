@@ -1,7 +1,6 @@
 ---
 name: astack-lead
 description: "Run a multi-step program as isolated git-worktree lanes with time-boxed astack-worker subagents, scheduled check-ins, verified merges, and an append-only lane log. Use when invoked via $astack-lead or routed from $astack-go."
-disable-model-invocation: true
 ---
 
 # Lead
@@ -12,7 +11,7 @@ You coordinate the program; workers write the code. You own program rules, worke
 - **Worker:** a subagent building one lane within a hard time limit.
 - **Successor:** a fresh worker taking over an unfinished lane on the same branch.
 
-The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`) are in this package's `bin/` folder, two folders up from this file; run them by that path. The templates are in `templates/`, beside this file.
+The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) are in this package's `bin/` folder, two folders up from this file; run them by that path. The templates are in `templates/`, beside this file.
 
 ## Settings
 
@@ -79,5 +78,7 @@ Keep the same lane, deliverable, and scope. Build the successor's brief from the
 ## Report
 
 Use plain language, losses first: what didn't land and why, what landed (verified SHAs), status of each lane, key decisions made and their evidence, and any open questions waiting on the person.
+
+Referenced skills: `track-it` (`../track-it/SKILL.md`), `bugs-by-scenario` (`../bugs-by-scenario/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `play-with-me` (`../play-with-me/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's Orchestrate playbook and poteto-mode Subagents section (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

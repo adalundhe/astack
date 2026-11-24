@@ -12,7 +12,7 @@ You coordinate the program; workers write the code. You own program rules, worke
 - **Worker:** a subagent building one lane within a hard time limit.
 - **Successor:** a fresh worker taking over an unfinished lane on the same branch.
 
-The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`) are on your PATH, and the templates are in `${CLAUDE_SKILL_DIR}/templates/`.
+The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) are on your PATH, and the templates are in `${CLAUDE_SKILL_DIR}/templates/`.
 
 ## Settings
 

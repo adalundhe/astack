@@ -20,4 +20,6 @@ Start from their actual files, code, and wording rather than a summary. If their
 
 Open and verify every link you cite; drop any link that doesn't actually support the claim.
 
+Referenced skills: `prove-it` (`../prove-it/SKILL.md`), `show-the-states` (`../show-the-states/SKILL.md`), `research-this` (`../research-this/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's reframe skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

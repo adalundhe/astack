@@ -1,7 +1,6 @@
 ---
 name: talk-to-me
 description: "Explain an unfamiliar concept, design, or result clearly on the first read using proper domain terms, a Mermaid diagram, a worked example, and a short analogy. Use when introducing unfamiliar concepts or translating everyday descriptions into field terms."
-disable-model-invocation: true
 ---
 
 # Talk to me
@@ -19,5 +18,7 @@ Start from their actual files, code, and wording rather than a summary. If their
 7. **Rewritten problem statement** using the proper terminology while staying plain to an outsider—ready to feed into a brief, plan, or **research-this**.
 
 Open and verify every link you cite; drop any link that doesn't actually support the claim.
+
+Referenced skills: `prove-it` (`../prove-it/SKILL.md`), `show-the-states` (`../show-the-states/SKILL.md`), `research-this` (`../research-this/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's reframe skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

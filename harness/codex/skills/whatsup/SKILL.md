@@ -1,7 +1,6 @@
 ---
 name: whatsup
 description: "Single-pane-of-glass catch-up and context rebuild after a break, restart, or compaction: waiting decisions, bugs/regressions, features/fixes/milestones, hypotheses/experiments/research proved or disproved, and active work. Use for $whatsup."
-disable-model-invocation: true
 ---
 
 # Whatsup
@@ -21,3 +20,5 @@ Give the person a single-pane-of-glass engineering brief covering everything mea
    - **Decisions settled:** notable choices resolved while the person was away (`decided:` entries and verbatim `person:` directives), naming the choice and what settled it.
    - **In flight and next:** active lanes/workers, running experiments, open PRs, and the next concrete milestone.
 3. **Keep it sharp:** lead every bullet with what matters, cut internal task IDs and process narration (**wat**), and mark whether claims are measured, verified, or inferred. Stay read-only when simply reporting; if invoked to resume work after a break, log any needed `correction:` line in `LANES.md` and continue immediately on unblocked work.
+
+Referenced skills: `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `wat` (`../wat/SKILL.md`). Read any cited skill file before acting when its trigger applies.

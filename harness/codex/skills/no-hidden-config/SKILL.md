@@ -1,7 +1,6 @@
 ---
 name: no-hidden-config
 description: "Parse all settings in one place, keep each option single-purpose, document and test every value, and isolate internal switches behind proper feature flags. Use when writing or reviewing options, flags, or env vars."
-disable-model-invocation: true
 ---
 
 # No hidden config
@@ -38,3 +37,5 @@ Parse every setting in one place, make each option do only what its name says, a
 - an alternative backed by measurements (**ab-test**), with the trade-off documented.
 
 **Showing it:** pass an undocumented value or untested combination and show the unexpected behavior.
+
+Referenced skills: `check-your-boundaries` (`../check-your-boundaries/SKILL.md`), `blast-radius` (`../blast-radius/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.

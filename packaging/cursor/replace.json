@@ -1,12 +1,12 @@
 {
   "replace": [
     [
-      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`) are on your PATH.",
-      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`) are in this package's `bin/` folder, two folders up from this file; run them by that path."
+      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) are on your PATH.",
+      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) are in this package's `bin/` folder, two folders up from this file; run them by that path."
     ],
     [
-      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`) are on your PATH, and the templates are in `${CLAUDE_SKILL_DIR}/templates/`.",
-      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`) are in this package's `bin/` folder, two folders up from this file; run them by that path. The templates are in `templates/`, beside this file."
+      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) are on your PATH, and the templates are in `${CLAUDE_SKILL_DIR}/templates/`.",
+      "The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) are in this package's `bin/` folder, two folders up from this file; run them by that path. The templates are in `templates/`, beside this file."
     ],
     [
       "6. Schedule a check-in every `check_in_minutes` with `CronCreate` (or `/loop`). A worker's end wakes you; drift and the clock don't.",

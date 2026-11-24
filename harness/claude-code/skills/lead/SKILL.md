@@ -12,7 +12,7 @@ You coordinate the program; workers write the code. You own program rules, worke
 - **Worker:** a subagent building one lane within a hard time limit.
 - **Successor:** a fresh worker taking over an unfinished lane on the same branch.
 
-The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`) are on your PATH, and the templates are in `${CLAUDE_SKILL_DIR}/templates/`.
+The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) are on your PATH, and the templates are in `${CLAUDE_SKILL_DIR}/templates/`.
 
 ## Settings
 
@@ -79,5 +79,7 @@ Keep the same lane, deliverable, and scope. Build the successor's brief from the
 ## Report
 
 Use plain language, losses first: what didn't land and why, what landed (verified SHAs), status of each lane, key decisions made and their evidence, and any open questions waiting on the person.
+
+Referenced skills: `track-it` (`${CLAUDE_SKILL_DIR}/../track-it/SKILL.md`), `bugs-by-scenario` (`${CLAUDE_SKILL_DIR}/../bugs-by-scenario/SKILL.md`), `research-this` (`${CLAUDE_SKILL_DIR}/../research-this/SKILL.md`), `play-with-me` (`${CLAUDE_SKILL_DIR}/../play-with-me/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's Orchestrate playbook and poteto-mode Subagents section (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Adversarially interrogate a hypothesis, diagnosis, design choice, repeated fix, or implementation—peer to peer, regardless of agent role—until every load-bearing assumption is backed by evidence or revised.
 
-Invoke `/astack:challenge` whenever fixes keep recurring in the same area, a root-cause theory or benchmark explanation feels convenient, a design adds complexity on untested assumptions, or any agent's claim (including your own) hasn't been falsified.
+Start a challenge whenever fixes keep recurring in the same area, a root-cause theory or benchmark explanation feels convenient, a design adds complexity on untested assumptions, or any agent's claim (including your own) hasn't been falsified.
 
 ## Rules of engagement
 
@@ -33,3 +33,5 @@ Invoke `/astack:challenge` whenever fixes keep recurring in the same area, a roo
    - **Rejected:** replaced by a concrete alternative—state why it won.
 
 Record any settled choice as a `decided:` entry (in `LANES.md` or your report) so the same argument isn't relitigated later.
+
+Referenced skills: `rtfm` (`${CLAUDE_SKILL_DIR}/../rtfm/SKILL.md`), `research-this` (`${CLAUDE_SKILL_DIR}/../research-this/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`), `play-with-me` (`${CLAUDE_SKILL_DIR}/../play-with-me/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.

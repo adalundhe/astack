@@ -30,4 +30,6 @@ Keep one path per job. Don't add or retain legacy paths, shims, adapters, compat
 
 - a shim, alias, fallback, or flag explicitly requested by the person or an agreed design, citing where it was approved and the condition for removing it.
 
+Referenced skills: `blast-radius` (`../blast-radius/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's migrate-callers-then-delete-legacy-apis principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

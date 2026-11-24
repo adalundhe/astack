@@ -1,10 +1,10 @@
 ---
-description: "Refactoring request handling follows check-your-boundaries by parsing untrusted input once at the boundary into domain types and removing repeated internal checks."
-expected_outcome: "Parses raw payload once at the HTTP handler into typed domain objects, removes redundant defensive checks inside core logic, and keeps HTTP/framework types out of core functions."
+description: "In Go mode, refactoring a raw-dict endpoint routes to check-your-boundaries and parses untrusted input once at the edge."
+expected_outcome: "Reads check-your-boundaries/SKILL.md, parses raw payloads once into typed domain objects at the handler boundary, and strips repeated defensive checks from core logic."
 allowed_tools: [Read, Glob, Grep]
 ---
 
-Use `/astack:check-your-boundaries` to refactor this Python invoice endpoint:
+`/astack:go` Clean up this Python invoice endpoint—we're about to add several more fields and the defensive checks are getting messy. Reply with the refactored code.
 
 ```python
 def calculate_total(payload: dict) -> float:
@@ -24,5 +24,3 @@ def handle_request(http_request) -> dict:
     final = apply_discount(body, total)
     return {"status": 200, "total": final}
 ```
-
-Reply with the refactored code.

@@ -25,4 +25,6 @@ Capture what worked and what failed from a session, make recurring mistakes stru
    Aim every guard at the exact mistake, not the whole tool (one bad cache doesn't justify banning caching).
 7. **Keep pruning.** Track where each lesson helped, didn't apply, or hurt. Narrow overly broad lessons, and delete lessons (plus any check or rule built from them) when evidence turns against them.
 
+Referenced skills: `rtfm` (`../rtfm/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `explore-the-limits` (`../explore-the-limits/SKILL.md`), `automate-this` (`../automate-this/SKILL.md`), `no-implicit-states` (`../no-implicit-states/SKILL.md`), `check-your-boundaries` (`../check-your-boundaries/SKILL.md`), `data-structures-first` (`../data-structures-first/SKILL.md`), `tests-assert-behaviour` (`../tests-assert-behaviour/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's reflect skill, correct skill, and encode-lessons-in-structure principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

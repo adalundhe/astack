@@ -1,7 +1,6 @@
 ---
 name: no-hidden-flow-control
 description: "Handle specific failures where they happen or return typed error values; avoid broad catch-alls, swallowed errors, or exceptions used as control flow. Use when writing or reviewing error handling."
-disable-model-invocation: true
 ---
 
 # No hidden flow control
@@ -36,5 +35,7 @@ Handle each failure specifically where it happens, or return it to the caller as
 - an alternative backed by measurements (**ab-test**), with the trade-off documented.
 
 **Showing it:** trigger an unexpected error (e.g. a typo/NameError or cancellation) inside the handler and show how it gets swallowed or mishandled.
+
+Referenced skills: `event-driven` (`../event-driven/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's boundary-discipline principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

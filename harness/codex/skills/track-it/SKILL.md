@@ -1,7 +1,6 @@
 ---
 name: track-it
 description: "Create and maintain issues for lanes in the project's tracker (GitHub, Jira, Linear, etc.) without duplicates, updating states on events and closing with proof. Run by the lead when tracking is requested."
-disable-model-invocation: true
 ---
 
 # Track it
@@ -18,3 +17,5 @@ Only the lead updates the tracker; workers report to the lead and don't edit tic
 6. **Sync on state transitions:** move issues on real events—in progress on start, in review when PR opens, done on verified merge, blocked with reason (**event-driven**).
 7. **Close with proof:** record what changed, the PR/SHA, and how done-when was verified (**prove-it**). If a task is split or re-planned, note that on the ticket instead of deleting it.
 8. **Limit notifications** to the person (or anyone they explicitly ask to include).
+
+Referenced skills: `rtfm` (`../rtfm/SKILL.md`), `dagify` (`../dagify/SKILL.md`), `safe-to-rerun` (`../safe-to-rerun/SKILL.md`), `event-driven` (`../event-driven/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.

@@ -1,7 +1,6 @@
 ---
 name: rearchitect
 description: "Identify structural friction in a codebase (starting where code changes most), propose ranked restructurings with before-and-after diagrams, and execute the top pick via dagify. Use when code is getting harder to change or test, or when improving architecture."
-disable-model-invocation: true
 ---
 
 # Rearchitect
@@ -24,5 +23,7 @@ Find where the codebase's structure slows down changes or testing, rank concrete
 9. **Plan the move with dagify** (**dagify**): break the restructure into small reviewed tasks with acceptance criteria and tests—pinning current behavior first (**tests-assert-behaviour**) and ending in review—ordered so independent moves run in parallel.
 10. **Land in small passing steps** (**modularize** for splits). When two interface shapes look close, prototype and compare both (**ab-test**).
 11. **Match domain terminology:** name new modules using the project's existing vocabulary, updating its glossary if it maintains one.
+
+Referenced skills: `rtfm` (`../rtfm/SKILL.md`), `how-it-works` (`../how-it-works/SKILL.md`), `show-the-states` (`../show-the-states/SKILL.md`), `no-bolt-ons` (`../no-bolt-ons/SKILL.md`), `yagni` (`../yagni/SKILL.md`), `minimize-state-stores` (`../minimize-state-stores/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`), `play-with-me` (`../play-with-me/SKILL.md`), `create-adc` (`../create-adc/SKILL.md`), `dagify` (`../dagify/SKILL.md`), `tests-assert-behaviour` (`../tests-assert-behaviour/SKILL.md`), `modularize` (`../modularize/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts the improve-codebase-architecture skill of mattpocock/skills (MIT, Copyright (c) 2026 Matt Pocock). See NOTICE.md. -->

@@ -14,3 +14,5 @@ Fix broken tests, builds, and checks you run into at their root cause in a separ
 4. **Never silence a check.** Don't skip, disable, quarantine, or weaken tests, scans, or lint rules to get past them. If a check itself is wrong, fix it and explain why.
 5. **Don't stall your main task:** keep working while the fix PR is reviewed, then rebase onto it once merged.
 6. **Report it:** state what was broken, why, and the link to the fix PR.
+
+Referenced skills: `bugs-by-scenario` (`${CLAUDE_SKILL_DIR}/../bugs-by-scenario/SKILL.md`). Read any cited skill file before acting when its trigger applies.

@@ -1,7 +1,6 @@
 ---
 name: event-driven
 description: "Wake work on the event that unblocks it instead of timers, sleeps, or polling loops. Use when writing or reviewing waiting, retry, refresh, or polling code, or agent wait loops."
-disable-model-invocation: true
 ---
 
 # Event-driven, not timers
@@ -33,3 +32,5 @@ Trigger work from the event that unblocks it rather than a timer, sleep, or poll
 - polling an external system you don't control that exposes no event mechanism, at its documented rate (noted in code).
 
 **Showing it:** measure added latency or wasted idle work from the timer, or demonstrate a state change missed between polls using a controlled clock.
+
+Referenced skills: `no-picked-constants` (`../no-picked-constants/SKILL.md`), `automate-this` (`../automate-this/SKILL.md`). Read any cited skill file before acting when its trigger applies.

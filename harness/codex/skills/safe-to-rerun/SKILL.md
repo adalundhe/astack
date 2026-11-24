@@ -1,7 +1,6 @@
 ---
 name: safe-to-rerun
 description: "Make state-changing operations idempotent and crash-recoverable so rerunning or stopping halfway still ends in the right state. Use when writing or reviewing commands, migrations, deploy steps, jobs, or retries."
-disable-model-invocation: true
 ---
 
 # Safe to rerun
@@ -33,5 +32,7 @@ Make state-changing operations end in the right state regardless of how many tim
 - an alternative backed by measurements (**ab-test**), with the trade-off documented.
 
 **Showing it:** run it twice, or kill it mid-run and rerun, and show the corrupted result (duplicate row, half-written file, stuck lock, double charge).
+
+Referenced skills: `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's make-operations-idempotent principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

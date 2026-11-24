@@ -1,7 +1,6 @@
 ---
 name: create-adc
 description: "Work through an architecture decision with the person one evidenced question at a time and write it up as the next AD-N document. Use when asked to draft, review, or grill an architecture decision (ADC/AD)."
-disable-model-invocation: true
 ---
 
 # Create ADC
@@ -72,5 +71,7 @@ Optimize correctness, then robustness, then efficiency, weighed against complexi
 6. **Track as-built state:** once implemented, update Status to `Built (<date>)` and add `As built` (actual implementation aspect by aspect) and `Verification` (checks proving it). Record later changes in dated addenda.
 
 Implementation is separate work: the AD's acceptance criteria become the done-when checks of the lanes that build it (`$astack-lead`).
+
+Referenced skills: `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts the grilling skill of mattpocock/skills, as modified in adalundhe/mp-skills (MIT, Copyright (c) 2026 Matt Pocock). See NOTICE.md. -->

@@ -37,4 +37,6 @@ Handle each failure specifically where it happens, or return it to the caller as
 
 **Showing it:** trigger an unexpected error (e.g. a typo/NameError or cancellation) inside the handler and show how it gets swallowed or mishandled.
 
+Referenced skills: `event-driven` (`../event-driven/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's boundary-discipline principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

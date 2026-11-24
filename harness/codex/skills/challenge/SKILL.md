@@ -1,14 +1,13 @@
 ---
 name: challenge
 description: "Peer-to-peer adversarial challenge between any agents (or against your own reasoning) to stress-test hypotheses, repeated fixes, diagnoses, designs, and implementations until every assumption is proven or conceded. Use whenever an approach, diagnosis, or choice needs rigorous pushback."
-disable-model-invocation: true
 ---
 
 # Challenge
 
 Adversarially interrogate a hypothesis, diagnosis, design choice, repeated fix, or implementation—peer to peer, regardless of agent role—until every load-bearing assumption is backed by evidence or revised.
 
-Invoke `$challenge` whenever fixes keep recurring in the same area, a root-cause theory or benchmark explanation feels convenient, a design adds complexity on untested assumptions, or any agent's claim (including your own) hasn't been falsified.
+Start a challenge whenever fixes keep recurring in the same area, a root-cause theory or benchmark explanation feels convenient, a design adds complexity on untested assumptions, or any agent's claim (including your own) hasn't been falsified.
 
 ## Rules of engagement
 
@@ -33,3 +32,5 @@ Invoke `$challenge` whenever fixes keep recurring in the same area, a root-cause
    - **Rejected:** replaced by a concrete alternative—state why it won.
 
 Record any settled choice as a `decided:` entry (in `LANES.md` or your report) so the same argument isn't relitigated later.
+
+Referenced skills: `rtfm` (`../rtfm/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`), `play-with-me` (`../play-with-me/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.

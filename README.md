@@ -1,8 +1,8 @@
 # astack
 
-A plugin for Claude Code, Cursor, and Codex with a single low-context entry point (`go`), a lead/worker runner for larger multi-step tasks, and 60 hidden on-demand skills for code review, benchmarking, testing, research, debugging, handling PRs, and coding rules.
+A plugin for Claude Code, Cursor, and Codex with a single low-context entry point (`go`), a lead/worker runner for larger multi-step tasks, and 63 hidden on-demand skills for code review, benchmarking, testing, research, automation, debugging, handling PRs, and coding rules.
 
-Long agent sessions tend to go off the rails in predictable ways: the agent wanders into unrelated refactors, stops every few minutes to ask questions the repo or a quick test could answer, claims a fix works without running it, or runs out of context with half-finished work sitting unmerged on a branch. `astack` puts structure around that—while keeping only one skill (`go`) in the model catalog so idle sessions don't burn thousands of tokens listing 60 skills.
+Long agent sessions tend to go off the rails in predictable ways: the agent wanders into unrelated refactors, stops every few minutes to ask questions the repo or a quick test could answer, claims a fix works without running it, or runs out of context with half-finished work sitting unmerged on a branch. `astack` puts structure around that—while keeping only one skill (`go`) in the model catalog so idle sessions don't burn thousands of tokens listing 63 skills.
 
 Parts of it are adapted from Cursor's [pstack](https://github.com/cursor/plugins/tree/main/pstack) and [mattpocock/skills](https://github.com/mattpocock/skills).
 
@@ -37,20 +37,20 @@ Start a new session and run `$astack-go setup`. Codex plugins can't ship agent d
 
 ## Getting started with `go`
 
-`/astack:go` (Cursor: `/astack-go`, Codex: `$astack-go`) is the only skill loaded into the model's skill catalog. Every other skill is marked `disable-model-invocation: true` and read on demand by path when `go` routes to it.
+`/astack:go` (Cursor: `/astack-go`, Codex: `$astack-go`) is the only skill loaded into the model's skill catalog. Every other skill is hidden from auto-invocation (`disable-model-invocation: true` on Claude Code and Cursor; `agents/openai.yaml` with `allow_implicit_invocation: false` on Codex) and read on demand by path when `go` or another skill routes to it. The build also appends exact sibling paths for any skill cited by another skill, so invoking a skill directly without `go` still resolves its references.
 
-- In **Claude Code** and **Cursor**, you can either start with `/astack:go` (`/astack-go`) or call any individual skill directly (`/astack:<name>` / `/<name>`).
-- In **Codex**, start through `$astack-go` (e.g. `$astack-go setup`, `$astack-go whatsup`, `$astack-go <your task>`) and it reads the matching hidden skill file by path.
+- In **Claude Code** and **Cursor**, start with `/astack:go` (`/astack-go`) or call any individual skill directly (`/astack:<name>` / `/<name>`).
+- In **Codex**, `$astack-go` is the single implicit catalog entry (verified offline against `codex debug prompt-input`), while hidden skills remain callable explicitly via `$<name>` or read by path through `$astack-go`.
 
-### Optional setup (timing and per-role models)
+### Optional setup (timing, per-role models, and automation tools)
 
-Defaults are 60-minute worker limit, 5-minute wind-down buffer, 5-minute lead check-in interval, and your active session's model across roles. To customize timing or per-role `model`, `provider`, and `effort`, run:
+Defaults are 60-minute worker limit, 5-minute wind-down buffer, 5-minute lead check-in interval, and your active session's model across roles. To customize timing, configure per-role `model`/`provider`/`effort`, or install the optional Python automation stack (`taskex`, `orchestral`, `werkflow` + `werkflow-modules`) into an isolated venv, run:
 
 ```
 /astack:setup
 ```
 
-That writes `~/.config/astack/settings.json` (and on Codex, installs `astack-worker.toml` and `astack-reviewer.toml` with any configured `model`, `model_provider`, and `model_reasoning_effort`).
+That writes `~/.config/astack/settings.json`, optionally runs `astack-tools install` into `~/.local/share/astack/venv`, and on Codex installs `astack-worker.toml` and `astack-reviewer.toml` with any configured `model`, `model_provider`, and `model_reasoning_effort`.
 
 ### Running bigger tasks with `lead`
 
@@ -74,7 +74,7 @@ Check active workers anytime with `/astack:status` (or `astack-status --line` fo
 
 ## Skills
 
-All 61 skills below (`go` + 60 hidden skills read on demand). In Cursor and Codex, `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix (`/astack-go`, `$astack-go`, etc.).
+All 64 skills below (`go` + 63 hidden skills read on demand). In Cursor and Codex, `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix (`/astack-go`, `$astack-go`, etc.).
 
 ### Entry point, orchestration, and catch-up
 
@@ -161,14 +161,16 @@ All 15 rules below are indexed in `go` and read by path whenever their trigger f
 ### Automation and session notes
 
 - `automate-this`: replaces repeated manual commands, polling, or noisy searches with scripts or watchers so bulk output stays out of context.
+- `taskex`: authors and manages async Python callables, subprocess/shell runners, background watchers, and recurring jobs using [taskex](https://github.com/adalundhe/taskex).
+- `orchestral`: authors and manages ordered multi-stage concurrent Python/shell pipelines with streaming batches and `fail_fast` using [orchestral](https://github.com/adalundhe/orchestral).
+- `werkflow`: authors, configures, and runs modular DAG workflows with [werkflow](https://github.com/adalundhe/werkflow) and all 15 [werkflow-modules](https://github.com/adalundhe/werkflow-modules) packages (`shell`, `file`, `git`, `github`, `http`, `docker`, `aws`, `jira`, `python`, `secrets`, `encryption`, `system`, `metrikflow`, `appito`, `core`).
 - `make-it-stick`: reviews a session transcript, logs scoped lessons in `LESSONS.md`, and makes recurring mistakes impossible using a strict fix ladder (architecture -> types -> lint/hook -> test -> docs last).
 
 ## Agents, scripts, evals, and CI
 
 - **Subagents:** `worker` executes a single lane within its time limit and reports failures/gaps first; `reviewer` tries to break a change in its real environment without modifying product code.
-- **Scripts and hook:** `astack-status` prints worker timers, last commits, lane states, and open questions (`--line` for a status bar); `astack-decisions` queries `decided:` entries and verbatim `person:` directives from `LANES.md` (`--query`, `--settled-by`, `--since`, `--json`); `astack-verify-merge` confirms a claimed commit is on the target branch and can run a check command in a clean detached worktree; `astack-stamp` (wired to a post-edit hook) timestamps new lines appended to `LANES.md`.
+- **Scripts and hook:** `astack-status` prints worker timers, last commits, lane states, and open questions (`--line` for a status bar); `astack-decisions` queries `decided:` entries and verbatim `person:` directives from `LANES.md` (`--query`, `--settled-by`, `--since`, `--json`); `astack-tools` installs, checks (`doctor`), and runs `taskex`, `orchestral`, and `werkflow` + `werkflow-modules` inside an isolated venv (`~/.local/share/astack/venv`) without touching your repo's environment; `astack-verify-merge` confirms a claimed commit is on the target branch and can run a check command in a clean detached worktree; `astack-stamp` (wired to a post-edit hook) timestamps new lines appended to `LANES.md`.
 - **Templates:** `RULES.md`, `LANES.md`, `brief.md`, and `report.md` under `skills/lead/templates/`.
-- **Companion automation libraries:** `automate-this` and `workflow-this` integrate with [taskex](https://github.com/adalundhe/taskex) (lightweight async Python/shell tasks), [orchestral](https://github.com/adalundhe/orchestral) (async task-graph orchestration), and [werkflow](https://github.com/adalundhe/werkflow) + [werkflow-modules](https://github.com/adalundhe/werkflow-modules) (sophisticated scripted workflows).
 - **Evals:** 9 Claude Code eval cases under `evals/` covering worker wind-down/losses-first reports, Go-mode hidden-rule routing, and 6 core coding rules (`no-implicit-states`, `no-hidden-flow-control`, `check-your-boundaries`, `no-picked-constants`, `never-trade-functionality`, `safe-to-rerun`).
 - **CI:** GitHub Actions ([.github/workflows/ci.yml](./.github/workflows/ci.yml)) runs `python3 scripts/build.py --check` and the full `unittest` suite on every push to `main` and pull request.
 

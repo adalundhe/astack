@@ -1,7 +1,6 @@
 ---
 name: minimize-state-stores
 description: "Keep one source of truth for each piece of data; add caches, copies, or long-lived state only when measurements justify them. Use when writing or reviewing caching, denormalization, or stateful code."
-disable-model-invocation: true
 ---
 
 # Minimize state stores
@@ -34,3 +33,5 @@ Keep one source of truth for every piece of data. Only introduce caches, copies,
 - an alternative backed by measurements (**ab-test**), with the trade-off documented.
 
 **Showing it:** mutate the source of truth and read stale data from the copy, or run under load and show unbounded memory/storage growth.
+
+Referenced skills: `benchmarking` (`../benchmarking/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.

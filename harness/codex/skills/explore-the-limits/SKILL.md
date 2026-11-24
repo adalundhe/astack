@@ -1,7 +1,6 @@
 ---
 name: explore-the-limits
 description: "Research prior art, build competing implementations in parallel worktrees, benchmark them, graft winning parts from losing variants into the winner, and delete the rest. Use when no single best design is obvious."
-disable-model-invocation: true
 ---
 
 # Explore the limits
@@ -14,3 +13,5 @@ When the best implementation isn't obvious, build competing approaches, measure 
 4. **Measure and compare** using profiling, **benchmarking**, and **ab-test**.
 5. **Graft before deleting.** Before discarding losing variants, inspect where any loser beat the winner (a sub-benchmark, tail latency, memory footprint, cleaner data structure, or simpler error path). Graft those specific improvements onto the winner, re-run tests and benchmarks to verify the hybrid beats the un-grafted winner, then delete all losing variants in the same change.
 6. **Don't duck hard designs.** If the winning approach is harder to build, still build it properly: make it work, then robust, then fast.
+
+Referenced skills: `research-this` (`../research-this/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`). Read any cited skill file before acting when its trigger applies.

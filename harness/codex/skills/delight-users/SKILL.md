@@ -1,7 +1,6 @@
 ---
 name: delight-users
 description: "Design and audit work from the consumer's side (end user, API caller, operator, or maintainer): clear feedback, actionable errors, complete states, good defaults, and ergonomic APIs. Use when designing, building, or reviewing user-facing work."
-disable-model-invocation: true
 ---
 
 # Delight users
@@ -33,5 +32,7 @@ Prioritize the consumer's experience over implementation convenience.
 - internal details no consumer encounters;
 - an explicit recorded choice by the person;
 - an alternative backed by measurements (**ab-test**), with the reasoning noted.
+
+Referenced skills: `never-trade-functionality` (`../never-trade-functionality/SKILL.md`), `play-with-me` (`../play-with-me/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's experience-first principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

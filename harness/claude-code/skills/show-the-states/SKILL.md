@@ -18,4 +18,6 @@ Diagram how a system moves between states so readers can immediately see what ha
 
 During planning, annotate which task builds which states and transitions; include the diagram in briefs and check code against it during review.
 
+Referenced skills: `research-this` (`${CLAUDE_SKILL_DIR}/../research-this/SKILL.md`), `no-picked-constants` (`${CLAUDE_SKILL_DIR}/../no-picked-constants/SKILL.md`), `bugs-by-scenario` (`${CLAUDE_SKILL_DIR}/../bugs-by-scenario/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's statechart skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

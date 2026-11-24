@@ -31,7 +31,7 @@ Astack skills: <path to astack skills/ directory, for reading hidden skills by p
 
 5. PROJECT RULES: <the project's own binding rules, or their paths>.
 
-6. STANDING RULES. Each is an astack skill; invoke it when its trigger fires.
+6. STANDING RULES. Each is a hidden astack skill; read its `SKILL.md` from the Astack skills folder above whenever its trigger fires.
    - decide-by-data: choose by measuring, never by argument.
    - ab-test: how to measure: metrics, environment, baseline noise, the bar, variants, write-up, decision.
    - fair-benchmarks: same client and same platform for every system.

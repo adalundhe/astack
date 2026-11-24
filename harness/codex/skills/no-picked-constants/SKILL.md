@@ -1,7 +1,6 @@
 ---
 name: no-picked-constants
 description: "Avoid hardcoded arbitrary limits, timeouts, batch sizes, or thresholds; derive them from cited specs/OS limits or adapt them at runtime. Use when writing, reviewing, or proposing behavioral constants."
-disable-model-invocation: true
 ---
 
 # No picked constants
@@ -29,3 +28,5 @@ Behavior-driving numbers: limits, buffer/batch/pool sizes, thresholds, timeouts,
 - deterministic test inputs and seeds.
 
 **Showing it:** run the code where the picked constant breaks down—different hardware, heavier load, or larger inputs (**benchmarking**).
+
+Referenced skills: `no-hidden-config` (`../no-hidden-config/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`). Read any cited skill file before acting when its trigger applies.

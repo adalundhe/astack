@@ -35,4 +35,6 @@ Avoid shared mutable state across concurrent writers instead of reaching for loc
 
 **Showing it:** force a bad interleaving or flood the target with concurrent writers and demonstrate lost or corrupted writes.
 
+Referenced skills: `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`), `full-spectrum-testing` (`${CLAUDE_SKILL_DIR}/../full-spectrum-testing/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's separate-before-serializing-shared-state principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

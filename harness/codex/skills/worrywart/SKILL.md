@@ -1,7 +1,6 @@
 ---
 name: worrywart
 description: "Push back with solid evidence on a review comment that is unproven, unreproducible, already handled by surrounding systems, or not worth its cost. Use before changing code for a questionable review point."
-disable-model-invocation: true
 ---
 
 # Worrywart
@@ -18,3 +17,5 @@ Push back on an incorrect or overstated review point with concrete evidence inst
 4. **Reply once,** impact first, with the evidence attached. The reviewer either withdraws the point or supplies a working reproduction.
 
 If an agent reviewer repeatedly raises points that fail verification, replace it with a fresh reviewer.
+
+Referenced skills: `research-this` (`../research-this/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.

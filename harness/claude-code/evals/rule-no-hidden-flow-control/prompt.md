@@ -1,10 +1,10 @@
 ---
-description: "Fixing error handling follows no-hidden-flow-control by removing broad catch-alls and swallowed exceptions in favor of narrow catches and typed error results."
-expected_outcome: "Replaces broad `except Exception: return None` with narrow exception handling around I/O/parse calls, returns typed error values, and lets programming errors/interrupts propagate."
+description: "In Go mode, fixing a swallowed-exception loader routes to no-hidden-flow-control and replaces the catch-all with narrow catches and typed errors."
+expected_outcome: "Reads no-hidden-flow-control/SKILL.md, removes `except Exception: return None`, catches specific exceptions narrowly, returns typed error values, and tests each failure path."
 allowed_tools: [Read, Glob, Grep]
 ---
 
-Use `/astack:no-hidden-flow-control` to fix this Python loader:
+`/astack:go` Clean up this Python profile loader—when it fails in production we just get missing profiles with no idea what went wrong. Reply with the updated code and tests.
 
 ```python
 import json
@@ -18,5 +18,3 @@ def load_user_profile(path: Path) -> dict | None:
     except Exception:
         return None
 ```
-
-Reply with the fixed code and tests covering each failure path.

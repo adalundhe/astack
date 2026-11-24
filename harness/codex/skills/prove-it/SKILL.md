@@ -1,7 +1,6 @@
 ---
 name: prove-it
 description: "Verify claims against the real artifact (not proxies), rank evidence on the trust ladder, challenge weak claims, and provide runnable proof. Use before calling work done or reporting/challenging any claim."
-disable-model-invocation: true
 ---
 
 # Prove it

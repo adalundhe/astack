@@ -32,4 +32,6 @@ Remove comments that the code already explains (or should explain), and keep onl
 - links to issues, specs, or ADs explaining a non-obvious decision;
 - lint suppressions explaining why the rule doesn't apply to that line.
 
+Referenced skills: `yagni` (`../yagni/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's comment-sicko agent and no-comments skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

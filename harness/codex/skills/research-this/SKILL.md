@@ -1,7 +1,6 @@
 ---
 name: research-this
 description: "Research a question across internal sources (code, logs, data, docs) and external sources (specs, papers, official docs, web), verify quotes against their citations, and grade each finding A–F. Use before unsettled decisions, before accepting a functionality trade-off, or when claims need graded evidence."
-disable-model-invocation: true
 ---
 
 # Research this
@@ -81,3 +80,5 @@ Examples: one product doc with a verified quote scores **A** (`0.85 × 1.0 = 85`
 Report each finding with its grade, score, and one-line rationale (e.g. `"2 independent sources (code, standard); 2 of 2 quotes verified"`), its quotes and verification status, and any counterclaims, followed by numbered sources. Never present a research claim without its sources and grade.
 
 When `kiln` is available, record findings through it (`research_start`, `research_add`, `research_get`), which checks quotes and computes grades identically.
+
+Referenced skills: `explore-the-limits` (`../explore-the-limits/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.

@@ -33,3 +33,5 @@ Get the data representation right before writing control flow. Clear data struct
 - an alternative layout backed by measurements (**ab-test**), with the trade-off documented.
 
 **Showing it:** contrast the branching, synchronization code, or allocations required by the current shape against a cleaner representation on the same operations.
+
+Referenced skills: `no-implicit-states` (`${CLAUDE_SKILL_DIR}/../no-implicit-states/SKILL.md`), `check-your-boundaries` (`${CLAUDE_SKILL_DIR}/../check-your-boundaries/SKILL.md`), `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`), `minimize-state-stores` (`${CLAUDE_SKILL_DIR}/../minimize-state-stores/SKILL.md`), `play-with-me` (`${CLAUDE_SKILL_DIR}/../play-with-me/SKILL.md`). Read any cited skill file before acting when its trigger applies.

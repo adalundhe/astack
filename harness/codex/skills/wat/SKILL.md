@@ -1,7 +1,6 @@
 ---
 name: wat
 description: "Rewrite the last message so it leads with the bottom line and cuts jargon, internal state, and meta-commentary while preserving facts and numbers. Use when someone says /wat."
-disable-model-invocation: true
 ---
 
 # Wat

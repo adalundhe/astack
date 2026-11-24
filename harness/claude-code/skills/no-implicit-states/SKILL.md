@@ -36,4 +36,6 @@ Make state machines explicit: named states in one type, transitions in one place
 
 **Showing it:** write a test that drives the code into an illegal combination (e.g. both loading and failed at the same time).
 
+Referenced skills: `show-the-states` (`${CLAUDE_SKILL_DIR}/../show-the-states/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's type-system-discipline principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

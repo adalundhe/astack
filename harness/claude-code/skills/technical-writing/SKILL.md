@@ -19,3 +19,5 @@ Write documentation that helps an engineer use, debug, or change the system accu
    - Headings that state the topic plainly; bullets for parallel items; tables only for structured multi-column comparisons; Mermaid diagrams (**show-the-states**) when state or data flow is clearer visually.
    - Define domain terms inline where they first appear, and keep internal jargon out of user-facing docs (**wat**).
 5. **Keep docs synchronized with code:** update or delete stale docs in the same change as the code (**yagni**, **no-hidden-config**). Don't leave parallel docs describing removed behavior.
+
+Referenced skills: `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`), `show-the-states` (`${CLAUDE_SKILL_DIR}/../show-the-states/SKILL.md`), `wat` (`${CLAUDE_SKILL_DIR}/../wat/SKILL.md`), `yagni` (`${CLAUDE_SKILL_DIR}/../yagni/SKILL.md`), `no-hidden-config` (`${CLAUDE_SKILL_DIR}/../no-hidden-config/SKILL.md`). Read any cited skill file before acting when its trigger applies.

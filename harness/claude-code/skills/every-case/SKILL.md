@@ -50,4 +50,6 @@ Use when verified code changed without updating verification. Edit only verifica
 6. **Update the `verify-<area>` skill** (coverage, commands, bounds, assumptions, and confirmed commit—leaving the commit unmoved if blocked), then run through it once as the next agent would.
 7. **Report clearly:** outcome per check, commits reviewed, updates made, mutation check confirming it still fails on breaks, any bugs in plain language, and remaining gaps. Distinguish model drift from real bugs, and ship verification updates separately from product fixes.
 
+Referenced skills: `research-this` (`${CLAUDE_SKILL_DIR}/../research-this/SKILL.md`), `show-the-states` (`${CLAUDE_SKILL_DIR}/../show-the-states/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's create-formal-verification-skill and maintain-formal-verification-skill skills (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

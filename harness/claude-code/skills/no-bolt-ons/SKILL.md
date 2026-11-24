@@ -31,4 +31,6 @@ Integrate a new requirement as if it had been part of the design from the start,
 - a temporary migration path or staged rollout explicitly requested by the person or an agreed design, behind a proper feature flag (**no-hidden-config**) with a removal condition;
 - an alternative backed by measurements (**ab-test**), with the trade-off documented.
 
+Referenced skills: `how-it-works` (`${CLAUDE_SKILL_DIR}/../how-it-works/SKILL.md`), `yagni` (`${CLAUDE_SKILL_DIR}/../yagni/SKILL.md`), `no-hidden-config` (`${CLAUDE_SKILL_DIR}/../no-hidden-config/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's redesign-from-first-principles principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

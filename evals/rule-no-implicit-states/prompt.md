@@ -1,10 +1,10 @@
 ---
-description: "Refactoring boolean-flag lifecycle code follows no-implicit-states by introducing an explicit state enum/tagged union and centralized transitions."
-expected_outcome: "Replaces tangled booleans with an explicit state type (enum or tagged union) and centralized transition handling so impossible combinations cannot be constructed."
+description: "In Go mode, refactoring boolean-flag lifecycle code routes to no-implicit-states and replaces scattered booleans with an explicit state machine."
+expected_outcome: "Reads no-implicit-states/SKILL.md and refactors UploadController into an explicit state enum/tagged union with centralized transitions and transition tests."
 allowed_tools: [Read, Glob, Grep]
 ---
 
-Use `/astack:no-implicit-states` to refactor this TypeScript upload controller so impossible states (such as `isUploading && isDone` or `error != null && progress === 100`) cannot exist:
+`/astack:go` Refactor this TypeScript upload controller—users keep hitting stuck UI states after retries and failed uploads. Reply with the updated code and tests.
 
 ```ts
 export class UploadController {
@@ -21,5 +21,3 @@ export class UploadController {
   fail(err: string) { this.isUploading = false; this.error = err; }
 }
 ```
-
-Reply with the refactored code and the key transition tests.

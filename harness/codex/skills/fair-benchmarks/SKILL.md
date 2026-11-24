@@ -1,7 +1,6 @@
 ---
 name: fair-benchmarks
 description: "Keep cross-system benchmarks fair: identical client, platform, and concurrency, release/production tuning on all sides, error checking, and alternating runs. Use before running or trusting competitor benchmarks."
-disable-model-invocation: true
 ---
 
 # Fair benchmarks

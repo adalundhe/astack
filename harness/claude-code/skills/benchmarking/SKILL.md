@@ -33,4 +33,6 @@ Benchmarks follow **tests-assert-behaviour** and **full-spectrum-testing**, exce
 
 Done when every performance criterion has benchmarks on the right layer, across applicable workloads, proven to catch regressions, measured against known noise and a pre-set bar, and written up. Only numbers measured this way (or explicitly set by the person) belong in acceptance criteria.
 
+Referenced skills: `tests-assert-behaviour` (`${CLAUDE_SKILL_DIR}/../tests-assert-behaviour/SKILL.md`), `full-spectrum-testing` (`${CLAUDE_SKILL_DIR}/../full-spectrum-testing/SKILL.md`), `fair-benchmarks` (`${CLAUDE_SKILL_DIR}/../fair-benchmarks/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's benchmark-checklist and explain-the-number skills and its Hillclimb playbook (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

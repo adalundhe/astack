@@ -9,7 +9,7 @@ You are running in astack Go mode. Every other astack skill is hidden from the m
 
 Skill files live beside this one at `${CLAUDE_SKILL_DIR}/../<name>/SKILL.md`. Never guess a skill's instructions from the one-line summary below—read the file first when it applies.
 
-The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`) are on your PATH.
+The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) are on your PATH.
 
 ## Startup
 
@@ -65,6 +65,9 @@ Read the matching skill file(s) before starting:
   - Rewrite unclear/jargon-heavy output cleanly: `${CLAUDE_SKILL_DIR}/../wat/SKILL.md`
   - Write or update concrete, verified documentation: `${CLAUDE_SKILL_DIR}/../technical-writing/SKILL.md`
   - Replace repeated commands/polling with scripts and watchers: `${CLAUDE_SKILL_DIR}/../automate-this/SKILL.md`
+  - Author/manage async tasks, shell runners, and watchers (`taskex`): `${CLAUDE_SKILL_DIR}/../taskex/SKILL.md`
+  - Author/manage multi-stage concurrent pipelines (`orchestral`): `${CLAUDE_SKILL_DIR}/../orchestral/SKILL.md`
+  - Author/manage modular DAG workflows and integrations (`werkflow` + `werkflow-modules`): `${CLAUDE_SKILL_DIR}/../werkflow/SKILL.md`
   - Remove temp files, build artifacts, and leftover processes: `${CLAUDE_SKILL_DIR}/../cleanup/SKILL.md`
   - Capture session lessons and enforce fixes structurally: `${CLAUDE_SKILL_DIR}/../make-it-stick/SKILL.md`
 

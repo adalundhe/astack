@@ -40,3 +40,5 @@ Tests verify user-observable correctness—never internal implementation details
 - pinning a public library/API contract, which *is* behavior to its callers.
 
 **Showing it:** break the behavior and watch the test stay green; refactor internals without changing behavior and watch it fail; run the test solo, in parallel, or under load.
+
+Referenced skills: `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`). Read any cited skill file before acting when its trigger applies.

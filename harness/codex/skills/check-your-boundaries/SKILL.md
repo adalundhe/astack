@@ -1,7 +1,6 @@
 ---
 name: check-your-boundaries
 description: "Parse and validate external data into domain types once at the boundary, then trust those types inside. Use when writing or reviewing code handling requests, CLI args, config, env vars, files, DB rows, or API replies."
-disable-model-invocation: true
 ---
 
 # Check your boundaries
@@ -35,5 +34,7 @@ Parse external data into the program's own types once where it enters, then trus
 - an alternative backed by measurements (**ab-test**), with the trade-off documented.
 
 **Showing it:** send malformed input through the real entry point and show it getting past the boundary.
+
+Referenced skills: `no-hidden-flow-control` (`../no-hidden-flow-control/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's boundary-discipline and type-system-discipline principles (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

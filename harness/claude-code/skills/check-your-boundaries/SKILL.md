@@ -36,4 +36,6 @@ Parse external data into the program's own types once where it enters, then trus
 
 **Showing it:** send malformed input through the real entry point and show it getting past the boundary.
 
+Referenced skills: `no-hidden-flow-control` (`${CLAUDE_SKILL_DIR}/../no-hidden-flow-control/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's boundary-discipline and type-system-discipline principles (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

@@ -44,4 +44,6 @@ If you have several independent ideas, test them in parallel in separate worktre
 - **Know when to stop.** Stop when you hit the target. Before concluding further gains require trading functionality, run **research-this** and **explore-the-limits** to verify no compliant design exists; only then present the best compliant result, what limits it, and the trade-off with numbers to the person (**never-trade-functionality**, **decisions-in-plain-words**). Never relax the goal to declare victory.
 - **Report:** baseline vs. final for every metric, steps kept and reverted, the full log, the current bottleneck, and the best next lead (**prove-it**).
 
+Referenced skills: `tests-assert-behaviour` (`../tests-assert-behaviour/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`), `never-trade-functionality` (`../never-trade-functionality/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `explore-the-limits` (`../explore-the-limits/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's Hillclimb playbook (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

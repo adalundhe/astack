@@ -14,4 +14,6 @@ Find what a change could break beyond its diff before it ships.
 4. **Prove the assumption by running real code,** as high on the trust ladder (**prove-it**) as you can reach: run a script, test, or local reproduction against the real system.
 5. **Report clearly:** what the change does; the core safety assumption (marked proven or unproven); each concrete risk (how and where it breaks, likelihood, severity); what you checked and cleared; and the cheapest check that would catch real breakage.
 
+Referenced skills: `prove-it` (`../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's blast-radius skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

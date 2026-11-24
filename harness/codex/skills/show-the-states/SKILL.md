@@ -1,7 +1,6 @@
 ---
 name: show-the-states
 description: "Diagram a system's states, triggers, conditions, failure paths, and observed probabilities in Mermaid stateDiagram-v2. Use for debugging, onboarding, design, planning, or reviews."
-disable-model-invocation: true
 ---
 
 # Show the states
@@ -17,5 +16,7 @@ Diagram how a system moves between states so readers can immediately see what ha
 7. **Render in Mermaid** (`stateDiagram-v2`) inline alongside its context in the report, review, brief, or AD.
 
 During planning, annotate which task builds which states and transitions; include the diagram in briefs and check code against it during review.
+
+Referenced skills: `research-this` (`../research-this/SKILL.md`), `no-picked-constants` (`../no-picked-constants/SKILL.md`), `bugs-by-scenario` (`../bugs-by-scenario/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's statechart skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

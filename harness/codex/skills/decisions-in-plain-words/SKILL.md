@@ -1,7 +1,6 @@
 ---
 name: decisions-in-plain-words
 description: "Resolve what you can yourself, log every decision, and only escalate genuine human choices as plain options with a recommendation. Use before asking the person anything or writing a report."
-disable-model-invocation: true
 ---
 
 # Decisions in plain words
@@ -28,5 +27,7 @@ Guidelines:
 - Lead with impact; keep internal IDs and task numbers out of the message.
 - Don't re-ask answered questions. When given a direct order, execute it without offering to undo it.
 - In reports, answer their question first, then losses/gaps, then completed work with evidence. Mark each claim as measured, inferred, or guessed.
+
+Referenced skills: `play-with-me` (`../play-with-me/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's poteto-mode skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

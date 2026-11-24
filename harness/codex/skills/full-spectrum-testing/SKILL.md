@@ -1,7 +1,6 @@
 ---
 name: full-spectrum-testing
 description: "Write acceptance-driven tests across the test diamond (unit, integration, end-to-end) covering failure modes, edge cases, concurrency, fuzzing, and injected faults. Use when writing or auditing a task's tests."
-disable-model-invocation: true
 ---
 
 # Full-spectrum testing
@@ -28,3 +27,5 @@ Every test follows **tests-assert-behaviour**.
 7. **Name tests for what they catch:** state the behavior and failure mode in the test name or a one-line description.
 
 Done when every acceptance criterion is covered across applicable layers and failure modes, every new test went red then green, and no test depends on timing, load, or execution order.
+
+Referenced skills: `tests-assert-behaviour` (`../tests-assert-behaviour/SKILL.md`). Read any cited skill file before acting when its trigger applies.

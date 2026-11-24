@@ -28,3 +28,5 @@ Every test follows **tests-assert-behaviour**.
 7. **Name tests for what they catch:** state the behavior and failure mode in the test name or a one-line description.
 
 Done when every acceptance criterion is covered across applicable layers and failure modes, every new test went red then green, and no test depends on timing, load, or execution order.
+
+Referenced skills: `tests-assert-behaviour` (`${CLAUDE_SKILL_DIR}/../tests-assert-behaviour/SKILL.md`). Read any cited skill file before acting when its trigger applies.

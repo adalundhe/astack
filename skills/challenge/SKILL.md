@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Adversarially interrogate a hypothesis, diagnosis, design choice, repeated fix, or implementation—peer to peer, regardless of agent role—until every load-bearing assumption is backed by evidence or revised.
 
-Invoke `/astack:challenge` whenever fixes keep recurring in the same area, a root-cause theory or benchmark explanation feels convenient, a design adds complexity on untested assumptions, or any agent's claim (including your own) hasn't been falsified.
+Start a challenge whenever fixes keep recurring in the same area, a root-cause theory or benchmark explanation feels convenient, a design adds complexity on untested assumptions, or any agent's claim (including your own) hasn't been falsified.
 
 ## Rules of engagement
 

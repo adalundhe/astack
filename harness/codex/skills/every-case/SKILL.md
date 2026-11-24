@@ -1,7 +1,6 @@
 ---
 name: every-case
 description: "Set up and maintain formal verification (TLA+, code verifiers, or generated checks) for concurrency, state machines, protocols, parsers, or unsafe code, and replay counterexamples on real code. Use when tests can't cover dangerous orderings or inputs, or after verified code changes."
-disable-model-invocation: true
 ---
 
 # Every case
@@ -49,5 +48,7 @@ Use when verified code changed without updating verification. Edit only verifica
    - **If it fails:** replay the counterexample on real code step by step. An impossible step means model error—fix it and explain the discrepancy. A valid trace is a real bug—report steps, one-sentence user harm, and the introducing commit.
 6. **Update the `verify-<area>` skill** (coverage, commands, bounds, assumptions, and confirmed commit—leaving the commit unmoved if blocked), then run through it once as the next agent would.
 7. **Report clearly:** outcome per check, commits reviewed, updates made, mutation check confirming it still fails on breaks, any bugs in plain language, and remaining gaps. Distinguish model drift from real bugs, and ship verification updates separately from product fixes.
+
+Referenced skills: `research-this` (`../research-this/SKILL.md`), `show-the-states` (`../show-the-states/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's create-formal-verification-skill and maintain-formal-verification-skill skills (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

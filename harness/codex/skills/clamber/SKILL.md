@@ -1,7 +1,6 @@
 ---
 name: clamber
 description: "Iteratively improve performance (CPU, memory, I/O, network, concurrency, or size) in small measured steps: baseline everything, change one thing at a time, commit gains, revert regressions. Use when significant optimization is needed."
-disable-model-invocation: true
 ---
 
 # Clamber
@@ -43,5 +42,7 @@ If you have several independent ideas, test them in parallel in separate worktre
 - **Break through plateaus.** If incremental tweaks stall well short of the goal, try another optimization category, combine near misses, reread the hot path, or prototype alternative architectures (**explore-the-limits**).
 - **Know when to stop.** Stop when you hit the target. Before concluding further gains require trading functionality, run **research-this** and **explore-the-limits** to verify no compliant design exists; only then present the best compliant result, what limits it, and the trade-off with numbers to the person (**never-trade-functionality**, **decisions-in-plain-words**). Never relax the goal to declare victory.
 - **Report:** baseline vs. final for every metric, steps kept and reverted, the full log, the current bottleneck, and the best next lead (**prove-it**).
+
+Referenced skills: `tests-assert-behaviour` (`../tests-assert-behaviour/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`), `never-trade-functionality` (`../never-trade-functionality/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `explore-the-limits` (`../explore-the-limits/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's Hillclimb playbook (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

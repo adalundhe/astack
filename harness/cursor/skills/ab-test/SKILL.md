@@ -14,4 +14,6 @@ Settle a choice between options by measuring each the same way.
 4. **Alternate runs.** Run one variant at a time, round by round (base, A, B, A+B, base, ...), for as many rounds as the baseline needed.
 5. **Pick, graft, and clean up.** Pick the variant that clears the bar on the deciding metric without regressing past the bar on another (or the simplest if none clears it). Before deleting losers, check if any loser won on a secondary metric, edge case, or design clarity—graft worthwhile pieces onto the winner and re-verify tests and benchmarks. Record the decision in the write-up, delete the losing variants in the same change, and move on.
 
+Referenced skills: `benchmarking` (`../benchmarking/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's benchmark-checklist and arena skills (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

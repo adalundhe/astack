@@ -37,4 +37,6 @@ Break a request into tasks that one agent each can complete and verify, ordered 
 
 Re-plan if failures share an external root cause, a task needs splitting, or unexpected prerequisite work emerges. Never silently expand a task's scope instead.
 
+Referenced skills: `run-it-back` (`../run-it-back/SKILL.md`), `how-it-works` (`../how-it-works/SKILL.md`), `show-the-states` (`../show-the-states/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `tests-assert-behaviour` (`../tests-assert-behaviour/SKILL.md`), `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`), `no-shared-writes` (`../no-shared-writes/SKILL.md`), `no-picked-constants` (`../no-picked-constants/SKILL.md`), `address-feedback` (`../address-feedback/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+
 <!-- Adapts pstack's figure-it-out skill and its sequence-verifiable-units principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

@@ -1,7 +1,6 @@
 ---
 name: no-shared-writes
 description: "Keep concurrent threads, processes, services, and agents from mutating the same state: isolate per writer, merge on read, and serialize structurally only for true invariants. Use when writing concurrent/parallel code or adding locks."
-disable-model-invocation: true
 ---
 
 # No shared writes
@@ -34,5 +33,7 @@ Avoid shared mutable state across concurrent writers instead of reaching for loc
 - an alternative backed by measurements (**ab-test**), with the trade-off documented.
 
 **Showing it:** force a bad interleaving or flood the target with concurrent writers and demonstrate lost or corrupted writes.
+
+Referenced skills: `benchmarking` (`../benchmarking/SKILL.md`), `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's separate-before-serializing-shared-state principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

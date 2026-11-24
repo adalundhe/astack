@@ -1,9 +1,7 @@
 ---
-description: "Proposing queue bounds and retry timeouts follows no-picked-constants instead of inventing arbitrary magic numbers."
-expected_outcome: "Refuses to pick arbitrary magic numbers (like 4096 entries or 30s timeout), instead bounding by actual resources, deriving from cited specs/OS limits, adapting at runtime, or stating how to measure."
+description: "In Go mode, a request for hardcoded queue/batch/timeout numbers routes to no-picked-constants and refuses to invent arbitrary constants."
+expected_outcome: "Reads no-picked-constants/SKILL.md, refuses to invent arbitrary numbers, bounds queues by resource usage, derives/adapts limits at runtime, and explains what to measure."
 allowed_tools: [Read, Glob, Grep]
 ---
 
-Use `/astack:no-picked-constants` to answer:
-
-We're adding an in-memory ingestion queue and an upstream HTTP retry loop to our service. What queue length limit, batch size, and retry timeout constants should we hardcode?
+`/astack:go` We're adding an in-memory ingestion queue and an upstream HTTP retry loop to our service. What queue length limit, batch size, and retry timeout values should we put in the code?

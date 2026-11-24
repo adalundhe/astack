@@ -23,3 +23,5 @@ For splits larger than moving one module, plan the sequence as a task graph firs
 - purely by line count (a long single-purpose file like a lookup or transition table belongs together);
 - one cohesive idea across multiple files where splitting hurts readability;
 - just to introduce a single-implementation interface with no real boundary behind it.
+
+Referenced skills: `how-it-works` (`${CLAUDE_SKILL_DIR}/../how-it-works/SKILL.md`), `show-the-states` (`${CLAUDE_SKILL_DIR}/../show-the-states/SKILL.md`), `tests-assert-behaviour` (`${CLAUDE_SKILL_DIR}/../tests-assert-behaviour/SKILL.md`), `minimize-state-stores` (`${CLAUDE_SKILL_DIR}/../minimize-state-stores/SKILL.md`), `no-shared-writes` (`${CLAUDE_SKILL_DIR}/../no-shared-writes/SKILL.md`), `no-implicit-states` (`${CLAUDE_SKILL_DIR}/../no-implicit-states/SKILL.md`), `check-your-boundaries` (`${CLAUDE_SKILL_DIR}/../check-your-boundaries/SKILL.md`), `yagni` (`${CLAUDE_SKILL_DIR}/../yagni/SKILL.md`), `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`), `dagify` (`${CLAUDE_SKILL_DIR}/../dagify/SKILL.md`). Read any cited skill file before acting when its trigger applies.

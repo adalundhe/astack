@@ -1,0 +1,273 @@
+#!/usr/bin/env python3
+"""Install, inspect, and run astack's Python automation stack (taskex, orchestral, werkflow + werkflow-modules).
+
+Usage:
+  astack-tools doctor [--venv DIR] [--json]
+  astack-tools install [--profile core|standard|all] [--modules LIST] [--from-github] [--python PY] [--venv DIR] [--dry-run]
+  astack-tools python [--venv DIR] [ARGS...]
+  astack-tools werkflow [--venv DIR] [ARGS...]
+  astack-tools path [--venv DIR]
+
+Manages an isolated venv at ${XDG_DATA_HOME:-~/.local/share}/astack/venv (override with ASTACK_VENV or --venv)
+so automation scripts never pollute a target repository's environment.
+"""
+import argparse
+import importlib.metadata
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+CORE_PACKAGES = ("taskex", "orchestral", "werkflow")
+STANDARD_MODULES = (
+    "werkflow-shell",
+    "werkflow-file",
+    "werkflow-git",
+    "werkflow-github",
+    "werkflow-http",
+    "werkflow-python",
+    "werkflow-system",
+    "werkflow-secrets",
+    "werkflow-encryption",
+)
+EXTRA_MODULES = (
+    "werkflow-docker",
+    "werkflow-aws",
+    "werkflow-jira",
+    "werkflow-metrikflow",
+    "werkflow-appito",
+)
+ALL_MODULES = STANDARD_MODULES + EXTRA_MODULES
+ALL_KNOWN = CORE_PACKAGES + ("werkflow-core",) + ALL_MODULES
+
+GITHUB_REPOS = {
+    "taskex": "git+https://github.com/adalundhe/taskex.git",
+    "orchestral": "git+https://github.com/adalundhe/orchestral.git",
+    "werkflow": "git+https://github.com/adalundhe/werkflow.git",
+}
+WERKFLOW_MODULES_GIT = "git+https://github.com/adalundhe/werkflow-modules.git"
+
+
+def default_venv() -> Path:
+    if env_venv := os.environ.get("ASTACK_VENV"):
+        return Path(env_venv).expanduser()
+    base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
+    return base / "astack" / "venv"
+
+
+def venv_bin(venv: Path, name: str) -> Path:
+    sub = "Scripts" if os.name == "nt" else "bin"
+    return venv / sub / name
+
+
+def find_python(explicit: str | None) -> str:
+    if explicit:
+        return explicit
+    for candidate in ("python3.13", "python3.12", "python3.11", "/opt/homebrew/bin/python3", sys.executable):
+        path = shutil.which(candidate) if not Path(candidate).is_absolute() else candidate
+        if not path or not Path(path).exists():
+            continue
+        probe = subprocess.run(
+            [path, "-c", "import sys; print(sys.version_info >= (3, 11))"],
+            capture_output=True, text=True,
+        )
+        if probe.returncode == 0 and probe.stdout.strip() == "True":
+            return path
+    return sys.executable
+
+
+def normalize_module(name: str) -> str:
+    cleaned = name.strip().lower().replace("_", "-")
+    if cleaned in CORE_PACKAGES or cleaned == "werkflow-core":
+        return cleaned
+    prefixed = cleaned if cleaned.startswith("werkflow-") else f"werkflow-{cleaned}"
+    if prefixed not in ALL_MODULES:
+        valid = ", ".join(m.removeprefix("werkflow-") for m in ALL_MODULES)
+        raise ValueError(f"unknown werkflow module {name!r}; valid modules: {valid}")
+    return prefixed
+
+
+def resolve_packages(profile: str, modules: str | None, from_github: bool) -> list[str]:
+    names = list(CORE_PACKAGES)
+    if profile == "standard":
+        names.extend(STANDARD_MODULES)
+    elif profile == "all":
+        names.extend(ALL_MODULES)
+    if modules:
+        for item in modules.split(","):
+            if item.strip():
+                pkg = normalize_module(item)
+                if pkg not in names:
+                    names.append(pkg)
+    if not from_github:
+        return names
+    specs = []
+    for name in names:
+        if name in GITHUB_REPOS:
+            specs.append(GITHUB_REPOS[name])
+        else:
+            specs.append(f"{name} @ {WERKFLOW_MODULES_GIT}#subdirectory={name}")
+    if any(n.startswith("werkflow") for n in names):
+        core_spec = f"werkflow-core @ {WERKFLOW_MODULES_GIT}#subdirectory=werkflow-core"
+        if core_spec not in specs:
+            specs.insert(0, core_spec)
+    return specs
+
+
+def inspect_venv(venv: Path) -> dict:
+    py = venv_bin(venv, "python")
+    wf_cli = venv_bin(venv, "werkflow")
+    info = {
+        "venv": str(venv),
+        "venv_exists": py.is_file(),
+        "python": str(py) if py.is_file() else None,
+        "python_version": None,
+        "werkflow_cli": str(wf_cli) if wf_cli.is_file() else None,
+        "uv": shutil.which("uv"),
+        "packages": {pkg: None for pkg in ALL_KNOWN},
+    }
+    if not py.is_file():
+        return info
+    probe_code = (
+        "import importlib.metadata, json, sys; "
+        f"names = {list(ALL_KNOWN)!r}; "
+        "versions = {};\n"
+        "for n in names:\n"
+        "    try: versions[n] = importlib.metadata.version(n)\n"
+        "    except importlib.metadata.PackageNotFoundError: versions[n] = None\n"
+        "print(json.dumps({'version': '.'.join(map(str, sys.version_info[:3])), 'packages': versions}))"
+    )
+    proc = subprocess.run([str(py), "-c", probe_code], capture_output=True, text=True)
+    if proc.returncode == 0 and proc.stdout.strip():
+        data = json.loads(proc.stdout)
+        info["python_version"] = data["version"]
+        info["packages"] = data["packages"]
+    return info
+
+
+def cmd_doctor(args) -> int:
+    info = inspect_venv(args.venv)
+    core_ok = all(info["packages"].get(p) for p in CORE_PACKAGES)
+    if args.as_json:
+        print(json.dumps({**info, "core_ready": core_ok}, indent=2))
+        return 0 if core_ok else 1
+
+    print(f"astack-tools venv: {info['venv']} ({'ready' if info['venv_exists'] else 'missing'})")
+    if info["python_version"]:
+        print(f"  python: {info['python']} ({info['python_version']})")
+    print(f"  uv: {info['uv'] or 'not found (will use python -m venv + pip)'}")
+    print(f"  werkflow cli: {info['werkflow_cli'] or 'missing'}")
+    print("\nCore packages")
+    for pkg in CORE_PACKAGES + ("werkflow-core",):
+        print(f"  {pkg}: {info['packages'].get(pkg) or 'missing'}")
+    installed_mods = [(m, v) for m in ALL_MODULES if (v := info["packages"].get(m))]
+    missing_mods = [m for m in ALL_MODULES if not info["packages"].get(m)]
+    print(f"\nWerkflow modules ({len(installed_mods)}/{len(ALL_MODULES)} installed)")
+    for mod, ver in installed_mods:
+        print(f"  {mod}: {ver}")
+    if missing_mods:
+        print("  not installed: " + ", ".join(m.removeprefix("werkflow-") for m in missing_mods))
+    if not core_ok:
+        print("\nRun `astack-tools install` to set up the managed automation venv.")
+    return 0 if core_ok else 1
+
+
+def cmd_install(args) -> int:
+    try:
+        packages = resolve_packages(args.profile, args.modules, args.from_github)
+    except ValueError as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 2
+
+    uv = shutil.which("uv")
+    py_host = find_python(args.python)
+    py_venv = venv_bin(args.venv, "python")
+    commands = []
+    if not py_venv.is_file():
+        if uv:
+            venv_cmd = [uv, "venv", str(args.venv)]
+            if args.python:
+                venv_cmd.extend(["--python", args.python])
+            else:
+                venv_cmd.extend(["--python", ">=3.11"])
+            commands.append(venv_cmd)
+        else:
+            commands.append([py_host, "-m", "venv", str(args.venv)])
+
+    if uv:
+        commands.append([uv, "pip", "install", "--python", str(py_venv), "--upgrade", *packages])
+    else:
+        commands.append([str(py_venv), "-m", "pip", "install", "--upgrade", *packages])
+
+    if args.dry_run:
+        for cmd in commands:
+            print(" ".join(cmd))
+        return 0
+
+    args.venv.parent.mkdir(parents=True, exist_ok=True)
+    for cmd in commands:
+        result = subprocess.run(cmd)
+        if result.returncode != 0:
+            return result.returncode
+    return cmd_doctor(argparse.Namespace(venv=args.venv, as_json=False))
+
+
+def cmd_exec(venv: Path, binary: str, raw_args: list[str]) -> int:
+    target = venv_bin(venv, binary)
+    if not target.is_file():
+        print(f"astack-tools: {binary} not installed in {venv}. Run `astack-tools install`.", file=sys.stderr)
+        return 1
+    passthrough = raw_args[1:] if raw_args and raw_args[0] == "--" else raw_args
+    return subprocess.run([str(target), *passthrough]).returncode
+
+
+def split_exec_venv(raw_args: list[str]) -> tuple[Path, list[str]]:
+    if len(raw_args) >= 2 and raw_args[0] == "--venv":
+        return Path(raw_args[1]).expanduser(), raw_args[2:]
+    if raw_args and raw_args[0].startswith("--venv="):
+        return Path(raw_args[0].split("=", 1)[1]).expanduser(), raw_args[1:]
+    return default_venv(), raw_args
+
+
+def main(argv=None) -> int:
+    args_list = list(sys.argv[1:] if argv is None else argv)
+    if args_list and args_list[0] in ("python", "werkflow"):
+        venv, rest = split_exec_venv(args_list[1:])
+        return cmd_exec(venv, args_list[0], rest)
+
+    parser = argparse.ArgumentParser(description="Manage and run astack's Python automation stack.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_doc = sub.add_parser("doctor", aliases=["status"], help="check installed automation tools and modules")
+    p_doc.add_argument("--venv", type=Path, default=default_venv())
+    p_doc.add_argument("--json", action="store_true", dest="as_json")
+
+    p_inst = sub.add_parser("install", help="create/update the managed venv and install packages")
+    p_inst.add_argument("--venv", type=Path, default=default_venv())
+    p_inst.add_argument("--profile", choices=("core", "standard", "all"), default="standard")
+    p_inst.add_argument("--modules", help="comma-separated extra werkflow modules (e.g. docker,jira)")
+    p_inst.add_argument("--from-github", action="store_true", help="install from GitHub main instead of PyPI")
+    p_inst.add_argument("--python", help="host Python interpreter/version for creating the venv (>=3.11)")
+    p_inst.add_argument("--dry-run", action="store_true", help="print commands without executing")
+
+    sub.add_parser("python", help="run python inside the managed venv")
+    sub.add_parser("werkflow", help="run the werkflow CLI inside the managed venv")
+
+    p_path = sub.add_parser("path", help="print the managed venv's python path")
+    p_path.add_argument("--venv", type=Path, default=default_venv())
+
+    args = parser.parse_args(args_list)
+    if args.command in ("doctor", "status"):
+        return cmd_doctor(args)
+    if args.command == "install":
+        return cmd_install(args)
+    if args.command == "path":
+        print(venv_bin(args.venv, "python"))
+        return 0
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

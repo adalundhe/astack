@@ -9,11 +9,11 @@ disable-model-invocation: true
 Turn a reviewed `/dagify` task graph into an automated workflow with explicit, durable task states.
 
 1. **Start from a reviewed graph** (**dagify**): tasks, edges, acceptance criteria, and tests already verified.
-2. **Choose the right runner** (**automate-this**; check the chosen tool's docs/source via **rtfm** before coding against it):
-   - **Lightweight async tasks and shell commands:** [`taskex`](https://github.com/adalundhe/taskex) (`pip install taskex`).
-   - **Async task-graph / DAG execution:** [`orchestral`](https://github.com/adalundhe/orchestral) (`pip install orchestral`).
-   - **Sophisticated scripted pipelines and system integrations:** [`werkflow`](https://github.com/adalundhe/werkflow) with [`werkflow-modules`](https://github.com/adalundhe/werkflow-modules).
-   - **Unattended or recurring schedules / native environments:** the host tool's native workflow runner, a CI pipeline, or a script in the repo's primary language when the project doesn't use Python.
+2. **Choose the right runner** (**automate-this**; check availability with `astack-tools doctor` and run via `astack-tools python` / `astack-tools werkflow`):
+   - **Lightweight async tasks and shell commands:** read **taskex**.
+   - **Ordered stages of concurrent Python/shell steps:** read **orchestral**.
+   - **Full named-dependency DAGs, `.werkflow.json`/prompts, or git/GitHub/Docker/AWS/Jira/secrets modules:** read **werkflow**.
+   - **Unattended/recurring schedules or non-Python stacks:** the host tool's native workflow runner, a CI pipeline, or a script in the repo's primary language.
 3. **Model task states explicitly** (**no-implicit-states**): `waiting`, `ready`, `running`, `in_review`, `done`, `failed`, `blocked_on_person`, with all transitions in one place. A task becomes `ready` only when all dependencies are `done` and their reviews passed. Diagram the machine (**show-the-states**).
 4. **Return typed outcomes** (**no-hidden-flow-control**): `done` (with evidence), `failed` (with reason), `inconclusive`, or `blocked` (with what the person must do). No silent failures or hidden retries.
 5. **Persist per-task state durably.** Store each task's state separately so restarts resume cleanly (**no-shared-writes**) and make every step idempotent (**safe-to-rerun**).

@@ -18,3 +18,5 @@ Merge-ready means CI is green, every human and agent comment is resolved, and al
 6. **Flag if stuck 24 hours:** every 24h the PR stays open, comment mentioning the person with what it's waiting on and log a line in `LANES.md`.
 7. **Hand off cleanly at wind-down:** update the marker file, report exact PR status, and stop so a successor can continue seamlessly.
 8. **Stop when merge-ready:** notify the lead (or the person, if running standalone) and stop. Never merge the PR yourself.
+
+Referenced skills: `worrywart` (`${CLAUDE_SKILL_DIR}/../worrywart/SKILL.md`), `automate-this` (`${CLAUDE_SKILL_DIR}/../automate-this/SKILL.md`), `leave-it-better` (`${CLAUDE_SKILL_DIR}/../leave-it-better/SKILL.md`), `address-feedback` (`${CLAUDE_SKILL_DIR}/../address-feedback/SKILL.md`). Read any cited skill file before acting when its trigger applies.

@@ -1,7 +1,6 @@
 ---
 name: no-implicit-states
 description: "Model state machines explicitly with named states in one type, centralized transitions, and exhaustive handling. Use when writing or reviewing code whose behavior depends on prior state."
-disable-model-invocation: true
 ---
 
 # No implicit states
@@ -35,5 +34,7 @@ Make state machines explicit: named states in one type, transitions in one place
 - an alternative backed by measurements (**ab-test**), with the trade-off documented.
 
 **Showing it:** write a test that drives the code into an illegal combination (e.g. both loading and failed at the same time).
+
+Referenced skills: `show-the-states` (`../show-the-states/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's type-system-discipline principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

@@ -1,7 +1,6 @@
 ---
 name: benchmarking
 description: "Design, run, and write up rigorous benchmarks from performance criteria using user-observable metrics, controlled environments, measured noise, and statistical bars. Use when measuring performance, checking regressions, or comparing systems."
-disable-model-invocation: true
 ---
 
 # Benchmarking
@@ -32,5 +31,7 @@ Benchmarks follow **tests-assert-behaviour** and **full-spectrum-testing**, exce
 11. **Write up the record.** Keep it concise and complete: question, metrics, environment, sampling plan, noise and bar, each result's median/interval/bottleneck, anomalies, conclusion, and exact rerun commands. Save it where the project stores benchmark records.
 
 Done when every performance criterion has benchmarks on the right layer, across applicable workloads, proven to catch regressions, measured against known noise and a pre-set bar, and written up. Only numbers measured this way (or explicitly set by the person) belong in acceptance criteria.
+
+Referenced skills: `tests-assert-behaviour` (`../tests-assert-behaviour/SKILL.md`), `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`), `fair-benchmarks` (`../fair-benchmarks/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's benchmark-checklist and explain-the-number skills and its Hillclimb playbook (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->
