@@ -37,7 +37,7 @@ Start a new session, then run `$astack-setup`. Codex plugins can't ship agent de
 
 ## Running bigger tasks with `lead`
 
-Setup is optional if you're fine with the defaults (60-minute worker limit, 5-minute wind-down buffer, 5-minute check-in interval), except on Codex where it installs the worker and reviewer agents. To change the defaults, run:
+Setup is optional if you're fine with the defaults (60-minute worker limit, 5-minute wind-down buffer, 5-minute check-in interval, and workers and reviewers on your session's model), except on Codex where it installs the worker and reviewer agents. To change the defaults, or pick the model, provider, and reasoning effort for workers and reviewers, run:
 
 ```
 /astack:setup
@@ -75,7 +75,7 @@ How to call them:
 ### Planning and orchestration
 
 - `lead`: runs a multi-lane program, managing git worktrees, time-boxed workers, check-ins, merge verification, and the lane log.
-- `setup`: saves worker timeout, wind-down buffer, and check-in interval to `~/.config/astack/settings.json` (and installs the worker and reviewer agents on Codex).
+- `setup`: saves worker timeout, wind-down buffer, check-in interval, and the model, provider, and reasoning effort for workers and reviewers to `~/.config/astack/settings.json` (and installs the worker and reviewer agents on Codex).
 - `status`: shows active workers, remaining time, latest commits per branch, lane states, and unanswered questions.
 - `dagify`: breaks a larger task into a dependency graph of smaller tasks with acceptance criteria and tests, ordered so independent tasks can run in parallel without editing the same files.
 - `workflow-this`: turns a `dagify` task graph into a resumable script or pipeline with explicit task states.

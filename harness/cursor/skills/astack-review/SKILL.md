@@ -14,7 +14,7 @@ Send reviewer subagents to break the change, and keep only findings confirmed by
    - failure modes, load, and concurrency;
    - coding rules: **no-implicit-states**, **no-hidden-flow-control**, **no-hidden-config**, **minimize-state-stores**, **check-your-boundaries**, **no-shared-writes**, **safe-to-rerun**, **no-bolt-ons**, **yagni**, **comment-cop**, **delight-users**, **no-picked-constants**, **event-driven**, **never-trade-functionality**.
 
-   Give each reviewer its own worktree (with uncommitted edits copied in) to run **adversarial-review** in full and return its report.
+   Give each reviewer its own worktree (with uncommitted edits copied in) to run **adversarial-review** in full and return its report, and start it on the reviewer's model, provider, and effort from setup when set.
 4. **Verify every finding.** Rerun each reproduction. Keep a finding only if the failure reproduces and violates the intent or an applicable rule; drop the rest, tallying each reviewer's dropped count and reasons.
 5. **Merge duplicates by root cause,** crediting every reviewer that surfaced it. Keep all distinct verified findings across reviewers.
 6. **Rank internally** (**adversarial-review**) and report blockers first, then suggestions, then nits—each leading with user impact, reproduction, and evidence. Follow with what was confirmed, what held, what couldn't be tested, and what was dropped.

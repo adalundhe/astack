@@ -9,8 +9,8 @@
       "6. Schedule a check-in every `check_in_minutes` with `/loop`. Drift and the clock send no event, so the schedule catches them."
     ],
     [
-      "3. Spawn it with `subagent_type: \"astack:worker\"` in the background, passing the brief.",
-      "3. Spawn it as the `astack-worker` subagent in the background, passing the brief."
+      "3. Spawn it with `subagent_type: \"astack:worker\"` in the background, passing the brief and the worker's `model` and `effort` from settings when set.",
+      "3. Spawn it as the `astack-worker` subagent in the background, passing the brief and the worker's model from settings when set."
     ],
     [
       "if it doesn't, stop it with `TaskStop` and start a successor from its branch.",
@@ -27,6 +27,10 @@
     [
       "2. **Ask**, showing the current value first, using `AskUserQuestion`:",
       "2. **Ask**, showing the current value first, with Cursor's question tool:"
+    ],
+    [
+      "Model options in Claude Code: `model` is opus, sonnet, haiku, or fable; `effort` is low, medium, high, xhigh, or max. Every agent shares the session's provider.",
+      "Model options in Cursor: any model name you can pass to a subagent in this session. The name sets the provider, and for some models the effort, so workers and reviewers can run on a different provider from the session."
     ],
     [
       "5. **Install what this tool needs.** Nothing in Claude Code: the plugin ships the agents and the hook.",

@@ -16,7 +16,7 @@ The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`) are 
 
 ## Settings
 
-Read `~/.config/astack/settings.json`, written by `/astack:setup`: `worker_minutes`, `wind_down_minutes`, `check_in_minutes`. If it is missing, use 60, 5, and 5, and mention that once. Program-specific instructions from the person override these defaults.
+Read `~/.config/astack/settings.json`, written by `/astack:setup`: `worker_minutes`, `wind_down_minutes`, `check_in_minutes`, and `roles` (the model, provider, and effort for workers and reviewers). If it is missing, use 60, 5, and 5 and the session's model, and mention that once. Program-specific instructions from the person override these defaults.
 
 ## Set up the program
 
@@ -32,7 +32,7 @@ Read `~/.config/astack/settings.json`, written by `/astack:setup`: `worker_minut
 
 1. Create an isolated worktree: `git worktree add <program folder>/<worker> -b <prefix>/<lane>`. For a successor, remove the old worktree first and create a new one on the lane's branch so workers never overwrite each other.
 2. Write its brief from `brief.md`: deliverable, done-when, out of scope, writable paths, worktree and branch, `RULES.md` and report paths, and start/wind-down/end UTC timestamps from `date -u`.
-3. Spawn it with `subagent_type: "astack:worker"` in the background, passing the brief.
+3. Spawn it with `subagent_type: "astack:worker"` in the background, passing the brief and the worker's `model` and `effort` from settings when set.
 4. Log the start in `LANES.md`. Keep one worker per lane; workers never spawn subagents.
 
 ## Check in

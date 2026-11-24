@@ -9,8 +9,8 @@
       "6. Between check-ins, wait with `wait_agent`, its `timeout_ms` set to `check_in_minutes` in milliseconds. It returns early when a worker reports or ends, and otherwise at check-in time, so drift and the clock still get their check."
     ],
     [
-      "3. Spawn it with `subagent_type: \"astack:worker\"` in the background, passing the brief.",
-      "3. Spawn it with `spawn_agent`: `agent_type: \"astack-worker\"` (installed by `$astack-setup`), `fork_turns: \"none\"`, a `task_name`, and the brief as its `message`."
+      "3. Spawn it with `subagent_type: \"astack:worker\"` in the background, passing the brief and the worker's `model` and `effort` from settings when set.",
+      "3. Spawn it with `spawn_agent`: `agent_type: \"astack-worker\"` (installed by `$astack-setup`, with the worker's model, provider, and effort), `fork_turns: \"none\"`, a `task_name`, and the brief as its `message`."
     ],
     [
       "if it doesn't, stop it with `TaskStop` and start a successor from its branch.",
@@ -33,8 +33,12 @@
       "2. **Ask** in your reply (or with `request_user_input` in Plan mode), showing the current value first:"
     ],
     [
+      "Model options in Claude Code: `model` is opus, sonnet, haiku, or fable; `effort` is low, medium, high, xhigh, or max. Every agent shares the session's provider.",
+      "Model options in Codex: the models and providers this Codex setup can use, with a reasoning effort such as low, medium, or high. Codex sets them per agent file as `model`, `model_provider`, and `model_reasoning_effort`."
+    ],
+    [
       "5. **Install what this tool needs.** Nothing in Claude Code: the plugin ships the agents and the hook.",
-      "5. **Install the agents.** Codex plugins can't ship agents, so copy `agents/astack-worker.toml` and `agents/astack-reviewer.toml` from this package (two folders up from this file) to `$CODEX_HOME/agents/` (`~/.codex/agents/` by default), creating the folder and replacing any older copies. If `/hooks` lists astack's hook as untrusted, ask the person to trust it there."
+      "5. **Install the agents.** Codex plugins can't ship agents, so copy `agents/astack-worker.toml` and `agents/astack-reviewer.toml` from this package (two folders up from this file) to `$CODEX_HOME/agents/` (`~/.codex/agents/` by default), creating the folder and replacing any older copies. In each copy, add the role's choices as `model`, `model_provider`, and `model_reasoning_effort` lines right after its `description`, omitting any that are \"same as this session\". If `/hooks` lists astack's hook as untrusted, ask the person to trust it there."
     ],
     [
       "Run `astack-status`. It reads the newest lane log under `~/.cache/astack/`; pass a program folder to read another.",
