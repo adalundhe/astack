@@ -1,11 +1,11 @@
 ---
 name: wat
-description: "Rephrase your last message or output clearly and concisely, in plain English: impact, decisions and critical insight first, with no jargon, internal state or meta-references. Use when the person or another agent says /wat."
+description: "Rephrase your last message or output clearly and concisely: impact, decisions and critical insight first, with no jargon, internal state or meta-references. Use when the person or another agent says /wat."
 ---
 
 # Wat
 
-Rephrase your last message or output clearly and concisely, in plain English.
+Rephrase your last message or output clearly and concisely.
 
 1. **Lead with what matters:** the impact, the decision the reader has to make and what it rests on, or the critical insight. A loss or a risk comes first.
 2. **Drop jargon, internal state and meta-references:** task numbers, internal names, your own process, remarks about the conversation itself, and anything the reader hasn't seen. Name each thing by what it does.
