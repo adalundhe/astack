@@ -1,6 +1,6 @@
 # astack
 
-A plugin for Claude Code, Cursor, and Codex with one entry point (`/astack:go`) that routes on demand to 63 hidden skills: DAG task planning, automated workflows, parallel workers, adversarial review, benchmarking, graded research, and coding rules.
+A plugin for Claude Code, Cursor, and Codex with one entry point (`/astack:go`) that routes on demand to 66 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, adversarial review, benchmarking, graded research, and coding rules.
 
 Only `go` stays in the model catalog, so idle sessions cost one skill's worth of context instead of thousands of tokens. Adapted in part from [pstack](https://github.com/cursor/plugins/tree/main/pstack) and [mattpocock/skills](https://github.com/mattpocock/skills).
 
@@ -30,7 +30,7 @@ Start a new session and run `$astack-go setup` (copies `astack-worker.toml` and 
 
 Start with `/astack:go` (Cursor: `/astack-go`, Codex: `$astack-go`). Every other skill is hidden from auto-invocation (`disable-model-invocation: true` in Claude Code/Cursor; `agents/openai.yaml` with `allow_implicit_invocation: false` in Codex) and read on demand by path—including when skills reference each other directly.
 
-Optional one-time setup (`/astack:setup`) configures worker timing (default 60/5/5 min), per-role models/effort (`~/.config/astack/settings.json`), and an optional isolated Python venv (`astack-tools`) for `taskex`, `orchestral`, and `werkflow`.
+Optional one-time setup (`/astack:setup`) configures worker timing (default 60/5/5 min), per-role models/effort (`~/.config/astack/settings.json`), and whether to provision an isolated `uv` Python `>=3.11` venv (`astack-tools`) for `taskex`, `orchestral`, and `werkflow` + `werkflow-modules` (declining defaults to pure-agentic workflows).
 
 ### Bigger tasks: DAGs, workflows, and parallel workers
 
@@ -47,7 +47,7 @@ measured against the current release on the same machine. Merges go to main afte
 
 ## Skills
 
-64 skills total (`go` + 63 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
+67 skills total (`go` + 66 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
 
 ### Entry point, planning, and catch-up
 
@@ -134,9 +134,12 @@ Indexed in `go` and checked by `review`:
 ### Automation and session notes
 
 - `automate-this`: replaces repeated commands, polling, and noisy output with scripts, watchers, or subagents.
-- `taskex`: async Python/shell tasks, live-output watchers, and recurring jobs ([taskex](https://github.com/adalundhe/taskex)).
-- `orchestral`: ordered multi-stage concurrent Python/shell pipelines with `fail_fast` and streaming batches ([orchestral](https://github.com/adalundhe/orchestral)).
+- `taskex`: async/sync Python and shell tasks, watchers, recurring jobs, durable SQLite checkpointing, and live/restart pause-resume ([taskex](https://github.com/adalundhe/taskex)).
+- `orchestral`: dependency-graph (DAG) wave and staged concurrent Python/shell pipelines with cycle checks, branch-aware skipping, wave streaming, live workflow/step pause-resume, and SQLite crash recovery ([orchestral](https://github.com/adalundhe/orchestral)).
 - `werkflow`: modular DAG workflows with [werkflow](https://github.com/adalundhe/werkflow) and all 15 [werkflow-modules](https://github.com/adalundhe/werkflow-modules) packages.
+- `checkpoint`: instruments, saves, inspects, and verifies durable SQLite/store checkpoints for `taskex` and `orchestral` runs.
+- `suspend`: cleanly pauses running `taskex` callables/subprocesses/schedules or `orchestral` workflows/steps without losing progress.
+- `resume`: unpauses suspended runs/workflows/steps in place or recovers failed/crashed `taskex` and `orchestral` runs from checkpoints.
 - `make-it-stick`: logs scoped session lessons in `LESSONS.md` and prevents repeats via architecture -> types -> lint -> test -> docs.
 
 ## Under the hood
@@ -147,7 +150,7 @@ Indexed in `go` and checked by `review`:
   - `astack-decisions`: query `decided:` entries and verbatim `person:` directives (`--query`, `--settled-by`, `--since`, `--json`).
   - `astack-verify-merge`: verifies a claimed commit is on the target branch and can run checks in a clean worktree.
   - `astack-stamp` (+ post-edit hook): timestamps new lines appended to `LANES.md`.
-  - `astack-tools`: manages an isolated venv (`~/.local/share/astack/venv`) for `taskex`, `orchestral`, and `werkflow` (`doctor`, `install`, `python`, `werkflow`).
+  - `astack-tools`: provisions Python `>=3.11` via `uv` and manages an isolated venv (`~/.local/share/astack/venv`) for `taskex`, `orchestral`, and `werkflow` (`doctor`, `install`, `python`, `werkflow`, `env`, `path`).
 - **Evals & CI:** 9 Claude Code evals under `evals/` (worker wind-down/reports, Go-mode routing, 6 coding rules) and GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).
 
 ## Working on astack

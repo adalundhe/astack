@@ -13,7 +13,7 @@ The astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `ast
 
 ## Startup
 
-1. Read `~/.config/astack/settings.json` (or `$XDG_CONFIG_HOME/astack/settings.json`) if present: timing (`worker_minutes`, `wind_down_minutes`, `check_in_minutes`, defaults `60 / 5 / 5`) and per-role `provider`, `model`, and `effort` (`lead`, `worker`, `reviewer`, `researcher`, defaulting to the active session when `"default"` or unset). Apply configured role models/effort when spawning subagents where the tool supports it.
+1. Read `~/.config/astack/settings.json` (or `$XDG_CONFIG_HOME/astack/settings.json`) if present: timing (`worker_minutes`, `wind_down_minutes`, `check_in_minutes`, defaults `60 / 5 / 5`), per-role `provider`, `model`, and `effort` (`lead`, `worker`, `reviewer`, `researcher`, defaulting to the active session when `"default"` or unset), and `automation.mode` (`agentic-only` default vs `python-stack` with managed `uv` venv). Apply configured role models/effort when spawning subagents where the tool supports it, and default to pure-agentic workflows when `automation.mode` is `agentic-only`.
 2. Route immediately based on what the person asked for—don't pause to ask for permission before reading the matching skill(s).
 3. Follow astack's core sequence on all engineering work: **work -> robust -> fast**, verify on the real system, settle technical questions yourself with evidence and log why, and interrupt the person only for genuine human calls.
 
@@ -65,9 +65,12 @@ Read the matching skill file(s) before starting:
   - Rewrite unclear/jargon-heavy output cleanly: `../wat/SKILL.md`
   - Write or update concrete, verified documentation: `../technical-writing/SKILL.md`
   - Replace repeated commands/polling with scripts and watchers: `../automate-this/SKILL.md`
-  - Author/manage async tasks, shell runners, and watchers (`taskex`): `../taskex/SKILL.md`
-  - Author/manage multi-stage concurrent pipelines (`orchestral`): `../orchestral/SKILL.md`
+  - Author/manage async/shell tasks, watchers, durable SQLite checkpoints, and pause/resume (`taskex`): `../taskex/SKILL.md`
+  - Author/manage dependency-graph (DAG) wave pipelines with durable checkpoints and workflow/step pause/resume (`orchestral`): `../orchestral/SKILL.md`
   - Author/manage modular DAG workflows and integrations (`werkflow` + `werkflow-modules`): `../werkflow/SKILL.md`
+  - Save, instrument, or inspect durable `taskex` / `orchestral` checkpoints: `../checkpoint/SKILL.md`
+  - Suspend (pause) active `taskex` runs/schedules or `orchestral` workflows/steps cleanly: `../suspend/SKILL.md`
+  - Resume paused runs/workflows/steps or recover crashed/failed runs from checkpoints: `../resume/SKILL.md`
   - Remove temp files, build artifacts, and leftover processes: `../cleanup/SKILL.md`
   - Capture session lessons and enforce fixes structurally: `../make-it-stick/SKILL.md`
 

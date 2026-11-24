@@ -10,8 +10,8 @@ Author, configure, and run sophisticated DAG workflows with `werkflow` (`https:/
 
 ## Setup and execution
 
-- Check installed core + modules via `astack-tools doctor`.
-- Install via `astack-tools install` (`--profile standard` installs core + shell/file/git/github/http/python/system/secrets/encryption; use `--profile all` or `--modules docker,aws,jira,metrikflow,appito` for extras). Do **not** run `pip install 'werkflow[all]'`—upstream's `all` extra has a typo (`werkflow-metrik` instead of `werkflow-metrikflow`).
+- Check installed `uv`, Python `>=3.11`, core packages, and modules via `astack-tools doctor`.
+- Install via `astack-tools install` (`--profile standard` installs core + shell/file/git/github/http/python/system/secrets/encryption; use `--profile all` or `--modules docker,aws,jira,metrikflow,appito` for extras; load into a shell with `eval "$(astack-tools env)"`). Do **not** run `pip install 'werkflow[all]'`—upstream's `all` extra has a typo (`werkflow-metrik` instead of `werkflow-metrikflow`).
 - **Run non-interactively (for agents and CI):**
   ```bash
   astack-tools werkflow run path/to/workflow.py --ci --no-prompt --graceful-abort \
@@ -95,4 +95,4 @@ class RepoCheckWorkflow(Workflow):
 
 - Keep project workflows under `workflows/` (or `scripts/workflows/`) alongside a documented `.werkflow.json.example` (never commit secrets; pass secrets via env vars or `werkflow-secrets`).
 - Test workflows with `--ci --no-prompt --graceful-abort` on a safe/local target before running against real infrastructure (**prove-it**, **safe-to-rerun**).
-- For lighter scripts that don't need modules or DAG decorators, prefer **taskex** or **orchestral**.
+- For lightweight Python/shell DAG waves with durable SQLite checkpointing and pause/resume (without module integrations or automatic return-value injection), prefer **orchestral**; for standalone tracked async/shell tasks, watchers, or recurring jobs, prefer **taskex**.

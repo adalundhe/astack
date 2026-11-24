@@ -291,6 +291,100 @@ class ToolsTest(Scratch):
         self.assertIsNone(data["packages"]["taskex"])
         self.assertIsNone(data["packages"]["orchestral"])
         self.assertIsNone(data["packages"]["werkflow"])
+        self.assertEqual(
+            data["capabilities"],
+            {"taskex_checkpoints": False, "orchestral_dag": False, "orchestral_checkpoints": False},
+        )
+        self.assertIn("compatible_python", data)
+
+    def test_doctor_detects_taskex_and_orchestral_capabilities(self):
+        venv = self.dir / "cap-venv"
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], check=True)
+        site = next((venv / "lib").glob("python*/site-packages"))
+
+        def write_pkg(name, version, body):
+            (site / f"{name}.py").write_text(body)
+            dist = site / f"{name}-{version}.dist-info"
+            dist.mkdir()
+            (dist / "METADATA").write_text(f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n")
+
+        write_pkg("taskex", "0.2.16", "TaskRunner = object\n")
+        write_pkg("orchestral", "0.1.2", "Orchestral = object\n")
+        write_pkg("werkflow", "0.1.0", "Workflow = object\n")
+
+        old_json = run("astack-tools", "doctor", "--venv", str(venv), "--json")
+        self.assertEqual(old_json.returncode, 0, old_json.stderr)
+        self.assertEqual(
+            json.loads(old_json.stdout)["capabilities"],
+            {"taskex_checkpoints": False, "orchestral_dag": False, "orchestral_checkpoints": False},
+        )
+        old_text = run("astack-tools", "doctor", "--venv", str(venv))
+        self.assertIn("missing checkpoints/pause-resume", old_text.stdout)
+        self.assertIn("missing DAG waves & checkpoints + pause/resume", old_text.stdout)
+
+        # orchestral 0.3.0: DAG waves without checkpoints/pause-resume
+        (site / "taskex.py").write_text("SQLiteCheckpointStore = checkpoint = pause_point = object\n")
+        (site / "orchestral.py").write_text("build_execution_plan = OrchestralCycleError = object\n")
+        mid_json = run("astack-tools", "doctor", "--venv", str(venv), "--json")
+        self.assertEqual(
+            json.loads(mid_json.stdout)["capabilities"],
+            {"taskex_checkpoints": True, "orchestral_dag": True, "orchestral_checkpoints": False},
+        )
+        mid_text = run("astack-tools", "doctor", "--venv", str(venv))
+        self.assertIn("DAG waves; missing checkpoints + pause/resume", mid_text.stdout)
+
+        # orchestral 0.4.0: DAG waves + checkpoints/pause-resume
+        (site / "orchestral.py").write_text(
+            "build_execution_plan = OrchestralCycleError = SQLiteCheckpointStore = checkpoint = pause_point = object\n"
+            "class WorkflowStatus:\n    PAUSED = 'PAUSED'\n"
+            "class Orchestral:\n    pause = resume = pause_step = resume_step = object\n"
+        )
+        new_json = run("astack-tools", "doctor", "--venv", str(venv), "--json")
+        self.assertEqual(new_json.returncode, 0, new_json.stderr)
+        self.assertEqual(
+            json.loads(new_json.stdout)["capabilities"],
+            {"taskex_checkpoints": True, "orchestral_dag": True, "orchestral_checkpoints": True},
+        )
+        new_text = run("astack-tools", "doctor", "--venv", str(venv))
+        self.assertIn("checkpoints + pause/resume", new_text.stdout)
+        self.assertIn("DAG waves, checkpoints + pause/resume", new_text.stdout)
+        self.assertNotIn("upgrade taskex/orchestral", new_text.stdout)
+
+        env_out = run("astack-tools", "env", "--venv", str(venv))
+        self.assertEqual(env_out.returncode, 0, env_out.stderr)
+        self.assertIn(f"export VIRTUAL_ENV={venv}", env_out.stdout)
+        self.assertIn(f"export PATH={venv / 'bin'}:", env_out.stdout)
+
+    def test_install_provisions_python_via_uv_when_missing(self):
+        fake_bin = self.dir / "fake-bin"
+        fake_bin.mkdir()
+        uv_stub = fake_bin / "uv"
+        uv_stub.write_text("#!/bin/sh\nif [ \"$1\" = \"python\" ] && [ \"$2\" = \"find\" ]; then exit 1; fi\nexit 0\n")
+        uv_stub.chmod(0o755)
+        venv = self.dir / "uv-venv"
+        env = {**os.environ, "PATH": f"{fake_bin}:{os.environ.get('PATH', '')}"}
+        res = subprocess.run(
+            [sys.executable, str(BIN / "astack-tools"), "install", "--venv", str(venv), "--profile", "core", "--dry-run"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
+        lines = res.stdout.strip().splitlines()
+        self.assertEqual(len(lines), 3, res.stdout)
+        self.assertIn("uv python install 3.12", lines[0])
+        self.assertIn(f"uv venv {venv} --python 3.12", lines[1])
+        self.assertIn("uv pip install", lines[2])
+
+        # When uv python find succeeds, skip `uv python install`
+        uv_stub.write_text("#!/bin/sh\nif [ \"$1\" = \"python\" ] && [ \"$2\" = \"find\" ]; then echo /fake/py312; exit 0; fi\nexit 0\n")
+        res2 = subprocess.run(
+            [sys.executable, str(BIN / "astack-tools"), "install", "--venv", str(venv), "--profile", "core", "--dry-run"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(res2.returncode, 0, res2.stderr)
+        lines2 = res2.stdout.strip().splitlines()
+        self.assertEqual(len(lines2), 2, res2.stdout)
+        self.assertNotIn("uv python install", res2.stdout)
+        self.assertIn(f"uv venv {venv} --python >=3.11", lines2[0])
 
     def test_install_dry_run_resolves_profiles_modules_and_github(self):
         venv = self.dir / "venv"
@@ -318,12 +412,14 @@ class ToolsTest(Scratch):
         self.assertIn("werkflow-modules.git#subdirectory=werkflow-shell", gh.stdout)
         self.assertIn("werkflow-modules.git#subdirectory=werkflow-core", gh.stdout)
 
-    def test_unknown_module_exits_two_and_missing_exec_exits_one(self):
+    def test_unknown_module_exits_two_and_missing_exec_or_env_exits_one(self):
         venv = self.dir / "venv"
         bad = run("astack-tools", "install", "--venv", str(venv), "--modules", "nope", "--dry-run")
         self.assertEqual(bad.returncode, 2)
         missing_py = run("astack-tools", "python", "--venv", str(venv), "-c", "print(1)")
         self.assertEqual(missing_py.returncode, 1)
+        missing_env = run("astack-tools", "env", "--venv", str(venv))
+        self.assertEqual(missing_env.returncode, 1)
         path_res = run("astack-tools", "path", "--venv", str(venv))
         self.assertEqual(path_res.returncode, 0)
         self.assertTrue(path_res.stdout.strip().endswith("/python"))

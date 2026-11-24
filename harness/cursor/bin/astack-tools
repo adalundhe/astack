@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
-"""Install, inspect, and run astack's Python automation stack (taskex, orchestral, werkflow + werkflow-modules).
+"""Install, inspect, load, and run astack's Python automation stack (taskex, orchestral, werkflow + werkflow-modules).
 
 Usage:
   astack-tools doctor [--venv DIR] [--json]
-  astack-tools install [--profile core|standard|all] [--modules LIST] [--from-github] [--python PY] [--venv DIR] [--dry-run]
+  astack-tools install [--profile core|standard|all] [--modules LIST] [--from-github] [--python SPEC] [--venv DIR] [--dry-run]
   astack-tools python [--venv DIR] [ARGS...]
   astack-tools werkflow [--venv DIR] [ARGS...]
+  astack-tools env [--venv DIR]
   astack-tools path [--venv DIR]
 
-Manages an isolated venv at ${XDG_DATA_HOME:-~/.local/share}/astack/venv (override with ASTACK_VENV or --venv)
+Manages an isolated uv/Python venv at ${XDG_DATA_HOME:-~/.local/share}/astack/venv (override with ASTACK_VENV or --venv)
 so automation scripts never pollute a target repository's environment.
 """
 import argparse
-import importlib.metadata
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -42,6 +43,9 @@ EXTRA_MODULES = (
 ALL_MODULES = STANDARD_MODULES + EXTRA_MODULES
 ALL_KNOWN = CORE_PACKAGES + ("werkflow-core",) + ALL_MODULES
 
+MIN_PYTHON_SPEC = ">=3.11"
+DEFAULT_UV_PYTHON_INSTALL = "3.12"
+
 GITHUB_REPOS = {
     "taskex": "git+https://github.com/adalundhe/taskex.git",
     "orchestral": "git+https://github.com/adalundhe/orchestral.git",
@@ -57,25 +61,48 @@ def default_venv() -> Path:
     return base / "astack" / "venv"
 
 
+def venv_bin_dir(venv: Path) -> Path:
+    return venv / ("Scripts" if os.name == "nt" else "bin")
+
+
 def venv_bin(venv: Path, name: str) -> Path:
-    sub = "Scripts" if os.name == "nt" else "bin"
-    return venv / sub / name
+    return venv_bin_dir(venv) / name
 
 
-def find_python(explicit: str | None) -> str:
-    if explicit:
-        return explicit
-    for candidate in ("python3.13", "python3.12", "python3.11", "/opt/homebrew/bin/python3", sys.executable):
-        path = shutil.which(candidate) if not Path(candidate).is_absolute() else candidate
-        if not path or not Path(path).exists():
-            continue
+def is_compatible_python(path: str) -> bool:
+    if not path or not Path(path).exists():
+        return False
+    try:
         probe = subprocess.run(
             [path, "-c", "import sys; print(sys.version_info >= (3, 11))"],
             capture_output=True, text=True,
         )
-        if probe.returncode == 0 and probe.stdout.strip() == "True":
+    except OSError:
+        return False
+    return probe.returncode == 0 and probe.stdout.strip() == "True"
+
+
+def find_uv_python(uv: str, spec: str = MIN_PYTHON_SPEC) -> str | None:
+    try:
+        probe = subprocess.run([uv, "python", "find", spec], capture_output=True, text=True)
+    except OSError:
+        return None
+    if probe.returncode == 0:
+        found = probe.stdout.strip().splitlines()
+        if found:
+            return found[-1].strip()
+    return None
+
+
+def find_python(explicit: str | None) -> str | None:
+    if explicit:
+        resolved = explicit if Path(explicit).is_absolute() else shutil.which(explicit)
+        return resolved if resolved and is_compatible_python(resolved) else None
+    for candidate in ("python3.13", "python3.12", "python3.11", "/opt/homebrew/bin/python3", "python3", sys.executable):
+        path = candidate if Path(candidate).is_absolute() else shutil.which(candidate)
+        if path and is_compatible_python(path):
             return path
-    return sys.executable
+    return None
 
 
 def normalize_module(name: str) -> str:
@@ -119,31 +146,58 @@ def resolve_packages(profile: str, modules: str | None, from_github: bool) -> li
 def inspect_venv(venv: Path) -> dict:
     py = venv_bin(venv, "python")
     wf_cli = venv_bin(venv, "werkflow")
+    uv = shutil.which("uv")
+    compatible_python = find_uv_python(uv, MIN_PYTHON_SPEC) if uv else None
+    if not compatible_python:
+        compatible_python = find_python(None)
     info = {
         "venv": str(venv),
         "venv_exists": py.is_file(),
         "python": str(py) if py.is_file() else None,
         "python_version": None,
+        "compatible_python": compatible_python,
         "werkflow_cli": str(wf_cli) if wf_cli.is_file() else None,
-        "uv": shutil.which("uv"),
+        "uv": uv,
         "packages": {pkg: None for pkg in ALL_KNOWN},
+        "capabilities": {
+            "taskex_checkpoints": False,
+            "orchestral_dag": False,
+            "orchestral_checkpoints": False,
+        },
     }
     if not py.is_file():
         return info
     probe_code = (
-        "import importlib.metadata, json, sys; "
-        f"names = {list(ALL_KNOWN)!r}; "
-        "versions = {};\n"
+        "import importlib, importlib.metadata, json, sys\n"
+        f"names = {list(ALL_KNOWN)!r}\n"
+        "versions = {}\n"
         "for n in names:\n"
         "    try: versions[n] = importlib.metadata.version(n)\n"
         "    except importlib.metadata.PackageNotFoundError: versions[n] = None\n"
-        "print(json.dumps({'version': '.'.join(map(str, sys.version_info[:3])), 'packages': versions}))"
+        "caps = {'taskex_checkpoints': False, 'orchestral_dag': False, 'orchestral_checkpoints': False}\n"
+        "if versions.get('taskex'):\n"
+        "    try:\n"
+        "        m = importlib.import_module('taskex')\n"
+        "        caps['taskex_checkpoints'] = all(hasattr(m, a) for a in ('SQLiteCheckpointStore', 'checkpoint', 'pause_point'))\n"
+        "    except Exception: pass\n"
+        "if versions.get('orchestral'):\n"
+        "    try:\n"
+        "        m = importlib.import_module('orchestral')\n"
+        "        caps['orchestral_dag'] = all(hasattr(m, a) for a in ('build_execution_plan', 'OrchestralCycleError'))\n"
+        "        caps['orchestral_checkpoints'] = (\n"
+        "            all(hasattr(m, a) for a in ('SQLiteCheckpointStore', 'checkpoint', 'pause_point'))\n"
+        "            and hasattr(getattr(m, 'WorkflowStatus', None), 'PAUSED')\n"
+        "            and all(hasattr(getattr(m, 'Orchestral', None), a) for a in ('pause', 'resume', 'pause_step', 'resume_step'))\n"
+        "        )\n"
+        "    except Exception: pass\n"
+        "print(json.dumps({'version': '.'.join(map(str, sys.version_info[:3])), 'packages': versions, 'capabilities': caps}))\n"
     )
     proc = subprocess.run([str(py), "-c", probe_code], capture_output=True, text=True)
     if proc.returncode == 0 and proc.stdout.strip():
         data = json.loads(proc.stdout)
         info["python_version"] = data["version"]
         info["packages"] = data["packages"]
+        info["capabilities"] = data["capabilities"]
     return info
 
 
@@ -156,12 +210,30 @@ def cmd_doctor(args) -> int:
 
     print(f"astack-tools venv: {info['venv']} ({'ready' if info['venv_exists'] else 'missing'})")
     if info["python_version"]:
-        print(f"  python: {info['python']} ({info['python_version']})")
-    print(f"  uv: {info['uv'] or 'not found (will use python -m venv + pip)'}")
+        print(f"  venv python: {info['python']} ({info['python_version']})")
+    print(f"  uv: {info['uv'] or 'not found (install uv or provide Python >=3.11)'}")
+    print(f"  python >=3.11: {info['compatible_python'] or 'not found (uv python install can provision one)'}")
     print(f"  werkflow cli: {info['werkflow_cli'] or 'missing'}")
     print("\nCore packages")
+    caps = info["capabilities"]
+    orch_feats = []
+    orch_missing = []
+    (orch_feats if caps["orchestral_dag"] else orch_missing).append("DAG waves")
+    (orch_feats if caps["orchestral_checkpoints"] else orch_missing).append("checkpoints + pause/resume")
+    orch_note = ", ".join(orch_feats) if not orch_missing else (
+        f"{', '.join(orch_feats)}; missing {' & '.join(orch_missing)} (upgrade orchestral)"
+        if orch_feats else f"missing {' & '.join(orch_missing)} (upgrade orchestral)"
+    )
+    cap_notes = {
+        "taskex": "checkpoints + pause/resume" if caps["taskex_checkpoints"] else "missing checkpoints/pause-resume (upgrade taskex)",
+        "orchestral": orch_note,
+    }
     for pkg in CORE_PACKAGES + ("werkflow-core",):
-        print(f"  {pkg}: {info['packages'].get(pkg) or 'missing'}")
+        ver = info["packages"].get(pkg)
+        if ver and pkg in cap_notes:
+            print(f"  {pkg}: {ver} ({cap_notes[pkg]})")
+        else:
+            print(f"  {pkg}: {ver or 'missing'}")
     installed_mods = [(m, v) for m in ALL_MODULES if (v := info["packages"].get(m))]
     missing_mods = [m for m in ALL_MODULES if not info["packages"].get(m)]
     print(f"\nWerkflow modules ({len(installed_mods)}/{len(ALL_MODULES)} installed)")
@@ -170,7 +242,9 @@ def cmd_doctor(args) -> int:
     if missing_mods:
         print("  not installed: " + ", ".join(m.removeprefix("werkflow-") for m in missing_mods))
     if not core_ok:
-        print("\nRun `astack-tools install` to set up the managed automation venv.")
+        print("\nRun `astack-tools install` to provision Python >=3.11 (via uv) and set up the managed venv.")
+    elif not all(caps.values()):
+        print("\nRun `astack-tools install` (or `--from-github`) to upgrade taskex/orchestral to the latest capabilities.")
     return 0 if core_ok else 1
 
 
@@ -182,18 +256,30 @@ def cmd_install(args) -> int:
         return 2
 
     uv = shutil.which("uv")
-    py_host = find_python(args.python)
     py_venv = venv_bin(args.venv, "python")
     commands = []
+
     if not py_venv.is_file():
         if uv:
-            venv_cmd = [uv, "venv", str(args.venv)]
-            if args.python:
-                venv_cmd.extend(["--python", args.python])
+            find_spec = args.python or MIN_PYTHON_SPEC
+            found_py = find_uv_python(uv, find_spec)
+            if not found_py:
+                install_spec = args.python or DEFAULT_UV_PYTHON_INSTALL
+                commands.append([uv, "python", "install", install_spec])
+                venv_py_spec = install_spec
             else:
-                venv_cmd.extend(["--python", ">=3.11"])
-            commands.append(venv_cmd)
+                venv_py_spec = find_spec
+            commands.append([uv, "venv", str(args.venv), "--python", venv_py_spec])
         else:
+            py_host = find_python(args.python)
+            if not py_host:
+                print(
+                    "error: Python >=3.11 is required and `uv` is not installed. "
+                    "Install uv (https://docs.astral.sh/uv/getting-started/installation/) "
+                    "or pass --python <path-to-python3.11+>.",
+                    file=sys.stderr,
+                )
+                return 1
             commands.append([py_host, "-m", "venv", str(args.venv)])
 
     if uv:
@@ -212,6 +298,17 @@ def cmd_install(args) -> int:
         if result.returncode != 0:
             return result.returncode
     return cmd_doctor(argparse.Namespace(venv=args.venv, as_json=False))
+
+
+def cmd_env(args) -> int:
+    py = venv_bin(args.venv, "python")
+    if not py.is_file():
+        print(f"astack-tools: venv not installed at {args.venv}. Run `astack-tools install`.", file=sys.stderr)
+        return 1
+    bin_dir = str(venv_bin_dir(args.venv))
+    print(f"export VIRTUAL_ENV={shlex.quote(str(args.venv))}")
+    print(f'export PATH={shlex.quote(bin_dir)}:"$PATH"')
+    return 0
 
 
 def cmd_exec(venv: Path, binary: str, raw_args: list[str]) -> int:
@@ -240,20 +337,23 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Manage and run astack's Python automation stack.")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_doc = sub.add_parser("doctor", aliases=["status"], help="check installed automation tools and modules")
+    p_doc = sub.add_parser("doctor", aliases=["status"], help="check uv, Python >=3.11, and installed automation tools")
     p_doc.add_argument("--venv", type=Path, default=default_venv())
     p_doc.add_argument("--json", action="store_true", dest="as_json")
 
-    p_inst = sub.add_parser("install", help="create/update the managed venv and install packages")
+    p_inst = sub.add_parser("install", help="provision Python >=3.11 via uv, create/update the venv, and install packages")
     p_inst.add_argument("--venv", type=Path, default=default_venv())
     p_inst.add_argument("--profile", choices=("core", "standard", "all"), default="standard")
     p_inst.add_argument("--modules", help="comma-separated extra werkflow modules (e.g. docker,jira)")
     p_inst.add_argument("--from-github", action="store_true", help="install from GitHub main instead of PyPI")
-    p_inst.add_argument("--python", help="host Python interpreter/version for creating the venv (>=3.11)")
+    p_inst.add_argument("--python", help="Python version/interpreter spec for uv or venv (>=3.11)")
     p_inst.add_argument("--dry-run", action="store_true", help="print commands without executing")
 
     sub.add_parser("python", help="run python inside the managed venv")
     sub.add_parser("werkflow", help="run the werkflow CLI inside the managed venv")
+
+    p_env = sub.add_parser("env", help="print shell exports to load the managed venv (`eval \"$(astack-tools env)\"`)")
+    p_env.add_argument("--venv", type=Path, default=default_venv())
 
     p_path = sub.add_parser("path", help="print the managed venv's python path")
     p_path.add_argument("--venv", type=Path, default=default_venv())
@@ -263,6 +363,8 @@ def main(argv=None) -> int:
         return cmd_doctor(args)
     if args.command == "install":
         return cmd_install(args)
+    if args.command == "env":
+        return cmd_env(args)
     if args.command == "path":
         print(venv_bin(args.venv, "python"))
         return 0

@@ -9,17 +9,18 @@ disable-model-invocation: true
 Turn a reviewed `/dagify` task graph into an automated workflow with explicit, durable task states.
 
 1. **Start from a reviewed graph** (**dagify**): tasks, edges, acceptance criteria, and tests already verified.
-2. **Choose the right runner** (**automate-this**; check availability with `astack-tools doctor` and run via `astack-tools python` / `astack-tools werkflow`):
-   - **Lightweight async tasks and shell commands:** read **taskex**.
-   - **Ordered stages of concurrent Python/shell steps:** read **orchestral**.
-   - **Full named-dependency DAGs, `.werkflow.json`/prompts, or git/GitHub/Docker/AWS/Jira/secrets modules:** read **werkflow**.
-   - **Unattended/recurring schedules or non-Python stacks:** the host tool's native workflow runner, a CI pipeline, or a script in the repo's primary language.
+2. **Choose the right runner** (**automate-this**): check `automation.mode` in `~/.config/astack/settings.json` (**setup**) and `astack-tools doctor`:
+   - **Pure-agentic default (`automation.mode: "agentic-only"`, or Python stack not installed):** default to pure-agentic workflows (**lead** / subagents), the host tool's native workflow runner, a CI pipeline, or a script in the repo's primary language. Do not install Python packages without the person's say-so.
+   - **Python automation stack (`automation.mode: "python-stack"`, run via `astack-tools python` / `astack-tools werkflow` or `eval "$(astack-tools env)"`):**
+     - **Durable checkpointed tasks, live suspend/pause, crash-resumable runs, and shell watchers:** read **taskex** (plus **checkpoint**, **suspend**, **resume**).
+     - **Dependency-graph (DAG) waves, staged concurrent pipelines, live workflow/step pause-resume, and wave-skipping SQLite crash recovery:** read **orchestral** (`dependencies=[...]`, `execution_order()`, `workflow_id`, `pause()`/`resume()`, `fail_fast`, wave streaming, plus **checkpoint**, **suspend**, **resume**).
+     - **Decorator DAGs with inter-step return-value injection, `.werkflow.json`/prompts, or git/GitHub/Docker/AWS/Jira/secrets modules:** read **werkflow**.
 3. **Model task states explicitly** (**no-implicit-states**): `waiting`, `ready`, `running`, `in_review`, `done`, `failed`, `blocked_on_person`, with all transitions in one place. A task becomes `ready` only when all dependencies are `done` and their reviews passed. Diagram the machine (**show-the-states**).
 4. **Return typed outcomes** (**no-hidden-flow-control**): `done` (with evidence), `failed` (with reason), `inconclusive`, or `blocked` (with what the person must do). No silent failures or hidden retries.
-5. **Persist per-task state durably.** Store each task's state separately so restarts resume cleanly (**no-shared-writes**) and make every step idempotent (**safe-to-rerun**).
+5. **Persist per-task state durably.** Store each task's state separately so restarts resume cleanly (**no-shared-writes**) and make every step idempotent (**safe-to-rerun**). For Python workflows, use `SQLiteCheckpointStore` with `taskex` (`checkpoint()`/`pause_point()`/`resume()`) or `orchestral` (`workflow_id` + `checkpoint_store` + `orch.pause()`/`orch.resume()`, skipping already-completed steps on recovery).
 6. **Trigger on events** (task completion, review return, check exit) instead of polling loops (**event-driven**).
 7. **Keep configuration explicit** (**no-hidden-config**): concurrency limit (measured, not guessed), per-role `provider`, `model`, and `effort` from `~/.config/astack/settings.json` (`setup`), and execution environment.
 8. **Make execution observable:** log every transition with task and reason, and expose one status command showing all tasks.
-9. **Test the workflow itself** (**prove-it**): run it on the graph (or a small test graph); kill it mid-run and confirm it resumes; fail a task and verify dependents stay blocked; confirm a review blocker halts downstream tasks. Test transitions directly (**tests-assert-behaviour**).
+9. **Test the workflow itself** (**prove-it**): validate the DAG upfront (`execution_order()`, missing-dependency and cycle rejection); run it on the graph (or a small test graph); kill or pause it mid-run and confirm it resumes from checkpoint; fail a task and verify dependents stay blocked/skipped while independent branches continue; confirm a review blocker halts downstream tasks. Test transitions directly (**tests-assert-behaviour**).
 
 Only genuine human decisions pause a branch to wait (**decisions-in-plain-words**); everything else runs to completion or reports failure.
