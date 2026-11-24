@@ -362,6 +362,100 @@ class ReviewLedgerTest(unittest.TestCase):
         })
         self.assertEqual(res_vec.returncode, 2)
 
+    def test_repeated_model_on_one_vector_cannot_fake_saturation(self):
+        # Probe: sonnet (2 bugs) -> gpt (1 different bug) -> sonnet again (re-finds its own 2 bugs)
+        # Must NOT return stop: repeat run is excluded from Chapman, so distinct models have n1=2, n2=1, m=0 -> N=5, unfound=2.
+        base_reviews = [
+            {"vector": "concurrency", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1", "rc-2"], "dropped": 0},
+            {"vector": "concurrency", "provider": "openai", "model": "gpt-5.4", "verified": ["rc-3"], "dropped": 0},
+            {"vector": "concurrency", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1", "rc-2"], "dropped": 0},
+        ]
+        # With a 3rd unused model in pool -> continue (add gemini)
+        data_3 = eval_json({
+            "reviewer_pool": POOL_3,
+            "vectors": [{"name": "concurrency", "risk": "risky"}],
+            "reviews": base_reviews,
+        })
+        vec_3 = data_3["vectors"][0]
+        self.assertEqual(vec_3["action"], "continue")
+        self.assertEqual(vec_3["estimate"]["n1"], 2)
+        self.assertEqual(vec_3["estimate"]["n2"], 1)
+        self.assertEqual(vec_3["estimate"]["m"], 0)
+        self.assertAlmostEqual(vec_3["estimate"]["estimated_total"], 5.0)
+        self.assertAlmostEqual(vec_3["estimate"]["estimated_unfound"], 2.0)
+        self.assertEqual(vec_3["next_models"][0]["model"], "gemini-2.5-pro")
+        self.assertTrue(any("duplicate_model_on_vector" in v for v in vec_3["rule_violations"]))
+
+        # With only those 2 models in pool -> flag POOL EXHAUSTED (never stop)
+        data_2 = eval_json({
+            "reviewer_pool": POOL_2,
+            "vectors": [{"name": "concurrency", "risk": "risky"}],
+            "reviews": base_reviews,
+        })
+        vec_2 = data_2["vectors"][0]
+        self.assertEqual(vec_2["action"], "flag")
+        self.assertEqual(vec_2["status"], "POOL EXHAUSTED")
+        self.assertTrue(any("duplicate_model_on_vector" in v for v in vec_2["rule_violations"]))
+
+        # Even if two distinct models had overlapped, a repeat run uncovering a brand-new bug prevents stopping
+        data_new = eval_json({
+            "reviewer_pool": POOL_3,
+            "vectors": [{"name": "concurrency", "risk": "risky"}],
+            "reviews": [
+                {"vector": "concurrency", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1", "rc-2"], "dropped": 0},
+                {"vector": "concurrency", "provider": "openai", "model": "gpt-5.4", "verified": ["rc-1", "rc-2"], "dropped": 0},
+                {"vector": "concurrency", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["rc-1", "rc-2", "rc-new"], "dropped": 0},
+            ],
+        })
+        self.assertEqual(data_new["vectors"][0]["action"], "continue")
+        self.assertEqual(data_new["vectors"][0]["reason"], "unconfirmed_findings_from_repeat_run")
+
+    def test_worker_only_low_risk_review_cannot_stop_when_non_worker_model_is_available(self):
+        # Probe: worker=haiku, pool=[sonnet, haiku], low-risk vector reviewed only by haiku (0v) -> MUST continue (add sonnet)
+        pool_sh = [
+            {"provider": "anthropic", "model": "sonnet", "effort": "medium"},
+            {"provider": "anthropic", "model": "haiku", "effort": "medium"},
+        ]
+        data = eval_json({
+            "worker_model": {"provider": "anthropic", "model": "haiku", "effort": "medium"},
+            "reviewer_pool": pool_sh,
+            "vectors": [{"name": "cli", "risk": "low"}],
+            "reviews": [
+                {"vector": "cli", "provider": "anthropic", "model": "haiku", "verified": [], "dropped": 0},
+            ],
+        })
+        vec = data["vectors"][0]
+        self.assertEqual(vec["action"], "continue")
+        self.assertEqual(vec["reason"], "non_worker_model_required")
+        self.assertFalse(vec["non_worker_model_used"])
+        self.assertEqual(vec["next_models"][0]["model"], "sonnet")
+        self.assertTrue(any("worker_model_only" in v for v in vec["rule_violations"]))
+
+        # Once sonnet (non-worker) also reviews cleanly -> stops via Chapman (n1=0, n2=0, m=0)
+        data_after = eval_json({
+            "worker_model": {"provider": "anthropic", "model": "haiku", "effort": "medium"},
+            "reviewer_pool": pool_sh,
+            "vectors": [{"name": "cli", "risk": "low"}],
+            "reviews": [
+                {"vector": "cli", "provider": "anthropic", "model": "haiku", "verified": [], "dropped": 0},
+                {"vector": "cli", "provider": "anthropic", "model": "sonnet", "verified": [], "dropped": 0},
+            ],
+        })
+        self.assertEqual(data_after["vectors"][0]["action"], "stop")
+        self.assertTrue(data_after["vectors"][0]["non_worker_model_used"])
+
+        # When pool ONLY contains the worker's model (pool doesn't allow a non-worker model), clean low-risk review still stops
+        data_only_worker_pool = eval_json({
+            "worker_model": {"provider": "anthropic", "model": "haiku", "effort": "medium"},
+            "reviewer_pool": [{"provider": "anthropic", "model": "haiku", "effort": "medium"}],
+            "vectors": [{"name": "cli", "risk": "low"}],
+            "reviews": [
+                {"vector": "cli", "provider": "anthropic", "model": "haiku", "verified": [], "dropped": 0},
+            ],
+        })
+        self.assertEqual(data_only_worker_pool["vectors"][0]["action"], "stop")
+        self.assertEqual(data_only_worker_pool["vectors"][0]["reason"], "clean_single_review")
+
 
 if __name__ == "__main__":
     unittest.main()

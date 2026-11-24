@@ -308,6 +308,21 @@ class BuildTest(unittest.TestCase):
                 self.assertIn("tool_used", types, f"{case.name} must verify the hidden rule was read")
                 self.assertIn("llm", types, f"{case.name} must grade the output")
 
+        # Verify vectored-review evals grade actual Agent tool spawns (models & exact counts), not only report prose
+        conc_graders = {p.stem: front_matter(p)[0] for p in (ROOT / "evals/vectored-review-concurrency/graders").glob("*.md")}
+        self.assertEqual(conc_graders["reviewer-started"].get("min"), "2")
+        self.assertIn("sonnet", conc_graders["sonnet-spawned"].get("input_match", ""))
+        self.assertIn("haiku", conc_graders["haiku-spawned"].get("input_match", ""))
+        self.assertEqual(conc_graders["no-general-purpose"].get("max"), "0")
+
+        small_graders = {p.stem: front_matter(p)[0] for p in (ROOT / "evals/vectored-review-small-change/graders").glob("*.md")}
+        self.assertEqual(small_graders["reviewer-started"].get("min"), "1")
+        self.assertEqual(small_graders["reviewer-started"].get("max"), "1")
+        self.assertIn("sonnet", small_graders["sonnet-spawned"].get("input_match", ""))
+        self.assertEqual(small_graders["no-worker-model-spawned"].get("min"), "0")
+        self.assertEqual(small_graders["no-worker-model-spawned"].get("max"), "0")
+        self.assertEqual(small_graders["no-general-purpose"].get("max"), "0")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -257,9 +257,11 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
     not_assigned: list[str] = []
     pool_exhausted: list[dict[str, Any]] = []
     could_not_test: list[dict[str, Any]] = []
+    all_rule_violations: list[dict[str, str]] = []
     lanes_log_lines: list[str] = []
     by_model: dict[str, dict[str, int]] = {}
     by_vector: dict[str, dict[str, int]] = {}
+    pool_has_non_worker = (worker_model is not None) and any(m.key != worker_model.key for m in pool)
 
     for rev in reviews:
         mkey = f"{rev.model.provider}/{rev.model.model}"
@@ -289,7 +291,9 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
 
         used_keys: list[tuple[str, str]] = []
         used_key_set: set[tuple[str, str]] = set()
+        distinct_assigned: list[ReviewRun] = []
         reviewer_summaries: list[dict[str, Any]] = []
+        vec_violations: list[str] = []
         all_assigned_rcs: set[str] = set()
         total_dropped = 0
         has_non_worker = False
@@ -301,9 +305,18 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
             }
             all_assigned_rcs.update(in_vec)
             total_dropped += r.dropped
-            if r.model.key not in used_key_set:
+            is_duplicate = r.model.key in used_key_set
+            if not is_duplicate:
                 used_key_set.add(r.model.key)
                 used_keys.append(r.model.key)
+                distinct_assigned.append(r)
+            else:
+                msg = (
+                    f"duplicate_model_on_vector: {r.model.provider}/{r.model.model} was repeated on {vec.name}; "
+                    f"repeat runs are excluded from capture-recapture"
+                )
+                vec_violations.append(msg)
+                all_rule_violations.append({"vector": vec.name, "message": msg})
             if worker_model is None or r.model.key != worker_model.key:
                 has_non_worker = True
 
@@ -316,6 +329,7 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                     "verified_in_vector": len(in_vec),
                     "verified_total": r.verified_total,
                     "dropped": r.dropped,
+                    "duplicate": is_duplicate,
                     "root_causes": sorted(in_vec),
                     "filed_elsewhere": elsewhere,
                 }
@@ -329,6 +343,7 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
         all_rcs_under_vector = all_assigned_rcs | external_rcs
         by_vector[vec.name] = {
             "reviews": len(assigned),
+            "distinct_models": len(distinct_assigned),
             "verified_root_causes": len(all_rcs_under_vector),
             "dropped": total_dropped,
         }
@@ -336,8 +351,12 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
         estimate: dict[str, Any] | None = None
         min_initial = 2 if vec.risk == "risky" else 1
         recommended_next: list[ModelSpec] = []
+        non_worker_covered = any(
+            worker_model is None or k != worker_model.key for k in used_key_set
+        )
+        missing_non_worker = pool_has_non_worker and not non_worker_covered
 
-        if len(assigned) == 0:
+        if len(distinct_assigned) == 0:
             not_assigned.append(vec.name)
             recommended_next = _pick_next_models(
                 pool, used_key_set, worker_model, has_non_worker=False, count=min_initial
@@ -355,9 +374,21 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                     if vec.risk == "risky"
                     else "low-risk vector needs 1 model to start"
                 )
-        elif len(used_key_set) < 2:
-            # Either 1 reviewer so far, or repeated runs on the same model without a second distinct model
-            if vec.risk == "low" and len(assigned) == 1 and len(all_rcs_under_vector) == 0:
+        elif len(distinct_assigned) == 1:
+            if missing_non_worker:
+                msg = (
+                    f"worker_model_only: only worker model {worker_model.provider}/{worker_model.model} reviewed {vec.name} "
+                    f"while non-worker model(s) are available in reviewer_pool"
+                )
+                vec_violations.append(msg)
+                all_rule_violations.append({"vector": vec.name, "message": msg})
+                recommended_next = _pick_next_models(
+                    pool, used_key_set, worker_model, has_non_worker=False, count=1
+                )
+                action = "continue"
+                status = "CONTINUE"
+                reason = "non_worker_model_required"
+            elif vec.risk == "low" and len(all_rcs_under_vector) == 0:
                 action = "stop"
                 status = "STOPPED (clean single review)"
                 reason = "clean_single_review"
@@ -384,16 +415,17 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                     )
                     pool_exhausted.append({"vector": vec.name, "risk": vec.risk, "reason": reason, "estimate": None})
         else:
-            # 2+ distinct models on this vector: compare latest assigned reviewer against union of earlier findings
-            latest = assigned[-1]
+            # 2+ distinct models on this vector: evaluate Chapman strictly over each model's first independent run
+            latest = distinct_assigned[-1]
             earlier_rcs: set[str] = set(external_rcs)
-            for prev in assigned[:-1]:
+            for prev in distinct_assigned[:-1]:
                 earlier_rcs.update(prev.verified_by_vector.get(vec.name, frozenset()))
             new_rcs = set(latest.verified_by_vector.get(vec.name, frozenset()))
             shared_rcs = earlier_rcs & new_rcs
+            unconfirmed_repeat_rcs = all_assigned_rcs - (earlier_rcs | new_rcs)
 
             estimate = chapman_estimate(len(earlier_rcs), len(new_rcs), len(shared_rcs))
-            if estimate["can_stop"]:
+            if estimate["can_stop"] and not missing_non_worker and not unconfirmed_repeat_rcs:
                 action = "stop"
                 status = "STOPPED (estimate)"
                 if estimate["n1"] == 0 and estimate["n2"] == 0:
@@ -409,11 +441,14 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                 if recommended_next:
                     action = "continue"
                     status = "CONTINUE"
-                    reason = (
-                        "uninformative_one_sided_zero"
-                        if not estimate["informative"] and estimate["estimated_unfound"] < 1
-                        else "estimated_unfound_at_least_one"
-                    )
+                    if missing_non_worker:
+                        reason = "non_worker_model_required"
+                    elif unconfirmed_repeat_rcs:
+                        reason = "unconfirmed_findings_from_repeat_run"
+                    elif not estimate["informative"] and estimate["estimated_unfound"] < 1:
+                        reason = "uninformative_one_sided_zero"
+                    else:
+                        reason = "estimated_unfound_at_least_one"
                 else:
                     action = "flag"
                     status = "POOL EXHAUSTED"
@@ -422,9 +457,6 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                         {"vector": vec.name, "risk": vec.risk, "reason": reason, "estimate": estimate}
                     )
 
-        non_worker_covered = any(
-            worker_model is None or k != worker_model.key for k in used_key_set
-        )
         vector_results.append(
             {
                 "name": vec.name,
@@ -440,6 +472,7 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                 "verified_count": len(all_rcs_under_vector),
                 "dropped_count": total_dropped,
                 "non_worker_model_used": non_worker_covered if assigned else False,
+                "rule_violations": vec_violations,
                 "estimate": estimate,
                 "next_models": [m.to_dict() for m in recommended_next],
             }
@@ -461,6 +494,7 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
         "not_assigned": not_assigned,
         "pool_exhausted": pool_exhausted,
         "could_not_test": could_not_test,
+        "rule_violations": all_rule_violations,
         "by_model": by_model,
         "by_vector": by_vector,
         "lanes_log_lines": lanes_log_lines,
@@ -543,6 +577,12 @@ def format_markdown(result: dict[str, Any]) -> str:
                 lines.append(f"- {entry['vector']}: {item}")
     else:
         lines.append("- none")
+
+    if result.get("rule_violations"):
+        lines.append("")
+        lines.append("RULE VIOLATIONS")
+        for item in result["rule_violations"]:
+            lines.append(f"- {item['vector']}: {item['message']}")
 
     return "\n".join(lines) + "\n"
 
