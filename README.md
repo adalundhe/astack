@@ -1,6 +1,6 @@
 # astack
 
-astack runs a program of work as lanes. A lead agent splits the program into lanes, each one deliverable with a clear definition of done. A worker subagent builds each lane within a hard time limit. The lead checks in on a schedule, verifies every merge, starts successors, keeps a lane log, and brings the person only real decisions.
+astack holds coding agents to a careful engineer's standard: small pieces of work, each proven; choices settled by measurement; code checked against clear rules; nothing claimed without evidence the person can rerun. Its lead runs a program of work as lanes: each lane is one deliverable with a clear definition of done, built by a worker within a hard time limit, while the lead checks in, verifies every merge, keeps a lane log, and brings the person only real decisions. Every skill also works on its own.
 
 It works in Claude Code, Cursor and Codex. It is modeled on Cursor's [pstack](https://github.com/cursor/plugins/tree/main/pstack).
 
@@ -12,7 +12,7 @@ It works in Claude Code, Cursor and Codex. It is modeled on Cursor's [pstack](ht
 - **A hard time limit.** At the wind-down point, a worker merges what is green, pushes the rest to its branch, reports losses first, and ends.
 - **Successors.** A new worker on the same lane, briefed with the original brief, every later directive, and the previous worker's report.
 - **The lead.** It checks in on a fixed schedule, verifies every merge itself, steers workers with short messages, and keeps the lane log.
-- **Decisions.** Workers decide for themselves: from the person's earlier decisions, the repository, outside research, then an A/B. Only what none of those settles reaches the person, such as a sign-in or an install as root, asked as a plain choice.
+- **Autonomy, on the record.** Agents are free to explore, research, form hypotheses, try things, succeed, fail, learn and improve. They settle questions from the person's earlier decisions, the repository, outside research, an A/B or a proof of concept, and record every decision with what settled it. They don't ask for confirmation, for approval already given, or for what an A/B or a proof of concept can settle. Only what none of those settles reaches the person, such as a sign-in or an install as root, asked as a plain choice.
 - **Bugs.** A bug is real when a real scenario shows it: the query, the workload, the benchmark against competitors.
 - **Standing rules.** Decide by data, with a controlled A/B. Benchmarks are fair. No picked constants. Event-driven, not timers. Never trade functionality for speed. Tests assert behaviour. Plain words to the person.
 
@@ -68,15 +68,108 @@ The lead restates the goal, lists the lanes, writes the program's rules and lane
 
 ## What's inside
 
+In Claude Code, run a skill as `/astack:<name>`. In Cursor it's `/<name>` and in Codex `$<name>`, except `lead`, `setup`, `status` and `review`, which take an `astack-` prefix there.
+
+**Running a program**
+
 | Part | What it does |
 |---|---|
-| `lead` skill | Runs the program: rules, briefs, workers, check-ins, steering, merge verification, successors, the lane log, decisions. |
-| `worker` agent | Builds one lane: rules first, one deliverable, work then robust then fast, its own design choices settled by A/B, merge after lint and the tests it touched, wind down on time, report losses first. |
-| `ab-test` skill | Settles a choice by measuring: quantifiable metrics, the best-suited environment set up without asking, baseline noise, a meaningful-improvement bar, a worktree per variant and combination, production builds, anomalies recorded, a plain write-up, then the decision. |
-| `create-adc` skill | Works out an architecture decision with you, one evidenced decision at a time, and writes it up as the project's next architecture decision document of record (AD-N). |
-| `setup` skill | Sets the worker time limit, the wind-down point and the check-in interval. |
-| `status` skill | Shows running workers, their clocks and last commits, lanes, and questions waiting on you. |
-| Eight rule skills | `decide-by-data`, `fair-benchmarks`, `bugs-by-scenario`, `no-picked-constants`, `event-driven`, `never-trade-functionality`, `tests-assert-behaviour`, `decisions-in-plain-words`. |
+| `lead` | Runs a program as lanes: rules, briefs, workers, check-ins, merge checks, successors, the lane log, decisions. |
+| `worker` agent | Builds one lane within its time limit, decides for itself, and reports losses first. |
+| `reviewer` agent | Reviews one change by trying to break it the way its users would. |
+| `dagify` | Breaks a request into a graph of small tasks, each with criteria and tests, ordered to run in parallel. |
+| `workflow-this` | Turns a task graph into a workflow that runs itself, with explicit states, and resumes after a crash. |
+| `track-it` | Creates and manages issues and tickets for agent work in your tracker (GitHub, Jira, Linear or another); run by the lead. |
+| `review` | Sends reviewers to break a change, keeping only findings a rerun proves. |
+| `setup` | Sets the worker time limit, the wind-down point and the check-in interval. |
+| `status` | Shows running workers, their clocks and last commits, and questions waiting on you. |
+
+**Pull requests**
+
+| Skill | What it does |
+|---|---|
+| `watch-pr` | Takes a PR to ready-to-merge: CI, every comment, a flag to you every 24 hours, hand-over at the time limit. |
+| `address-feedback` | Closes every finding and comment: fix it, answer it, or show it's wrong. |
+| `leave-it-better` | Fixes the broken tests, builds and checks you run into, in a separate PR. |
+
+**Understanding and explaining**
+
+| Skill | What it does |
+|---|---|
+| `play-it-back` | Restates what you want, one line each you can correct. |
+| `talk-to-me` | Explains an idea with the field's terms, a picture, a worked example and an analogy. |
+| `play-with-me` | Makes a small, throwaway demo, mockup or script so you can try an idea before it's built, and presents it unasked. |
+| `how-it-works` | Explains part of a system, every claim cited to the code. |
+| `show-the-states` | Draws how a system moves between states, what triggers each move, and how it fails. |
+| `wat` | Rephrases the last message clearly: impact and decisions first, no jargon or internal references. |
+| `rtfm` | Reads what already exists before asking you anything. |
+| `decisions-in-plain-words` | Brings you only what's yours to decide, as a plain choice with a recommendation. |
+
+**Deciding and measuring**
+
+| Skill | What it does |
+|---|---|
+| `research` | Finds what's already known, ranked by how far it can be trusted, and cited. |
+| `deeper` | Rewrites a task to the standard of the best in its field, without growing it. |
+| `explore-the-limits` | Builds competing implementations and keeps the measured winner. |
+| `ab-test` | Settles a choice by measuring the options. |
+| `decide-by-data` | Chooses by measurement, never by argument. |
+| `benchmarking` | Writes and runs benchmarks the way tests are written: from the criteria, across the spectrum, against known noise. |
+| `fair-benchmarks` | Compares against other systems fairly. |
+
+**Proving it works**
+
+| Skill | What it does |
+|---|---|
+| `prove-it` | Checks results on the real thing, and backs claims with evidence you can rerun. |
+| `test-drive` | Gives a project a scripted way to use the real app as its users do. |
+| `every-case` | Formally verifies a promise that tests can't reach. |
+| `bugs-by-scenario` | Treats a bug as real only when a real scenario shows it. |
+| `tests-assert-behaviour` | The testing Principle: tests check behaviour users can observe. |
+| `full-spectrum-testing` | Writes a task's tests across the diamond and the full spectrum of failure. |
+| `blast-radius` | Finds what a change could break beyond its diff. |
+
+**Improving code**
+
+| Skill | What it does |
+|---|---|
+| `clamber` | Improves performance toward a goal in small measured steps, each committed, and reverted if it regresses. |
+| `simplify-me` | Makes code you just wrote or are reviewing smaller, clearer and easier to test, without losing correctness or speed. |
+| `modularize` | Splits monolithic code into modules that each do one job, test alone and swap behind small interfaces, without needless abstraction. |
+
+**Review and rules**
+
+| Skill | What it does |
+|---|---|
+| `adversarial-review` | Reviews a change by trying to break it in its real setting, blockers first. |
+| `worrywart` | Refutes a wrong review point with evidence. |
+| `no-implicit-states` | State machines are explicit: named states, transitions in one place. |
+| `no-hidden-flow-control` | Failures are handled specifically or returned as typed values. |
+| `no-hidden-config` | Every setting is read in one place, documented and tested. |
+| `minimize-state-stores` | Each piece of data lives in one place; caches must be measured into existence. |
+| `check-your-boundaries` | Outside data is parsed once where it enters, then trusted. |
+| `no-shared-writes` | Concurrent writers each get their own state; locks are the last resort. |
+| `safe-to-rerun` | Operations end in the right state however often they run. |
+| `no-bolt-ons` | New requirements are designed in, not bolted on. |
+| `yagni` | One path per job: no shims, aliases or legacy paths. |
+| `comment-cop` | Code explains itself; comments keep only what code can't say. |
+| `delight-users` | The user's experience beats the builder's convenience. |
+| `no-picked-constants` | Limits, timeouts and sizes are learned or derived, never picked. |
+| `event-driven` | Work wakes on events, never on timers or polling. |
+| `never-trade-functionality` | A faster version still does everything the slower one did. |
+
+**Learning and records**
+
+| Skill | What it does |
+|---|---|
+| `make-it-stick` | Records what worked and what failed with the conditions each held under; a success is a hypothesis for a matching situation, never a default. |
+| `automate-this` | Replaces repeated manual work with scripts and watchers. |
+| `create-adc` | Works out an architecture decision with you and records it as the project's next AD document. |
+
+**Tools**
+
+| Part | What it does |
+|---|---|
 | Templates | A program's `RULES.md` (rule 0 first), a worker's brief, the lane report and the lane log. |
 | `astack-verify-merge` | Verifies a claimed merge in one step: the commit is on the target, what it changed, and optionally a check on the target's tip. |
 | `astack-status` | Prints the status view, or one line with `--line`. |
