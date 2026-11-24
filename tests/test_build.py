@@ -170,14 +170,60 @@ class BuildTest(unittest.TestCase):
     def test_the_codex_agents_are_valid_toml_files(self):
         worker = tomllib.loads((HARNESS / "codex/agents/astack-worker.toml").read_text())
         self.assertEqual(worker["name"], "astack-worker")
+        self.assertIn("$astack-go", worker["description"])
+        self.assertIn("$astack-lead", worker["description"])
+        self.assertNotIn("Spawn only from", worker["description"])
         self.assertIn("RESULT: DONE | NOT DONE", worker["developer_instructions"])
         reviewer = tomllib.loads((HARNESS / "codex/agents/astack-reviewer.toml").read_text())
         self.assertEqual(reviewer["name"], "astack-reviewer")
-        self.assertIn("$astack-lead or $astack-review", reviewer["description"])
+        self.assertIn("$astack-go", reviewer["description"])
+        self.assertIn("$astack-lead", reviewer["description"])
+        self.assertIn("$astack-review", reviewer["description"])
+
+    def test_go_and_review_explicitly_route_to_dedicated_worker_and_reviewer_agents(self):
+        # Claude Code
+        cc_go = (HARNESS / "claude-code/skills/go/SKILL.md").read_text()
+        cc_review = (HARNESS / "claude-code/skills/review/SKILL.md").read_text()
+        cc_worker = (HARNESS / "claude-code/agents/worker.md").read_text()
+        self.assertIn('subagent_type: "astack:worker"', cc_go)
+        self.assertIn('subagent_type: "astack:reviewer"', cc_go)
+        self.assertIn('subagent_type: "astack:reviewer"', cc_review)
+        self.assertNotIn("Spawn only from", cc_worker)
+
+        # Cursor
+        cur_go = (HARNESS / "cursor/skills/astack-go/SKILL.md").read_text()
+        cur_review = (HARNESS / "cursor/skills/astack-review/SKILL.md").read_text()
+        cur_worker = (HARNESS / "cursor/agents/astack-worker.md").read_text()
+        self.assertIn("the `astack-worker` subagent", cur_go)
+        self.assertIn("the `astack-reviewer` subagent", cur_go)
+        self.assertIn("the `astack-reviewer` subagent", cur_review)
+        self.assertNotIn("Spawn only from", cur_worker)
+
+        # Codex
+        cx_go = (HARNESS / "codex/skills/astack-go/SKILL.md").read_text()
+        cx_review = (HARNESS / "codex/skills/astack-review/SKILL.md").read_text()
+        self.assertIn('agent_type: "astack-worker"', cx_go)
+        self.assertIn('agent_type: "astack-reviewer"', cx_go)
+        self.assertIn('agent_type: "astack-reviewer"', cx_review)
+
+    @unittest.skipUnless(shutil.which("codex"), "codex CLI not installed")
+    def test_codex_registers_worker_and_reviewer_agents_in_prompt_input(self):
+        with tempfile.TemporaryDirectory(prefix="astack-codex-agents-") as scratch:
+            root = Path(scratch)
+            shutil.copytree(HARNESS / "codex/skills", root / "skills")
+            shutil.copytree(HARNESS / "codex/agents", root / "agents")
+            env = {**os.environ, "CODEX_HOME": str(root)}
+            proc = subprocess.run(
+                ["codex", "debug", "prompt-input", "hello"],
+                capture_output=True, text=True, env=env, cwd=root,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertIn("astack-worker", proc.stdout)
+            self.assertIn("astack-reviewer", proc.stdout)
 
     def test_the_scripts_are_executable_in_every_package(self):
         for tool in ("claude-code", "cursor", "codex"):
-            for script in ("astack-decisions", "astack-stamp", "astack-stamp-hook", "astack-status", "astack-tools", "astack-verify-merge"):
+            for script in ("astack-decisions", "astack-stamp", "astack-stamp-hook", "astack-statechart", "astack-status", "astack-tools", "astack-verify-merge"):
                 self.assertTrue((HARNESS / tool / "bin" / script).stat().st_mode & 0o111, f"{tool}/{script}")
 
     def test_readme_lists_every_skill_and_notice_attributions_hold(self):

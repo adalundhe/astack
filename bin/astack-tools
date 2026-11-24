@@ -456,7 +456,7 @@ def cmd_install(args) -> int:
             commands.append([py_host, "-m", "venv", str(args.venv)])
 
     if uv:
-        commands.append([uv, "pip", "install", "--python", str(py_venv), "--upgrade", *packages])
+        commands.append([uv, "pip", "install", "--python", str(py_venv), "--refresh", "--upgrade", *packages])
     else:
         commands.append([str(py_venv), "-m", "pip", "install", "--upgrade", *packages])
 

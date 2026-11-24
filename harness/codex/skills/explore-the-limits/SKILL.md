@@ -9,7 +9,7 @@ When the best implementation isn't obvious, build competing approaches, measure 
 
 1. **Research prior art** (**research-this**): survey competing implementations, algorithms, and references, graded by source quality.
 2. **Push past the obvious baseline.** Combine strong ideas from prior art, target the bottlenecks holding existing approaches back, and propose distinct candidate designs worth testing.
-3. **Build candidates in parallel,** each in its own git worktree, including viable combinations (**ab-test**).
+3. **Build candidates in parallel,** dispatching a dedicated `astack-worker` subagent per candidate in its own git worktree, including viable combinations (**ab-test**).
 4. **Measure and compare** using profiling, **benchmarking**, and **ab-test**.
 5. **Graft before deleting.** Before discarding losing variants, inspect where any loser beat the winner (a sub-benchmark, tail latency, memory footprint, cleaner data structure, or simpler error path). Graft those specific improvements onto the winner, re-run tests and benchmarks to verify the hybrid beats the un-grafted winner, then delete all losing variants in the same change.
 6. **Don't duck hard designs.** If the winning approach is harder to build, still build it properly: make it work, then robust, then fast.

@@ -1,47 +1,53 @@
 ---
 name: clamber
-description: "Iteratively improve performance (CPU, memory, I/O, network, concurrency, or size) in small measured steps: baseline everything, change one thing at a time, commit gains, revert regressions. Use when significant optimization is needed."
+description: "Iteratively improve performance and minimize variance (sigma) in small measured steps: baseline median and standard deviation, hill-climb by >=1 sigma per step while tightening variance, sanity-check against Amdahl bounds, enforce a minimum attempt floor, commit gains, and revert regressions. Use when significant optimization is needed."
 disable-model-invocation: true
 ---
 
 # Clamber
 
-Improve performance toward a target in small, measured steps—committing each gain and reverting anything that regresses.
+Improve performance and tighten measured variance in small, grounded steps—committing each gain and reverting anything that regresses.
 
 ## Before the first step
 
 1. **Work, then robust, then fast.** Only optimize code that already works and passes its tests. Tests must pass before and after every step (**tests-assert-behaviour**).
 2. **Define the target.** Specify each metric to improve, the target number, and how it's measured (CPU, peak memory/allocations/cache misses/page faults, disk I/O, network calls/wire bytes, concurrent throughput/contention, binary/package size, or any requested metric).
 3. **Reproduce realistically.** Use realistic data sizes, history, state, and concurrency. If you can't reproduce the bottleneck, fix the workload first.
-4. **Baseline every important metric** (**benchmarking**), not just the primary target, so a win in one metric can't hide a regression in another. Record noise, environment, and commands, and verify the harness detects regressions.
-5. **Profile and trace** to see where time, memory, I/O, or bytes actually go.
-6. **Keep an experiment log** of every attempt: hypothesis, change, before/after numbers, test status, and kept/reverted outcome.
+4. **Baseline every important metric and its $\sigma$** (**benchmarking**), not just the primary target, so a win in one metric can't hide a regression in another. Record baseline median, standard deviation ($\sigma$), p99/spread, environment, and commands, and verify the harness detects regressions and executes real work.
+5. **Profile and trace** to see where time, memory, I/O, bytes, and jitter actually go (**diagnose**).
+6. **Keep an experiment log** of every attempt: hypothesis, change, before/after median and $\sigma$, Amdahl check, test status, and kept/reverted outcome.
 
-## Each step
+## Each step (grounded $\sigma$-step hill-climbing & variance reduction)
 
-Pick the largest remaining bottleneck and ask these in strict order, acting on the first "yes":
+Treat **reducing measured variance ($\sigma$)** as equally important to moving the baseline median—jitter from allocations, GC pauses, lock convoys, page faults, or I/O stalls caps both p99 and your ability to measure further wins.
+
+Pick the largest remaining bottleneck (or largest source of $\sigma$/tail variance) and ask these in strict order, acting on the first "yes":
 
 1. **Can we skip the work entirely?**
 2. **Can we do less of it?**
-3. **Can we do it more efficiently?** Fewer CPU cycles and allocations, better cache/memory layout, fewer page faults, less disk churn, fewer bytes; SIMD/vectorization only after the plain version is proven correct.
-4. **Can we defer it or move it off the hot path?**
-5. **Can we parallelize it?**
+3. **Can we eliminate variance/jitter sources?** (Remove allocation spikes, lock contention, cold-path falls, cache-line bouncing, or unbuffered I/O.)
+4. **Can we do it more efficiently?** Fewer CPU cycles and allocations, better cache/memory layout, fewer page faults, less disk churn, fewer bytes; SIMD/vectorization only after the plain version is proven correct.
+5. **Can we defer it or move it off the hot path?**
+6. **Can we parallelize it?**
 
 Then:
 
-1. **State the mechanism:** e.g. "defer X off startup because it blocks first response", not "try caching".
+1. **Set a $\sigma$-grounded step goal:** target moving the metric by **at least one current standard deviation ($\ge 1\sigma$)** or materially shrinking $\sigma$ itself, and state the exact mechanism (e.g., "pool scratch buffers to cut GC pause spikes driving $\sigma$", not "try caching").
 2. **Make one isolated change.** Don't stack untested ideas.
 3. **Run the tests.** User-visible behavior must stay identical (**never-trade-functionality**).
-4. **Re-measure all baseline metrics.** Keep the change only if the target improves beyond noise without regressing other metrics.
-5. **Commit or revert cleanly.** Commit each kept win on its own with numbers in the commit message so later regressions can be bisected/reverted individually. Revert failed attempts completely.
+4. **Re-measure all baseline metrics (median and $\sigma$).**
+   - **Sanity-check the gain:** verify the speedup stays within the Amdahl bound ($1/(1-f)$ for the profiled fraction $f$ of touched work) and confirm outputs were genuinely computed.
+   - Keep the change only if it improves the target beyond noise (or measurably shrinks $\sigma$) without regressing other metrics, then recompute $\sigma$ on the new baseline for the next step.
+5. **Commit or revert cleanly.** Commit each kept win on its own with before/after median and $\sigma$ in the commit message so later regressions can be bisected/reverted individually. Revert failed attempts completely.
 6. **Log the attempt** and repeat.
 
 If you have several independent ideas, test them in parallel in separate worktrees (**ab-test**).
 
 ## Finish
 
-- **Break through plateaus.** If incremental tweaks stall well short of the goal, try another optimization category, combine near misses, reread the hot path, or prototype alternative architectures (**explore-the-limits**).
-- **Know when to stop.** Stop when you hit the target. Before concluding further gains require trading functionality, run **research-this** and **explore-the-limits** to verify no compliant design exists; only then present the best compliant result, what limits it, and the trade-off with numbers to the person (**never-trade-functionality**, **decisions-in-plain-words**). Never relax the goal to declare victory.
-- **Report:** baseline vs. final for every metric, steps kept and reverted, the full log, the current bottleneck, and the best next lead (**prove-it**).
+- **Minimum attempt floor:** don't stop after a lucky early win. Complete at least **5 distinct measured attempts** across real bottlenecks and variance sources (unless you already hit a proven hardware/algorithmic ceiling backed by profiles and **research-this**).
+- **Break through plateaus:** if incremental tweaks stall short of the goal, try another optimization category, attack $\sigma$/variance directly, combine near misses, reread the hot path, or prototype alternative architectures (**explore-the-limits**).
+- **Know when to stop:** stop once the target (both baseline and variance stability) is met and the minimum attempt floor is satisfied. Before concluding further gains require trading functionality, run **research-this** and **explore-the-limits** to verify no compliant design exists; only then present the best compliant result, what limits it, and the trade-off with numbers to the person (**never-trade-functionality**, **decisions-in-plain-words**). Never relax the goal to declare victory.
+- **Report:** baseline vs. final median and $\sigma$ for every metric, steps kept and reverted, the full log, the current bottleneck, and the best next lead (**prove-it**).
 
 <!-- Adapts pstack's Hillclimb playbook (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

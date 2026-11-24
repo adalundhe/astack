@@ -1,0 +1,780 @@
+#!/usr/bin/env python3
+"""Run TLC on a TLA+ model (or parse TLC DOT/trace output), find shortest paths to broken invariants, and emit Mermaid stateDiagram-v2.
+
+Usage:
+  astack-statechart check MODEL.tla [--cfg MODEL.cfg] [--tlc CMD] [--jar PATH] [--dump-dot PATH] [--mermaid PATH] [--max-states N] [--workers N] [--json]
+  astack-statechart render INPUT.dot [--trace TLC_OUT.txt] [--mermaid PATH] [--max-states N] [--json]
+
+Exit codes:
+  check:  0 = all invariants hold, 1 = violation/deadlock found, 2 = TLC missing or invocation/parse error
+  render: 0 = rendered cleanly, 2 = missing file or parse error
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from collections import deque
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+@dataclass
+class Edge:
+    src: str
+    dst: str
+    label: str = ""
+    attrs: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class StateGraph:
+    nodes: dict[str, str] = field(default_factory=dict)  # node_id -> display label
+    node_attrs: dict[str, dict[str, str]] = field(default_factory=dict)
+    edges: list[Edge] = field(default_factory=list)
+    initial_ids: list[str] = field(default_factory=list)
+    violating_ids: dict[str, str] = field(default_factory=dict)  # node_id -> invariant/reason
+
+
+@dataclass
+class TraceStep:
+    number: int
+    action: str
+    state: str
+
+
+@dataclass
+class Violation:
+    kind: str  # "invariant" | "deadlock" | "temporal" | "violation"
+    name: str
+    hops: int
+    steps: list[dict[str, str]]
+    cycle_back_to: int | None = None
+
+
+_DOT_KEYWORDS = frozenset({"strict", "graph", "digraph", "subgraph", "node", "edge"})
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _unescape_dot(raw: str) -> str:
+    out: list[str] = []
+    i = 0
+    n = len(raw)
+    while i < n:
+        ch = raw[i]
+        if ch == "\\" and i + 1 < n:
+            nxt = raw[i + 1]
+            if nxt == "n":
+                out.append("\n")
+            elif nxt == "t":
+                out.append(" ")
+            elif nxt == "l" or nxt == "r":
+                out.append("\n")
+            else:
+                out.append(nxt)
+            i += 2
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+def _tokenize_dot(text: str) -> list[tuple[str, str]]:
+    """Tokenize Graphviz DOT text into (kind, value) tuples."""
+    tokens: list[tuple[str, str]] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch.isspace():
+            i += 1
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "/":
+            end = text.find("\n", i + 2)
+            i = n if end == -1 else end + 1
+            continue
+        if ch == "/" and i + 1 < n and text[i + 1] == "*":
+            end = text.find("*/", i + 2)
+            i = n if end == -1 else end + 2
+            continue
+        if ch == "#" and (i == 0 or text[i - 1] == "\n"):
+            end = text.find("\n", i + 1)
+            i = n if end == -1 else end + 1
+            continue
+        if ch == '"':
+            j = i + 1
+            buf: list[str] = []
+            while j < n:
+                c = text[j]
+                if c == "\\" and j + 1 < n:
+                    buf.append(c)
+                    buf.append(text[j + 1])
+                    j += 2
+                    continue
+                if c == '"':
+                    j += 1
+                    break
+                buf.append(c)
+                j += 1
+            tokens.append(("STRING", _unescape_dot("".join(buf))))
+            i = j
+            continue
+        if ch == "-" and i + 1 < n and text[i + 1] in (">", "-"):
+            tokens.append(("ARROW", text[i:i + 2]))
+            i += 2
+            continue
+        if ch in "{}[]=;,":
+            tokens.append((ch, ch))
+            i += 1
+            continue
+        j = i
+        while j < n and not text[j].isspace() and text[j] not in '{}[]=;,"':
+            if text[j] == "-" and j + 1 < n and text[j + 1] in (">", "-"):
+                break
+            if text[j] == "/" and j + 1 < n and text[j + 1] in ("/", "*"):
+                break
+            j += 1
+        word = text[i:j]
+        if word:
+            tokens.append(("ID", word))
+            i = j
+        else:
+            i += 1
+    return tokens
+
+
+def _parse_attrs(tokens: list[tuple[str, str]], pos: int) -> tuple[dict[str, str], int]:
+    attrs: dict[str, str] = {}
+    if pos >= len(tokens) or tokens[pos][0] != "[":
+        return attrs, pos
+    pos += 1
+    while pos < len(tokens) and tokens[pos][0] != "]":
+        if tokens[pos][0] in (",", ";"):
+            pos += 1
+            continue
+        if tokens[pos][0] in ("ID", "STRING"):
+            key = tokens[pos][1]
+            pos += 1
+            if pos < len(tokens) and tokens[pos][0] == "=":
+                pos += 1
+                if pos < len(tokens) and tokens[pos][0] in ("ID", "STRING"):
+                    attrs[key.lower()] = tokens[pos][1]
+                    pos += 1
+        else:
+            pos += 1
+    if pos < len(tokens) and tokens[pos][0] == "]":
+        pos += 1
+    return attrs, pos
+
+
+def parse_dot(text: str) -> StateGraph:
+    """Parse a Graphviz DOT state graph (including TLC -dump dot output)."""
+    tokens = _tokenize_dot(text)
+    graph = StateGraph()
+    pos = 0
+    n = len(tokens)
+
+    # Advance past optional header: [strict] (digraph|graph) [name] {
+    while pos < n and tokens[pos][0] != "{":
+        pos += 1
+    if pos < n and tokens[pos][0] == "{":
+        pos += 1
+
+    def ensure_node(node_id: str) -> None:
+        if node_id not in graph.nodes:
+            graph.nodes[node_id] = node_id
+            graph.node_attrs[node_id] = {}
+
+    while pos < n:
+        kind, val = tokens[pos]
+        if kind in (";", ",", "{", "}"):
+            pos += 1
+            continue
+        if kind == "ID" and val.lower() in _DOT_KEYWORDS:
+            kw = val.lower()
+            pos += 1
+            if kw in ("graph", "node", "edge"):
+                _, pos = _parse_attrs(tokens, pos)
+            elif kw == "subgraph":
+                if pos < n and tokens[pos][0] in ("ID", "STRING"):
+                    pos += 1
+            continue
+        if kind in ("ID", "STRING"):
+            # Graph-level attribute assignment: key = value
+            if pos + 1 < n and tokens[pos + 1][0] == "=":
+                pos += 2
+                if pos < n and tokens[pos][0] in ("ID", "STRING"):
+                    pos += 1
+                continue
+            chain = [val]
+            pos += 1
+            while pos < n and tokens[pos][0] == "ARROW":
+                pos += 1
+                if pos < n and tokens[pos][0] in ("ID", "STRING"):
+                    chain.append(tokens[pos][1])
+                    pos += 1
+                else:
+                    break
+            attrs, pos = _parse_attrs(tokens, pos)
+            if len(chain) == 1:
+                nid = chain[0]
+                ensure_node(nid)
+                graph.node_attrs[nid].update(attrs)
+                if "label" in attrs and attrs["label"] != "":
+                    graph.nodes[nid] = attrs["label"]
+                style = attrs.get("style", "").lower()
+                if "filled" in style and nid not in graph.initial_ids:
+                    color_val = attrs.get("fillcolor", attrs.get("color", "")).lower()
+                    if "red" not in color_val:
+                        graph.initial_ids.append(nid)
+                color = attrs.get("color", "").lower()
+                fillcolor = attrs.get("fillcolor", "").lower()
+                if "violation" in attrs:
+                    graph.violating_ids[nid] = attrs["violation"]
+                elif "red" in color or "red" in fillcolor:
+                    graph.violating_ids[nid] = attrs.get("invariant", "invariant violation")
+            else:
+                edge_label = attrs.get("label", "")
+                for idx in range(len(chain) - 1):
+                    src, dst = chain[idx], chain[idx + 1]
+                    ensure_node(src)
+                    ensure_node(dst)
+                    graph.edges.append(Edge(src=src, dst=dst, label=edge_label, attrs=dict(attrs)))
+            continue
+        pos += 1
+
+    # Infer initial states if DOT didn't mark style=filled
+    if not graph.initial_ids and graph.nodes:
+        in_deg = {nid: 0 for nid in graph.nodes}
+        for edge in graph.edges:
+            if edge.dst in in_deg and edge.src != edge.dst:
+                in_deg[edge.dst] += 1
+        roots = [nid for nid, deg in in_deg.items() if deg == 0]
+        graph.initial_ids = roots if roots else [next(iter(graph.nodes))]
+
+    return graph
+
+
+def parse_tlc_output(text: str) -> dict:
+    """Parse TLC stdout/stderr for stats and counterexample traces."""
+    summary: dict = {
+        "distinct_states": None,
+        "states_generated": None,
+        "depth": None,
+        "violations": [],
+    }
+    if m := re.search(r"(\d+)\s+states generated,\s+(\d+)\s+distinct states found", text):
+        summary["states_generated"] = int(m.group(1))
+        summary["distinct_states"] = int(m.group(2))
+    if m := re.search(r"The depth of the complete state graph search is (\d+)", text):
+        summary["depth"] = int(m.group(1))
+
+    lines = text.splitlines()
+    i = 0
+    total = len(lines)
+    while i < total:
+        line = lines[i].strip()
+        kind = None
+        name = None
+        if m := re.match(r"^Error:\s+Invariant\s+(\S+)\s+is violated\.?$", line):
+            kind, name = "invariant", m.group(1)
+        elif re.match(r"^Error:\s+Deadlock reached\.?$", line):
+            kind, name = "deadlock", "Deadlock"
+        elif re.match(r"^Error:\s+Temporal properties were violated\.?$", line):
+            kind, name = "temporal", "TemporalProperty"
+        if kind is None:
+            i += 1
+            continue
+
+        i += 1
+        steps: list[TraceStep] = []
+        cycle_back: int | None = None
+        current_num: int | None = None
+        current_action = ""
+        current_lines: list[str] = []
+
+        def flush_step() -> None:
+            nonlocal current_num, current_action, current_lines
+            if current_num is not None:
+                body = "\n".join(current_lines).strip()
+                steps.append(TraceStep(number=current_num, action=current_action, state=body))
+            current_num = None
+            current_action = ""
+            current_lines = []
+
+        while i < total:
+            raw = lines[i]
+            stripped = raw.strip()
+            if stripped.startswith("Error:") and steps:
+                break
+            if re.match(r"^\d+\s+states generated,", stripped) or stripped.startswith("Finished in "):
+                break
+            if m := re.match(r"^State\s+(\d+):\s*<(.+?)>\s*$", stripped):
+                flush_step()
+                current_num = int(m.group(1))
+                current_action = m.group(2).strip()
+                i += 1
+                continue
+            if m := re.match(r"^Back to state\s+(\d+):", stripped):
+                flush_step()
+                cycle_back = int(m.group(1))
+                i += 1
+                break
+            if stripped == "Error: The behavior up to this point is:":
+                i += 1
+                continue
+            if current_num is not None:
+                if stripped:
+                    current_lines.append(stripped)
+            i += 1
+
+        flush_step()
+        summary["violations"].append(
+            Violation(
+                kind=kind,
+                name=name or kind,
+                hops=max(0, len(steps) - 1),
+                steps=[{"state": s.state, "action": s.action, "step": str(s.number)} for s in steps],
+                cycle_back_to=cycle_back,
+            )
+        )
+
+    return summary
+
+
+def shortest_paths_to_violations(graph: StateGraph) -> list[Violation]:
+    """Compute guaranteed minimum-hop paths via BFS from initial states to every violating node."""
+    if not graph.violating_ids or not graph.nodes:
+        return []
+
+    adj: dict[str, list[Edge]] = {nid: [] for nid in graph.nodes}
+    for edge in graph.edges:
+        if edge.src in adj and edge.dst in graph.nodes:
+            adj[edge.src].append(edge)
+
+    parent: dict[str, tuple[str | None, str]] = {}
+    queue: deque[str] = deque()
+    for init_id in graph.initial_ids:
+        if init_id in graph.nodes and init_id not in parent:
+            parent[init_id] = (None, "Initial")
+            queue.append(init_id)
+
+    while queue:
+        cur = queue.popleft()
+        for edge in adj[cur]:
+            if edge.dst not in parent:
+                parent[edge.dst] = (cur, edge.label)
+                queue.append(edge.dst)
+
+    results: list[Violation] = []
+    for target_id, reason in graph.violating_ids.items():
+        if target_id not in parent:
+            results.append(
+                Violation(
+                    kind="violation",
+                    name=reason,
+                    hops=-1,
+                    steps=[{"id": target_id, "state": graph.nodes.get(target_id, target_id), "action": "unreachable"}],
+                )
+            )
+            continue
+        chain: list[tuple[str, str]] = []
+        node: str | None = target_id
+        while node is not None:
+            prev, action = parent[node]
+            chain.append((node, action))
+            node = prev
+        chain.reverse()
+        steps = [
+            {"id": nid, "state": graph.nodes.get(nid, nid), "action": act, "step": str(idx + 1)}
+            for idx, (nid, act) in enumerate(chain)
+        ]
+        results.append(
+            Violation(
+                kind="violation",
+                name=reason,
+                hops=max(0, len(steps) - 1),
+                steps=steps,
+            )
+        )
+    results.sort(key=lambda v: (v.hops < 0, v.hops, v.name))
+    return results
+
+
+def _clean_mermaid_label(text: str, *, max_len: int = 120) -> str:
+    cleaned = _CONTROL_CHARS.sub("", text)
+    cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
+    parts = [line.strip() for line in cleaned.split("\n") if line.strip()]
+    joined = ", ".join(parts) if parts else "(empty)"
+    joined = (
+        joined.replace('"', "'")
+        .replace("-->", "->")
+        .replace("[*]", "(star)")
+        .replace("%%", "% %")
+    )
+    if len(joined) > max_len:
+        joined = joined[: max_len - 3] + "..."
+    if joined.endswith("\\"):
+        joined = joined + " "
+    return joined
+
+
+def _clean_edge_label(text: str, *, max_len: int = 80) -> str:
+    cleaned = _clean_mermaid_label(text, max_len=max_len)
+    cleaned = cleaned.replace(":", " -")
+    return cleaned
+
+
+def render_mermaid(
+    graph: StateGraph,
+    violations: list[Violation] | None = None,
+    *,
+    max_states: int | None = None,
+) -> tuple[str, int]:
+    """Render StateGraph into collision-free, keyword-safe Mermaid stateDiagram-v2.
+
+    Returns (mermaid_text, omitted_state_count).
+    """
+    violations = violations or []
+    all_ids = list(graph.nodes.keys())
+
+    # Determine which nodes to keep if max_states is set
+    keep_ids: list[str]
+    if max_states is not None and max_states > 0 and len(all_ids) > max_states:
+        pinned: list[str] = []
+        seen: set[str] = set()
+
+        def add_pin(nid: str) -> None:
+            if nid in graph.nodes and nid not in seen:
+                seen.add(nid)
+                pinned.append(nid)
+
+        for nid in graph.initial_ids:
+            add_pin(nid)
+        for v in violations:
+            for step in v.steps:
+                if "id" in step:
+                    add_pin(step["id"])
+        for nid in graph.violating_ids:
+            add_pin(nid)
+
+        adj: dict[str, list[str]] = {nid: [] for nid in graph.nodes}
+        for edge in graph.edges:
+            if edge.src in adj:
+                adj[edge.src].append(edge.dst)
+        q: deque[str] = deque(pinned or all_ids[:1])
+        while q and len(pinned) < max_states:
+            cur = q.popleft()
+            for nxt in adj.get(cur, ()):
+                if len(pinned) >= max_states:
+                    break
+                if nxt not in seen:
+                    add_pin(nxt)
+                    q.append(nxt)
+        for nid in all_ids:
+            if len(pinned) >= max_states:
+                break
+            add_pin(nid)
+        keep_ids = pinned
+    else:
+        keep_ids = all_ids
+
+    kept_set = set(keep_ids)
+    omitted = len(all_ids) - len(keep_ids)
+
+    # Map arbitrary node IDs (including __proto__, constructor, [*], end, quotes) to safe s0..sN IDs
+    safe_id: dict[str, str] = {nid: f"s{idx}" for idx, nid in enumerate(keep_ids)}
+    lines = ["stateDiagram-v2"]
+
+    for nid in keep_ids:
+        label = _clean_mermaid_label(graph.nodes[nid])
+        if nid in graph.violating_ids:
+            reason = _clean_mermaid_label(graph.violating_ids[nid], max_len=40)
+            label = f"{label} [VIOLATION: {reason}]"
+        lines.append(f'    state "{label}" as {safe_id[nid]}')
+
+    for init_id in graph.initial_ids:
+        if init_id in safe_id:
+            lines.append(f"    [*] --> {safe_id[init_id]}")
+
+    seen_edges: set[tuple[str, str, str]] = set()
+    for edge in graph.edges:
+        if edge.src not in kept_set or edge.dst not in kept_set:
+            continue
+        elabel = _clean_edge_label(edge.label) if edge.label else ""
+        key = (edge.src, edge.dst, elabel)
+        if key in seen_edges:
+            continue
+        seen_edges.add(key)
+        if elabel:
+            lines.append(f"    {safe_id[edge.src]} --> {safe_id[edge.dst]}: {elabel}")
+        else:
+            lines.append(f"    {safe_id[edge.src]} --> {safe_id[edge.dst]}")
+
+    violating_kept = [safe_id[nid] for nid in keep_ids if nid in graph.violating_ids]
+    if violating_kept:
+        lines.append("    classDef violation fill:#fee,stroke:#c00,stroke-width:2px")
+        lines.append("    class " + ",".join(violating_kept) + " violation")
+
+    if omitted > 0:
+        lines.append(f"    %% {omitted} additional states omitted (--max-states {max_states})")
+
+    return "\n".join(lines) + "\n", omitted
+
+
+def _graph_from_trace_violations(violations: list[Violation]) -> StateGraph:
+    """Build a focused StateGraph directly from TLC trace counterexamples when no DOT was dumped."""
+    graph = StateGraph()
+    for v_idx, v in enumerate(violations):
+        prev_id: str | None = None
+        step_ids: dict[int, str] = {}
+        for s_idx, step in enumerate(v.steps):
+            nid = f"v{v_idx}_s{s_idx + 1}"
+            step_ids[s_idx + 1] = nid
+            graph.nodes[nid] = step["state"] or f"State {s_idx + 1}"
+            if s_idx == 0 and nid not in graph.initial_ids:
+                graph.initial_ids.append(nid)
+            if prev_id is not None:
+                graph.edges.append(Edge(src=prev_id, dst=nid, label=step.get("action", "")))
+            prev_id = nid
+        if prev_id is not None:
+            graph.violating_ids[prev_id] = v.name
+            if v.cycle_back_to and v.cycle_back_to in step_ids:
+                graph.edges.append(Edge(src=prev_id, dst=step_ids[v.cycle_back_to], label="cycle"))
+    return graph
+
+
+def find_tlc(explicit_tlc: str | None, explicit_jar: str | None) -> list[str] | None:
+    if explicit_tlc:
+        resolved = shutil.which(explicit_tlc)
+        if resolved:
+            return [resolved]
+        p = Path(explicit_tlc).expanduser()
+        return [str(p)] if p.is_file() else None
+    java = shutil.which("java")
+    if explicit_jar:
+        jar_path = Path(explicit_jar).expanduser()
+        return [java, "-XX:+UseParallelGC", "-cp", str(jar_path), "tlc2.TLC"] if (java and jar_path.is_file()) else None
+    if tlc := shutil.which("tlc"):
+        return [tlc]
+    jar_candidates = []
+    if env_jar := os.environ.get("TLA2TOOLS_JAR"):
+        jar_candidates.append(Path(env_jar).expanduser())
+    jar_candidates.extend([
+        Path("/opt/homebrew/share/tla+/tla2tools.jar"),
+        Path("/usr/local/share/tla+/tla2tools.jar"),
+        Path.home() / ".local" / "share" / "tla+" / "tla2tools.jar",
+        Path("/Applications/TLA+ Toolbox.app/Contents/Eclipse/tla2tools.jar"),
+    ])
+    if java:
+        for jar in jar_candidates:
+            try:
+                if jar.is_file():
+                    return [java, "-XX:+UseParallelGC", "-cp", str(jar), "tlc2.TLC"]
+            except OSError:
+                continue
+    return None
+
+
+def _format_report(
+    graph: StateGraph,
+    violations: list[Violation],
+    mermaid: str,
+    omitted: int,
+    stats: dict | None = None,
+) -> str:
+    lines: list[str] = []
+    total_states = len(graph.nodes)
+    total_edges = len(graph.edges)
+    lines.append(f"astack-statechart: {total_states} states, {total_edges} transitions, {len(violations)} violation(s)")
+    if stats and stats.get("distinct_states") is not None:
+        depth = f", depth {stats['depth']}" if stats.get("depth") is not None else ""
+        lines.append(f"  TLC: {stats['distinct_states']} distinct states ({stats['states_generated']} generated{depth})")
+    if omitted > 0:
+        lines.append(f"  diagram: showing {total_states - omitted}/{total_states} states ({omitted} omitted)")
+    if violations:
+        lines.append("\nShortest paths to violations:")
+        for v in violations:
+            hop_txt = "unreachable" if v.hops < 0 else f"{v.hops} step(s)"
+            lines.append(f"  - [{v.kind}] {v.name} ({hop_txt}):")
+            for step in v.steps:
+                act = f" via {step['action']}" if step.get("action") else ""
+                lines.append(f"      {step.get('step', '?')}.{act}: {_clean_mermaid_label(step['state'])}")
+            if v.cycle_back_to is not None:
+                lines.append(f"      -> cycles back to state {v.cycle_back_to}")
+    else:
+        lines.append("  All checked invariants held.")
+    lines.append("\n```mermaid")
+    lines.append(mermaid.rstrip())
+    lines.append("```")
+    return "\n".join(lines)
+
+
+def _dedupe_shortest_violations(violations: list[Violation]) -> list[Violation]:
+    """Keep the shortest path (minimum hops) for each distinct (kind, name) violation."""
+    best: dict[tuple[str, str], Violation] = {}
+    for v in violations:
+        key = (v.kind, v.name)
+        prev = best.get(key)
+        if prev is None:
+            best[key] = v
+        elif v.hops >= 0 and (prev.hops < 0 or v.hops < prev.hops):
+            best[key] = v
+    out = list(best.values())
+    out.sort(key=lambda v: (v.hops < 0, v.hops, v.name))
+    return out
+
+
+def _merge_graph_and_trace(graph: StateGraph, trace_info: dict) -> tuple[StateGraph, list[Violation]]:
+    trace_violations: list[Violation] = _dedupe_shortest_violations(trace_info.get("violations", []))
+    if not graph.nodes and trace_violations:
+        graph = _graph_from_trace_violations(trace_violations)
+    elif trace_violations:
+        # Match trace steps back onto DOT nodes by normalized label so --max-states pins full failure paths
+        by_norm = {_clean_mermaid_label(lbl): nid for nid, lbl in graph.nodes.items()}
+        for v in trace_violations:
+            for step in v.steps:
+                norm = _clean_mermaid_label(step["state"])
+                if norm in by_norm and "id" not in step:
+                    step["id"] = by_norm[norm]
+            if v.steps:
+                last_norm = _clean_mermaid_label(v.steps[-1]["state"])
+                if last_norm in by_norm and by_norm[last_norm] not in graph.violating_ids:
+                    graph.violating_ids[by_norm[last_norm]] = v.name
+    graph_violations = _dedupe_shortest_violations(shortest_paths_to_violations(graph))
+    if trace_violations:
+        seen_names = {v.name for v in trace_violations}
+        combined = list(trace_violations) + [v for v in graph_violations if v.name not in seen_names]
+        violations = _dedupe_shortest_violations(combined)
+    else:
+        violations = graph_violations
+    return graph, violations
+
+
+def cmd_render(args) -> int:
+    dot_path = Path(args.dot).expanduser()
+    if not dot_path.is_file():
+        print(f"error: DOT file not found: {dot_path}", file=sys.stderr)
+        return 2
+    graph = parse_dot(dot_path.read_text(encoding="utf-8", errors="replace"))
+    trace_info: dict = {"violations": []}
+    if args.trace:
+        trace_path = Path(args.trace).expanduser()
+        if not trace_path.is_file():
+            print(f"error: trace file not found: {trace_path}", file=sys.stderr)
+            return 2
+        trace_info = parse_tlc_output(trace_path.read_text(encoding="utf-8", errors="replace"))
+    graph, violations = _merge_graph_and_trace(graph, trace_info)
+    mermaid, omitted = render_mermaid(graph, violations, max_states=args.max_states)
+    if args.mermaid:
+        Path(args.mermaid).expanduser().write_text(mermaid, encoding="utf-8")
+    if args.as_json:
+        payload = {
+            "states": len(graph.nodes),
+            "transitions": len(graph.edges),
+            "initial_states": graph.initial_ids,
+            "omitted_states": omitted,
+            "violations": [v.__dict__ for v in violations],
+            "mermaid": mermaid,
+        }
+        print(json.dumps(payload, indent=2))
+        return 0
+    print(_format_report(graph, violations, mermaid, omitted, stats=trace_info))
+    return 0
+
+
+def cmd_check(args) -> int:
+    model = Path(args.model).expanduser().resolve()
+    if not model.is_file():
+        print(f"error: TLA+ model not found: {model}", file=sys.stderr)
+        return 2
+    tlc_cmd = find_tlc(args.tlc, args.jar)
+    if not tlc_cmd:
+        print(
+            "error: TLC not found. Install TLA+ tools (set TLA2TOOLS_JAR=/path/to/tla2tools.jar, "
+            "pass --jar/--tlc, or install `tlc` on PATH with Java).",
+            file=sys.stderr,
+        )
+        return 2
+
+    cfg = Path(args.cfg).expanduser().resolve() if args.cfg else model.with_suffix(".cfg")
+    with tempfile.TemporaryDirectory(prefix="astack-statechart-") as scratch:
+        dot_out = Path(args.dump_dot).expanduser().resolve() if args.dump_dot else Path(scratch) / "states.dot"
+        cmd = [*tlc_cmd, "-workers", str(args.workers), "-cleanup", "-dump", "dot", str(dot_out)]
+        if not args.stop_on_first:
+            cmd.append("-continue")
+        if cfg.is_file():
+            cmd.extend(["-config", str(cfg)])
+        cmd.append(str(model))
+        proc = subprocess.run(cmd, cwd=model.parent, capture_output=True, text=True)
+        combined = proc.stdout + ("\n" + proc.stderr if proc.stderr else "")
+        trace_info = parse_tlc_output(combined)
+        dot_actual = dot_out if dot_out.is_file() else Path(str(dot_out) + ".dot")
+        graph = parse_dot(dot_actual.read_text(encoding="utf-8", errors="replace")) if dot_actual.is_file() else StateGraph()
+        graph, violations = _merge_graph_and_trace(graph, trace_info)
+
+        if proc.returncode != 0 and not violations and not graph.nodes:
+            print(f"error: TLC exited {proc.returncode}:\n{combined.strip()}", file=sys.stderr)
+            return 2
+
+        mermaid, omitted = render_mermaid(graph, violations, max_states=args.max_states)
+        if args.mermaid:
+            Path(args.mermaid).expanduser().write_text(mermaid, encoding="utf-8")
+
+        if args.as_json:
+            payload = {
+                "model": str(model),
+                "tlc_exit_code": proc.returncode,
+                "distinct_states": trace_info.get("distinct_states"),
+                "states_generated": trace_info.get("states_generated"),
+                "depth": trace_info.get("depth"),
+                "states": len(graph.nodes),
+                "transitions": len(graph.edges),
+                "omitted_states": omitted,
+                "violations": [v.__dict__ for v in violations],
+                "mermaid": mermaid,
+            }
+            print(json.dumps(payload, indent=2))
+        else:
+            print(_format_report(graph, violations, mermaid, omitted, stats=trace_info))
+        return 1 if violations else 0
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description="Run TLC or parse TLC DOT/traces to report shortest counterexamples and Mermaid stateDiagram-v2.")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_check = sub.add_parser("check", help="run TLC on a TLA+ model, report shortest paths to broken invariants, and draw Mermaid stateDiagram-v2")
+    p_check.add_argument("model", help="path to MODEL.tla")
+    p_check.add_argument("--cfg", help="path to MODEL.cfg (defaults to <model>.cfg if present)")
+    p_check.add_argument("--tlc", help="explicit tlc executable path")
+    p_check.add_argument("--jar", help="explicit tla2tools.jar path")
+    p_check.add_argument("--dump-dot", help="save TLC DOT dump to this path")
+    p_check.add_argument("--mermaid", help="write Mermaid stateDiagram-v2 to this file")
+    p_check.add_argument("--max-states", type=int, help="cap rendered states (always keeping initial and failure-path states)")
+    p_check.add_argument("--workers", default="auto", help="TLC worker count (default: auto)")
+    p_check.add_argument("--stop-on-first", action="store_true", help="stop TLC at the first violation instead of passing -continue")
+    p_check.add_argument("--json", action="store_true", dest="as_json")
+
+    p_render = sub.add_parser("render", help="parse a Graphviz DOT state graph (and optional TLC output) into shortest violation paths + Mermaid")
+    p_render.add_argument("dot", help="path to TLC -dump dot output")
+    p_render.add_argument("--trace", help="optional TLC stdout/stderr text file for counterexample traces")
+    p_render.add_argument("--mermaid", help="write Mermaid stateDiagram-v2 to this file")
+    p_render.add_argument("--max-states", type=int, help="cap rendered states (always keeping initial and failure-path states)")
+    p_render.add_argument("--json", action="store_true", dest="as_json")
+
+    args = parser.parse_args(argv)
+    if args.command == "check":
+        return cmd_check(args)
+    if args.command == "render":
+        return cmd_render(args)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

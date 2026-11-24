@@ -1,16 +1,16 @@
 ---
 name: benchmarking
-description: "Design, run, and write up rigorous benchmarks from performance criteria using user-observable metrics, controlled environments, measured noise, and statistical bars. Use when measuring performance, checking regressions, or comparing systems."
+description: "Design, run, and verify rigorous benchmarks with baseline median and standard deviation (sigma), variance reduction, Amdahl hard-limit checks, proof the work actually ran, and untuned-config checks. Use when measuring performance, checking regressions, or comparing systems."
 disable-model-invocation: true
 ---
 
 # Benchmarking
 
-Write and run benchmarks tied to concrete performance criteria.
+Write and run benchmarks tied to concrete performance criteria, grounded in measured variance and physical/algorithmic limits.
 
 Benchmarks follow **tests-assert-behaviour** and **full-spectrum-testing**, except that benchmarks depend on hardware—so keep the machine controlled, recorded, and identical across everything compared.
 
-1. **Start from the criteria.** List each user-observable metric with units: client throughput (req/s), p50/p99/p99.9 latency, process memory, error rate under load. Trace every benchmark to a criterion or an A/B question. Never report a bare ratio like "3x faster" without the two absolute measurements and their spread.
+1. **Start from the criteria.** List each user-observable metric with units: client throughput (req/s), p50/p99/p99.9 latency, process memory, error rate under load. Trace every benchmark to a criterion or an A/B question. Never report a bare ratio like "3x faster" without both absolute measurements and their spread.
 2. **Choose the right layer (test diamond).**
    - **Micro:** one hot function in isolation. Use sparingly to explain bottlenecks, not to decide system-level wins.
    - **Integration:** real components together under a realistic workload. Do most iteration here; it's fast enough to run per change.
@@ -24,14 +24,18 @@ Benchmarks follow **tests-assert-behaviour** and **full-spectrum-testing**, exce
    - **Chaos:** injected faults under load (node crash, slow disk, dropped messages) and user-visible impact.
 4. **Control the environment.** Use production builds and settings. Place load generators realistically (e.g., separate machine from server) using whatever machines you can reach; only ask the person for resources only they can provision. Record any environment limitation you can't remove. When comparing against another system, also follow **fair-benchmarks**.
 5. **Isolate runs.** Run one benchmark at a time per machine with identical data and warm-up state. Seed every generated workload and fault schedule.
-6. **Measure noise and set the bar first.** Run the baseline until each metric's 95% confidence interval for the median is narrower than the smallest meaningful difference (or stops narrowing). Define the acceptance bar before testing changes: a change counts only if it exceeds baseline spread and passes a 95% Mann-Whitney U test or bootstrap interval.
+6. **Measure baseline median, standard deviation ($\sigma$), and variance first.** Run the baseline until each metric's sample standard deviation ($\sigma$), robust spread (IQR/MAD), and 95% CI for the median stabilize. Treat **minimizing measured variance ($\sigma$ and tail spread)** as a first-class objective alongside improving the baseline median. Set the acceptance bar before testing changes: a change counts only if it improves the baseline past spread (targeting $\ge 1\sigma$ per hill-climb step, or a verified reduction in $\sigma$) and passes a 95% Mann-Whitney U test or bootstrap interval.
 7. **Verify the harness (red, then green).** Run each new benchmark against an intentionally degraded build (injected delay or extra work) to prove it detects regressions. A harness that misses a known regression can't validate an improvement.
 8. **Instrument separately and watch for anomalies.** Use counters, profiles, and traces to explain numbers, but run profilers in separate passes so overhead doesn't skew timing. Alternate compared runs round by round, count errors, and verify outputs. Before and after each run, check host load, power source, CPU throttling, memory pressure, disk, and network; discard and rerun anomalous passes.
-9. **Explain every number.** Identify the actual bottleneck from profiles and counters, not code guesses. Rule out artifacts (errors, skipped/cached work, dead code, untuned config, noise) with evidence. An unexplained number isn't a valid result.
+9. **Check whether the number is real:**
+   - **Amdahl / hard-limit check:** verify claimed gains against the profiled fraction of work actually touched. Removing fraction $f$ of total work can yield at most $1/(1-f)$ speedup (e.g., cutting 10% of work gives at most ~11.1% faster). If a measured gain exceeds what the touched work can explain, stop—it's a broken harness, accidental skip, or measurement artifact.
+   - **Prove the work actually ran:** consume/checksum outputs and assert correctness so compilers, JIT dead-code elimination, lazy iterators, or silent errors can't fake speed.
+   - **Rule out untuned ceilings:** inspect pool sizes, batch sizes, caches, thread limits, GC, and debug flags on every side—a side held back by a setting is untuned, not slow.
+   - **Name the limiter and next $\sigma$-step:** identify the concrete resource or serialization bottleneck from profiles/counters—not guesses—and state what prevents moving another $\ge 1\sigma$ or shrinking $\sigma$ further. An unexplained number isn't a valid result.
 10. **Label clearly.** State the metric, workload, and criterion each benchmark measures.
-11. **Write up the record.** Keep it concise and complete: question, metrics, environment, sampling plan, noise and bar, each result's median/interval/bottleneck, anomalies, conclusion, and exact rerun commands. Save it where the project stores benchmark records.
+11. **Write up the record.** Keep it concise and complete: question, metrics, environment, sampling plan, baseline median/$\sigma$/bar, each result's median/$\sigma$/interval/limiter, anomalies, conclusion, and exact rerun commands. Save it where the project stores benchmark records.
 
-Done when every performance criterion has benchmarks on the right layer, across applicable workloads, proven to catch regressions, measured against known noise and a pre-set bar, and written up. Only numbers measured this way (or explicitly set by the person) belong in acceptance criteria.
+Done when every performance criterion has benchmarks on the right layer, across applicable workloads, proven to catch regressions, sanity-checked against hard limits and dead work, measured against baseline $\sigma$ and a pre-set bar, and written up. Only numbers measured this way (or explicitly set by the person) belong in acceptance criteria.
 
 Referenced skills: `tests-assert-behaviour` (`${CLAUDE_SKILL_DIR}/../tests-assert-behaviour/SKILL.md`), `full-spectrum-testing` (`${CLAUDE_SKILL_DIR}/../full-spectrum-testing/SKILL.md`), `fair-benchmarks` (`${CLAUDE_SKILL_DIR}/../fair-benchmarks/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 

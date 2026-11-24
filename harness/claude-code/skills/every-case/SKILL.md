@@ -27,7 +27,7 @@ Check whether the project already has a `verify-<area>` skill for this area. If 
    - **Explicit scope:** document what is verified, exact bounds/assumptions, and what's excluded.
    - **Readable without the tool:** state each property and its user impact in one plain sentence, and translate counterexamples into plain code-level steps.
    - **Cheap to rerun:** one command, pinned tool version, fast enough to run on relevant changes.
-4. **Visualize failures and state spaces** when review needs it (**show-the-states**), using checker output (e.g. TLC's DOT graph) and highlighting shortest paths to bugs.
+4. **Visualize failures and state spaces** when review needs it (**show-the-states**): for TLA+ models, run `astack-statechart check <model.tla>` (or `astack-statechart render <states.dot> --trace <tlc.out>`) to report the shortest path to each broken invariant and generate a Mermaid `stateDiagram-v2` directly from TLC output.
 5. **Replay every counterexample on real code** as a test or live repro, step for step. If a step can't happen in real code, the model is wrong until proven otherwise.
 6. **Write a project skill (`verify-<area>`)** in the project's skills folder so the next agent can tell whether a diff touches verified code, run the check, distinguish real bugs from modeling drift, and update the check for intentional changes. Record covered files and the last confirmed commit SHA.
 7. **Prove the skill works:** follow it cold against a scratch mutation that breaks the invariant in real code, confirm it catches the break, then revert the mutation and confirm green again.

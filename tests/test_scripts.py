@@ -2,11 +2,14 @@
 import json
 import os
 import platform
+import random
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -415,7 +418,7 @@ class ToolsTest(Scratch):
         bin_dir = self.dir / "user-bin"
         first = run("astack-tools", "link-bin", "--bin-dir", str(bin_dir))
         self.assertEqual(first.returncode, 0, first.stderr)
-        for name in ("astack-tools", "astack-status", "astack-decisions", "astack-verify-merge", "astack-stamp"):
+        for name in ("astack-tools", "astack-status", "astack-decisions", "astack-verify-merge", "astack-statechart", "astack-stamp"):
             linked = bin_dir / name
             self.assertTrue(linked.is_symlink(), f"missing symlink {linked}")
             self.assertEqual(linked.resolve(), (BIN / name).resolve())
@@ -499,6 +502,354 @@ class ToolsTest(Scratch):
         path_res = run("astack-tools", "path", "--venv", str(venv))
         self.assertEqual(path_res.returncode, 0)
         self.assertTrue(path_res.stdout.strip().endswith("/python"))
+
+
+def _has_real_tlc():
+    if shutil.which("tlc"):
+        return True
+    if not shutil.which("java"):
+        return False
+    candidates = [
+        Path(os.environ["TLA2TOOLS_JAR"]).expanduser() if os.environ.get("TLA2TOOLS_JAR") else None,
+        Path("/opt/homebrew/share/tla+/tla2tools.jar"),
+        Path("/usr/local/share/tla+/tla2tools.jar"),
+        Path.home() / ".local" / "share" / "tla+" / "tla2tools.jar",
+        Path("/Applications/TLA+ Toolbox.app/Contents/Eclipse/tla2tools.jar"),
+    ]
+    return any(p is not None and p.is_file() for p in candidates)
+
+
+def _dot_escape(text):
+    return text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def _independent_min_hops(initial_ids, edges, target_id):
+    """Independent BFS oracle for verifying shortest-path distances."""
+    adj = {}
+    for src, dst in edges:
+        adj.setdefault(src, []).append(dst)
+    dist = {}
+    q = deque()
+    for init in initial_ids:
+        if init not in dist:
+            dist[init] = 0
+            q.append(init)
+    while q:
+        cur = q.popleft()
+        if cur == target_id:
+            return dist[cur]
+        for nxt in adj.get(cur, ()):
+            if nxt not in dist:
+                dist[nxt] = dist[cur] + 1
+                q.append(nxt)
+    return -1
+
+
+class StatechartTest(Scratch):
+    def test_render_dot_finds_shortest_path_to_each_broken_invariant_and_draws_mermaid(self):
+        dot = self.dir / "states.dot"
+        dot.write_text(
+            'digraph DiskGraph {\n'
+            '  -1001 [label="/\\\\ x = 0\\n/\\\\ y = 0", style = filled];\n'
+            '  2002 [label="/\\\\ x = 1\\n/\\\\ y = 0"];\n'
+            '  3003 [label="/\\\\ x = 2\\n/\\\\ y = 0"];\n'
+            '  4004 [label="/\\\\ x = 3\\n/\\\\ y = 1", color=red, invariant="InvA"];\n'
+            '  5005 [label="/\\\\ x = 0\\n/\\\\ y = 9", color=red, invariant="InvB"];\n'
+            '  6006 [label="isolated bad", color=red, invariant="InvUnreachable"];\n'
+            '  -1001 -> 2002 [label="Slow1"];\n'
+            '  2002 -> 3003 [label="Slow2"];\n'
+            '  3003 -> 4004 [label="Slow3"];\n'
+            '  -1001 -> 4004 [label="Shortcut"];\n'
+            '  2002 -> 5005 [label="BreakB"];\n'
+            '}\n'
+        )
+        res = run("astack-statechart", "render", str(dot), "--json")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        data = json.loads(res.stdout)
+        self.assertEqual(data["states"], 6)
+        self.assertEqual(data["transitions"], 5)
+        by_name = {v["name"]: v for v in data["violations"]}
+        self.assertEqual(by_name["InvA"]["hops"], 1)
+        self.assertEqual([s["action"] for s in by_name["InvA"]["steps"]], ["Initial", "Shortcut"])
+        self.assertEqual(by_name["InvB"]["hops"], 2)
+        self.assertEqual(by_name["InvUnreachable"]["hops"], -1)
+        mmd = data["mermaid"]
+        self.assertTrue(mmd.startswith("stateDiagram-v2\n"))
+        self.assertIn("[*] --> s0", mmd)
+        self.assertIn("[VIOLATION: InvA]", mmd)
+        self.assertIn("classDef violation", mmd)
+
+    def test_render_with_tlc_trace_parses_invariant_deadlock_and_temporal_cycle(self):
+        dot = self.dir / "empty.dot"
+        dot.write_text("digraph G {}\n")
+        trace = self.dir / "tlc.out"
+        trace.write_text(
+            "Model checking completed.\n"
+            "Error: Invariant Bounded is violated.\n"
+            "Error: The behavior up to this point is:\n"
+            "State 1: <Initial predicate>\n"
+            "/\\ x = 0\n"
+            "State 2: <Step>\n"
+            "/\\ x = 1\n"
+            "State 3: <Step>\n"
+            "/\\ x = 2\n"
+            "State 4: <Step>\n"
+            "/\\ x = 3\n"
+            "Error: Invariant Bounded is violated.\n"
+            "Error: The behavior up to this point is:\n"
+            "State 1: <Initial predicate>\n"
+            "/\\ x = 0\n"
+            "State 2: <Jump>\n"
+            "/\\ x = 3\n"
+            "Error: Deadlock reached.\n"
+            "Error: The behavior up to this point is:\n"
+            "State 1: <Initial predicate>\n"
+            "/\\ lock = \"free\"\n"
+            "State 2: <Acquire>\n"
+            "/\\ lock = \"stuck\"\n"
+            "Error: Temporal properties were violated.\n"
+            "Error: The behavior up to this point is:\n"
+            "State 1: <Initial predicate>\n"
+            "/\\ phase = \"wait\"\n"
+            "State 2: <Retry>\n"
+            "/\\ phase = \"retry\"\n"
+            "Back to state 1: <Loop>\n"
+            "128 states generated, 42 distinct states found, 0 states left on queue.\n"
+            "The depth of the complete state graph search is 7.\n"
+        )
+        res = run("astack-statechart", "render", str(dot), "--trace", str(trace), "--json")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        data = json.loads(res.stdout)
+        by_key = {(v["kind"], v["name"]): v for v in data["violations"]}
+        self.assertEqual(by_key[("invariant", "Bounded")]["hops"], 1)
+        self.assertEqual(by_key[("deadlock", "Deadlock")]["hops"], 1)
+        self.assertEqual(by_key[("temporal", "TemporalProperty")]["cycle_back_to"], 1)
+        self.assertIn("cycle", data["mermaid"])
+
+    def test_max_states_always_preserves_initial_and_shortest_failure_path(self):
+        lines = ["digraph Big {", '  n0 [label="init", style=filled];']
+        for i in range(1, 21):
+            lines.append(f'  decoy_{i} [label="decoy {i}"];')
+            lines.append(f'  n0 -> decoy_{i} [label="branch_{i}"];')
+        lines.append('  p1 [label="step 1"];')
+        lines.append('  p2 [label="step 2"];')
+        lines.append('  p3 [label="step 3"];')
+        lines.append('  bad [label="broken state", color=red, invariant="Safety"];')
+        lines.append('  n0 -> p1 [label="e1"];')
+        lines.append('  p1 -> p2 [label="e2"];')
+        lines.append('  p2 -> p3 [label="e3"];')
+        lines.append('  p3 -> bad [label="e4"];')
+        lines.append("}")
+        dot = self.dir / "big.dot"
+        dot.write_text("\n".join(lines) + "\n")
+        res = run("astack-statechart", "render", str(dot), "--max-states", "6", "--json")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        data = json.loads(res.stdout)
+        self.assertEqual(data["states"], 25)
+        self.assertEqual(data["omitted_states"], 19)
+        mmd = data["mermaid"]
+        for must_have in ("init", "step 1", "step 2", "step 3", "broken state [VIOLATION: Safety]", "19 additional states omitted"):
+            self.assertIn(must_have, mmd)
+
+    def test_property_based_adversarial_names_and_bfs_minimality(self):
+        adversarial = [
+            "__proto__",
+            "constructor",
+            "prototype",
+            "toString",
+            "hasOwnProperty",
+            "valueOf",
+            "end",
+            "state",
+            "note",
+            "classDef",
+            "node",
+            "edge",
+            "digraph",
+            "[*]",
+            "-->",
+            "a --> b",
+            'quote"inside',
+            "line1\nline2",
+            "comment%%here",
+            "trailing\\",
+            "a:b:c",
+            "/\\ x = 0\n/\\ y = 1",
+            "",
+        ]
+        rng = random.Random(20261124)
+        state_decl_re = re.compile(r'^    state "([^"]*)" as (s\d+)$')
+        edge_re = re.compile(r"^    (\[\*\]|s\d+) --> (s\d+)(?:: .*)?$")
+
+        for trial in range(30):
+            n_nodes = rng.randint(4, 14)
+            # Always include literal __proto__, constructor, [*], and end with strictly unique node IDs
+            pinned = ["__proto__", "constructor", "[*]", "end"]
+            rest = [name for name in adversarial if name not in pinned]
+            rng.shuffle(rest)
+            node_ids = list(pinned) + rest[: n_nodes - len(pinned)]
+            self.assertEqual(len(set(node_ids)), n_nodes)
+
+            initial = [node_ids[0]]
+            violating = {}
+            for idx in rng.sample(range(1, n_nodes), k=rng.randint(1, min(3, n_nodes - 1))):
+                inv_name = f"Inv_{adversarial[(idx + trial) % len(adversarial)]}_{idx}"
+                violating[node_ids[idx]] = inv_name
+
+            edges = []
+            dot_lines = ["digraph Prop {"]
+            for nid in node_ids:
+                lbl = rng.choice(adversarial)
+                attrs = [f'label="{_dot_escape(lbl)}"']
+                if nid in initial:
+                    attrs.append("style=filled")
+                if nid in violating:
+                    attrs.append('color=red')
+                    attrs.append(f'invariant="{_dot_escape(violating[nid])}"')
+                dot_lines.append(f'  "{_dot_escape(nid)}" [{", ".join(attrs)}];')
+
+            for _ in range(rng.randint(n_nodes, n_nodes * 2)):
+                src = rng.choice(node_ids)
+                dst = rng.choice(node_ids)
+                elbl = rng.choice(adversarial)
+                edges.append((src, dst))
+                dot_lines.append(f'  "{_dot_escape(src)}" -> "{_dot_escape(dst)}" [label="{_dot_escape(elbl)}"];')
+            dot_lines.append("}")
+
+            dot_path = self.dir / f"prop_{trial}.dot"
+            dot_path.write_text("\n".join(dot_lines) + "\n")
+            res = run("astack-statechart", "render", str(dot_path), "--json")
+            self.assertEqual(res.returncode, 0, f"trial {trial}: {res.stderr}")
+            data = json.loads(res.stdout)
+            self.assertEqual(data["states"], n_nodes, f"trial {trial}")
+
+            # Verify every violation's hop count against the independent BFS oracle
+            by_inv = {v["name"]: v["hops"] for v in data["violations"]}
+            for bad_id, inv_name in violating.items():
+                expected_hops = _independent_min_hops(initial, edges, bad_id)
+                self.assertEqual(by_inv[inv_name], expected_hops, f"trial {trial} {inv_name}")
+
+            # Verify Mermaid output syntax safety against all adversarial names
+            mmd_lines = data["mermaid"].splitlines()
+            self.assertEqual(mmd_lines[0], "stateDiagram-v2")
+            declared = set()
+            for line in mmd_lines[1:]:
+                if line.startswith("    classDef ") or line.startswith("    class ") or line.startswith("    %% "):
+                    continue
+                if m := state_decl_re.match(line):
+                    label_body, sid = m.group(1), m.group(2)
+                    self.assertNotIn("%%", label_body, f"trial {trial}: comment leaked in {line!r}")
+                    self.assertNotIn("-->", label_body, f"trial {trial}: arrow leaked in {line!r}")
+                    self.assertNotIn("[*]", label_body, f"trial {trial}: [*] leaked in {line!r}")
+                    self.assertFalse(label_body.endswith("\\"), f"trial {trial}: trailing backslash in {line!r}")
+                    declared.add(sid)
+                elif m := edge_re.match(line):
+                    src_id, dst_id = m.group(1), m.group(2)
+                    if src_id != "[*]":
+                        self.assertIn(src_id, declared, f"trial {trial}: undeclared {src_id}")
+                    self.assertIn(dst_id, declared, f"trial {trial}: undeclared {dst_id}")
+                else:
+                    self.fail(f"trial {trial}: unexpected Mermaid line {line!r}")
+            self.assertEqual(len(declared), n_nodes, f"trial {trial}")
+
+    def test_check_invokes_tlc_and_returns_expected_exit_codes(self):
+        # Missing model -> exit 2
+        missing = run("astack-statechart", "check", str(self.dir / "missing.tla"))
+        self.assertEqual(missing.returncode, 2)
+
+        model = self.dir / "Mini.tla"
+        model.write_text("---- MODULE Mini ----\n====\n")
+
+        # Missing TLC -> exit 2
+        env_no_tlc = {"HOME": str(self.dir), "PATH": "/usr/bin:/bin"}
+        no_tlc = subprocess.run(
+            [sys.executable, str(BIN / "astack-statechart"), "check", str(model), "--jar", str(self.dir / "nope.jar")],
+            capture_output=True, text=True, env=env_no_tlc,
+        )
+        self.assertEqual(no_tlc.returncode, 2)
+
+        # Fake TLC stub (clean pass -> exit 0, writes DOT and checks -continue arg)
+        args_log = self.dir / "tlc_args.txt"
+        tlc_ok = self.dir / "fake-tlc-ok"
+        tlc_ok.write_text(
+            "#!/bin/sh\n"
+            f'printf "%s\\n" "$@" > "{args_log}"\n'
+            'dot_file=""\n'
+            'prev=""\n'
+            'for a in "$@"; do\n'
+            '  if [ "$prev" = "dot" ]; then dot_file="$a"; fi\n'
+            '  prev="$a"\n'
+            'done\n'
+            'printf \'digraph G { 1 [label="x=0", style=filled]; 2 [label="x=1"]; 1 -> 2 [label="Inc"]; }\\n\' > "$dot_file"\n'
+            'echo "2 states generated, 2 distinct states found, 0 states left on queue."\n'
+            'echo "The depth of the complete state graph search is 1."\n'
+            'exit 0\n'
+        )
+        tlc_ok.chmod(0o755)
+        out_mmd = self.dir / "out.mmd"
+        ok = run("astack-statechart", "check", str(model), "--tlc", str(tlc_ok), "--mermaid", str(out_mmd), "--json")
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertIn("-continue", args_log.read_text().splitlines())
+        self.assertTrue(out_mmd.is_file())
+        self.assertEqual(json.loads(ok.stdout)["distinct_states"], 2)
+
+        # --stop-on-first omits -continue
+        ok2 = run("astack-statechart", "check", str(model), "--tlc", str(tlc_ok), "--stop-on-first", "--json")
+        self.assertEqual(ok2.returncode, 0, ok2.stderr)
+        self.assertNotIn("-continue", args_log.read_text().splitlines())
+
+        # Fake TLC stub with violation -> exit 1
+        tlc_fail = self.dir / "fake-tlc-fail"
+        tlc_fail.write_text(
+            "#!/bin/sh\n"
+            "printf '%s\\n' 'Error: Invariant NoOverflow is violated.'\n"
+            "printf '%s\\n' 'Error: The behavior up to this point is:'\n"
+            "printf '%s\\n' 'State 1: <Initial predicate>'\n"
+            "printf '%s\\n' '/\\ x = 0'\n"
+            "printf '%s\\n' 'State 2: <Inc>'\n"
+            "printf '%s\\n' '/\\ x = 1'\n"
+            "exit 12\n"
+        )
+        tlc_fail.chmod(0o755)
+        viol = run("astack-statechart", "check", str(model), "--tlc", str(tlc_fail), "--json")
+        self.assertEqual(viol.returncode, 1, viol.stderr)
+        vdata = json.loads(viol.stdout)
+        self.assertEqual(vdata["violations"][0]["name"], "NoOverflow")
+        self.assertEqual(vdata["violations"][0]["hops"], 1)
+
+        # Fake TLC stub with parse/tool error -> exit 2
+        tlc_err = self.dir / "fake-tlc-err"
+        tlc_err.write_text("#!/bin/sh\necho 'Fatal syntax error' >&2\nexit 1\n")
+        tlc_err.chmod(0o755)
+        err = run("astack-statechart", "check", str(model), "--tlc", str(tlc_err))
+        self.assertEqual(err.returncode, 2)
+
+    @unittest.skipUnless(_has_real_tlc(), "TLC / tla2tools.jar not installed")
+    def test_check_against_real_tlc_when_installed(self):
+        tla = self.dir / "Counter.tla"
+        tla.write_text(
+            "---- MODULE Counter ----\n"
+            "EXTENDS Naturals\n"
+            "VARIABLE x\n"
+            "Init == x = 0\n"
+            "Next == x < 4 /\\ x' = x + 1\n"
+            "Safe == x <= 4\n"
+            "Broken == x <= 2\n"
+            "====\n"
+        )
+        cfg_ok = self.dir / "ok.cfg"
+        cfg_ok.write_text("INIT Init\nNEXT Next\nINVARIANT Safe\n")
+        ok = run("astack-statechart", "check", str(tla), "--cfg", str(cfg_ok), "--json")
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertEqual(json.loads(ok.stdout)["violations"], [])
+
+        cfg_bad = self.dir / "bad.cfg"
+        cfg_bad.write_text("INIT Init\nNEXT Next\nINVARIANT Broken\n")
+        bad = run("astack-statechart", "check", str(tla), "--cfg", str(cfg_bad), "--json")
+        self.assertEqual(bad.returncode, 1, bad.stderr)
+        bdata = json.loads(bad.stdout)
+        self.assertEqual(bdata["violations"][0]["name"], "Broken")
+        self.assertEqual(bdata["violations"][0]["hops"], 3)
 
 
 if __name__ == "__main__":

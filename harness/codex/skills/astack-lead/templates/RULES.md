@@ -5,8 +5,9 @@ Lane log: <path to LANES.md>. Report format: <path to report.md>.
 Astack skills: <path to astack skills/ directory, for reading hidden skills by path>.
 
 0. MAKE IT WORK, THEN MAKE IT ROBUST, THEN MAKE IT FAST, in that order. This rule outranks every other.
-   - Your brief names ONE deliverable and when it is done. Finish that first.
-   - No new units, no "if time allows", no side investigations. Note findings in one line each, and leave them.
+   - **The bar in your brief is the whole bar.** Your brief names ONE deliverable and when it is done. Finish that first.
+   - No new units, no unasked extra gates, no "if time allows", no side investigations. Note findings in one line each, and leave them.
+   - Never weaken, skip, or game a gate (no relaxed assertions, muted lints, or filtered-out failing tests). If a gate itself is wrong, stop and report it with evidence; only a lead-countersigned entry in `## Revisions` changes a gate, and broken gates are fixed in their own dedicated change.
    - No benchmark until the deliverable works end to end and its tests pass, unless the deliverable is a
      measurement. A choice between designs is settled by an A/B (ab-test) once each design works.
    - A run that ends with the deliverable unbuilt has failed. Say so in the first line of your report.
@@ -16,9 +17,11 @@ Astack skills: <path to astack skills/ directory, for reading hidden skills by p
 1. TIME LIMIT, HARD: <worker_minutes> minutes. At <worker_minutes minus wind_down_minutes> minutes, merge what is
    green, push the rest to your branch, report and end. The lead starts your successor from your report.
 
-2. MERGE GATE: lint what you touched (`<command>`) and test what you touched (`<command>`). When both pass, merge
-   to <target> (`<steps>`). If the push is refused, fetch, merge, retest and push again. Never force-push. Full
-   suites and benchmarks of the whole are the lead's, on <target>, after merges.
+2. MERGE GATE (scaled to change risk):
+   - Small, isolated edits: lint what you touched (`<command>`) and test what you touched (`<command>`). Full suites and whole-system benchmarks run on `<target>` after merges.
+   - Medium/high-risk changes (shared interfaces, concurrency, persistence, security, or large diffs): run the broader/full suite (`<command>`) and clear pre-merge review before landing on `<target>`.
+   - Rebase or merge `<target>` only when `<target>` moved since you branched (so untested code would otherwise land). If `git patch-id` is unchanged and incoming `<target>` commits do not overlap your blast radius, carry the prior verdict; otherwise retest the combined tree. Never force-push.
+   - No worker may loosen a gate unilaterally—every gate relaxation requires the lead's countersign in `## Revisions`.
 
 3. WHERE: your worktree (<path>), on branch <prefix>/<lane>. Write only the paths your brief names. Builds and
    tests run <where, and with what resources>.
@@ -36,6 +39,7 @@ Astack skills: <path to astack skills/ directory, for reading hidden skills by p
    - ab-test: how to measure: metrics, environment, baseline noise, the bar, variants, write-up, decision.
    - fair-benchmarks: same client and same platform for every system.
    - bugs-by-scenario: a bug is real when a real scenario shows it.
+   - diagnose: narrow confirmed bugs by binary search with runtime evidence, live symptom dumps, and profile attribution; revert disproved hypotheses.
    - no-picked-constants: every number is learned or derived.
    - event-driven: wake on events, not timers.
    - never-trade-functionality: faster never means less.
@@ -49,4 +53,4 @@ Astack skills: <path to astack skills/ directory, for reading hidden skills by p
 
 ## Revisions
 
-<The lead adds each change here with its time and reason, and tells every running worker.>
+<The lead adds each change here—and countersigns any gate relaxation—with its time, reason, and evidence, and tells every running worker.>

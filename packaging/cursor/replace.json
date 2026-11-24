@@ -13,6 +13,18 @@
       "3. Spawn it as the `astack-worker` subagent in the background, passing the brief and `roles.worker.model` from settings when set."
     ],
     [
+      "spawn `subagent_type: \"astack:worker\"` in the background with a brief naming `Deliverable`, `Done when`, `Writable paths`, checks, the astack skills path `${CLAUDE_SKILL_DIR}/..`, and `roles.worker` (`model`, `effort`) from settings when set (or dispatch via the configured provider CLI when cross-provider). Never substitute `general-purpose`.",
+      "spawn the `astack-worker` subagent in the background with a brief naming `Deliverable`, `Done when`, `Writable paths`, checks, the astack skills folder (`..` from this skill), and `roles.worker.model` from settings when set (or dispatch via the configured provider CLI when cross-provider). Never substitute `generalPurpose`."
+    ],
+    [
+      "spawn `subagent_type: \"astack:reviewer\"` in the background with the scope/diff, stated intent, reproduction folder, `${CLAUDE_SKILL_DIR}/..`, and `roles.reviewer` (`model`, `effort`) from settings when set (or dispatch via the configured provider CLI when cross-provider). Never substitute `general-purpose`.",
+      "spawn the `astack-reviewer` subagent in the background with the scope/diff, stated intent, reproduction folder, the astack skills folder (`..` from this skill), and `roles.reviewer.model` from settings when set (or dispatch via the configured provider CLI when cross-provider). Never substitute `generalPurpose`."
+    ],
+    [
+      "Spawn each reviewer with `subagent_type: \"astack:reviewer\"` in the background (never substitute `general-purpose`), passing its worktree/diff scope, stated intent, reproduction folder, astack `skills/` path (`${CLAUDE_SKILL_DIR}/..`), and `roles.reviewer` (`provider`, `model`, `effort`) from `~/.config/astack/settings.json` when set",
+      "Spawn each reviewer as the `astack-reviewer` subagent in the background (never substitute `generalPurpose`), passing its worktree/diff scope, stated intent, reproduction folder, astack `skills/` path (`..` from this skill), and `roles.reviewer.model` from `~/.config/astack/settings.json` when set"
+    ],
+    [
       "if it doesn't, stop it with `TaskStop` and start a successor from its branch.",
       "if it doesn't, stop it and start a successor from its branch."
     ],

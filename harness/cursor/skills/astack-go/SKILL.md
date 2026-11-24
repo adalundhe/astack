@@ -9,13 +9,22 @@ You are running in astack Go mode. Every other astack skill is hidden from the m
 
 Skill files live beside this one at `../<name>/SKILL.md`. Never guess a skill's instructions from the one-line summary below—read the file first when it applies.
 
-Run the astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) from `PATH` (once `/astack-setup` links them into `~/.local/bin`) or directly from `../../bin/`.
+Run the astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-statechart`, `astack-tools`) from `PATH` (once `/astack-setup` links them into `~/.local/bin`) or directly from `../../bin/`.
 
 ## Startup
 
 1. Read `~/.config/astack/settings.json` (or `$XDG_CONFIG_HOME/astack/settings.json`) if present: timing (`worker_minutes`, `wind_down_minutes`, `check_in_minutes`, defaults `60 / 5 / 5`), per-role `provider`, `model`, and `effort` (`lead`, `worker`, `reviewer`, `researcher`, defaulting to the active session when `"default"` or unset), and `automation.mode` (`agentic-only` default vs `python-stack` with managed `uv` venv). Apply configured role provider/model/effort when dispatching work (using the host subagent tool on the same provider, or the configured provider's CLI such as `claude`, `codex`, `agy`, `cursor`, `gemini`, or `devin` when cross-provider and installed; note any fallback once), and default to pure-agentic workflows when `automation.mode` is `agentic-only`.
 2. Route immediately based on what the person asked for—don't pause to ask for permission before reading the matching skill(s).
 3. Follow astack's core sequence on all engineering work: **work -> robust -> fast**, verify on the real system, settle technical questions yourself with evidence and log why, and interrupt the person only for genuine human calls.
+
+## Subagents
+
+You own orchestration, planning, verification, and the final reply—delegate isolated implementation and adversarial review to astack's dedicated subagents rather than generic subagents (which skip astack's worker/reviewer contracts and drift).
+
+- **Workers (`astack-worker`):** For multi-task dependency graphs, plan with **dagify** and run parallel lanes with **lead**. For any delegated code-writing task, isolated fix, or parallel worktree variant in Go mode, spawn the `astack-worker` subagent in the background with a brief naming `Deliverable`, `Done when`, `Writable paths`, checks, the astack skills folder (`..` from this skill), and `roles.worker.model` from settings when set (or dispatch via the configured provider CLI when cross-provider). Never substitute `generalPurpose`.
+- **Reviewers (`astack-reviewer`):** Whenever running **review**, checking a **dagify** plan, or gating a medium/high-risk change before landing, spawn the `astack-reviewer` subagent in the background with the scope/diff, stated intent, reproduction folder, the astack skills folder (`..` from this skill), and `roles.reviewer.model` from settings when set (or dispatch via the configured provider CLI when cross-provider). Never substitute `generalPurpose`.
+- **Read-only research and exploration:** Use read-only research subagents (applying `roles.researcher` when set) for wide codebase walks (**how-it-works**, **rearchitect**) and external lookups (**research-this**).
+- **Fresh subagents by default:** Dispatch new tasks, fix rounds, and retries to a fresh subagent with consolidated scope (original brief, directives, prior report, and branch/SHA) rather than resuming stale turns.
 
 ## Workflow playbooks
 
@@ -47,6 +56,7 @@ Read the matching skill file(s) before starting:
 - **Test, verify, and prove:**
   - Verify against the real artifact with runnable proof: `../prove-it/SKILL.md`
   - Reproduce bugs with realistic user scenarios first: `../bugs-by-scenario/SKILL.md`
+  - Find root causes via binary search with runtime evidence, live symptom dumps, and profile attribution: `../diagnose/SKILL.md`
   - Full-spectrum acceptance tests across the test diamond: `../full-spectrum-testing/SKILL.md`
   - Build or update a `drive-<app>` live user-flow verification skill: `../test-drive/SKILL.md`
   - Formal verification (TLA+, code verifiers, generated checks): `../every-case/SKILL.md`

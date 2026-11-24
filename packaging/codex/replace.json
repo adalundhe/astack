@@ -13,6 +13,18 @@
       "3. Spawn it with `spawn_agent`: `agent_type: \"astack-worker\"` (installed by `$astack-setup` with configured model/provider/effort), `fork_turns: \"none\"`, a `task_name`, and the brief as its `message`."
     ],
     [
+      "spawn `subagent_type: \"astack:worker\"` in the background with a brief naming `Deliverable`, `Done when`, `Writable paths`, checks, the astack skills path `${CLAUDE_SKILL_DIR}/..`, and `roles.worker` (`model`, `effort`) from settings when set (or dispatch via the configured provider CLI when cross-provider). Never substitute `general-purpose`.",
+      "spawn with `spawn_agent`: `agent_type: \"astack-worker\"` (installed to `$CODEX_HOME/agents/` by `$astack-setup` with configured model/provider/effort), `fork_turns: \"none\"`, a `task_name`, and a brief naming `Deliverable`, `Done when`, `Writable paths`, checks, and the astack skills folder (`..` from this skill). Never substitute a generic default agent."
+    ],
+    [
+      "spawn `subagent_type: \"astack:reviewer\"` in the background with the scope/diff, stated intent, reproduction folder, `${CLAUDE_SKILL_DIR}/..`, and `roles.reviewer` (`model`, `effort`) from settings when set (or dispatch via the configured provider CLI when cross-provider). Never substitute `general-purpose`.",
+      "spawn with `spawn_agent`: `agent_type: \"astack-reviewer\"` (installed to `$CODEX_HOME/agents/` by `$astack-setup` with configured model/provider/effort), `fork_turns: \"none\"`, a `task_name`, and a brief naming the scope/diff, stated intent, reproduction folder, and the astack skills folder (`..` from this skill). Never substitute a generic default agent."
+    ],
+    [
+      "Spawn each reviewer with `subagent_type: \"astack:reviewer\"` in the background (never substitute `general-purpose`), passing its worktree/diff scope, stated intent, reproduction folder, astack `skills/` path (`${CLAUDE_SKILL_DIR}/..`), and `roles.reviewer` (`provider`, `model`, `effort`) from `~/.config/astack/settings.json` when set",
+      "Spawn each reviewer with `spawn_agent`: `agent_type: \"astack-reviewer\"` (installed to `$CODEX_HOME/agents/` by `$astack-setup` with configured model/provider/effort), `fork_turns: \"none\"`, a `task_name`, and a brief naming its worktree/diff scope, stated intent, reproduction folder, and astack `skills/` path (`..` from this skill), applying `roles.reviewer` from `~/.config/astack/settings.json` when set"
+    ],
+    [
       "if it doesn't, stop it with `TaskStop` and start a successor from its branch.",
       "if it doesn't, interrupt it with `interrupt_agent` and start a successor from its branch."
     ],

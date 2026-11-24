@@ -25,7 +25,8 @@ Every test follows **tests-assert-behaviour**.
 4. **Keep tests deterministic.** Seed generated inputs and fault schedules, control clocks, and force interleavings explicitly (barriers or hooks) rather than relying on scheduler luck. Always print the seed on failure.
 5. **Isolate state.** Each test creates and cleans up its own state (only sequential steps within one integration/E2E scenario share state).
 6. **Verify red, then green.** Run each new test before the fix/feature and confirm it fails for the expected reason before making it pass.
-7. **Name tests for what they catch:** state the behavior and failure mode in the test name or a one-line description.
+7. **Apply the bad-test brake.** No test is better than a bad test—if a test computes its expected value from the code under test, asserts brittle error prose instead of typed error codes, or stays green when behavior breaks, rewrite or delete it.
+8. **Name tests for what they catch:** state the behavior and failure mode in the test name or a one-line description.
 
 Done when every acceptance criterion is covered across applicable layers and failure modes, every new test went red then green, and no test depends on timing, load, or execution order.
 

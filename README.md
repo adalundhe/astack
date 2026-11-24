@@ -1,6 +1,6 @@
 # astack
 
-A plugin for Claude Code, Cursor, and Codex with one entry point (`/astack:go`) that routes on demand to 66 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, adversarial review, benchmarking, graded research, and coding rules.
+A plugin for Claude Code, Cursor, and Codex with one entry point (`/astack:go`) that routes on demand to 67 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, root-cause diagnosis, adversarial review, σ-grounded benchmarking, graded research, and coding rules.
 
 Only `go` stays in the model catalog, so idle sessions cost one skill's worth of context instead of thousands of tokens. Adapted in part from [pstack](https://github.com/cursor/plugins/tree/main/pstack) and [mattpocock/skills](https://github.com/mattpocock/skills).
 
@@ -47,7 +47,7 @@ measured against the current release on the same machine. Merges go to main afte
 
 ## Skills
 
-67 skills total (`go` + 66 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
+68 skills total (`go` + 67 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
 
 ### Entry point, planning, and catch-up
 
@@ -88,6 +88,7 @@ measured against the current release on the same machine. Merges go to main afte
 - `tests-assert-behaviour`: keeps tests checking observable behavior rather than internals, mocks, or wall-clock timing.
 - `full-spectrum-testing`: writes acceptance tests across unit/integration/E2E layers including failures, races, fuzzing, and faults.
 - `bugs-by-scenario`: confirms a failing test or suspected bug with a real user scenario before fixing it.
+- `diagnose`: narrows confirmed bugs via binary search with runtime evidence, live symptom dumps, and profile attribution, reverting disproved hypotheses.
 
 ### Refactoring and cleanup
 
@@ -120,7 +121,7 @@ Indexed in `go` and checked by `review`:
 ### Understanding, specs, docs, and communication
 
 - `how-it-works`: read-only codebase walkthrough with `file:line` citations, marking claims as run vs. read.
-- `show-the-states`: diagrams states, triggers, failure paths, and observed probabilities in Mermaid.
+- `show-the-states`: diagrams states, triggers, failure paths, and observed probabilities in Mermaid (backed by `astack-statechart` for TLC models and DOT graphs).
 - `run-it-back`: restates goal, scope, exclusions, and assumptions in short checkable lines before coding.
 - `play-with-me`: builds a quick throwaway mockup, script, or demo proactively so you can try an idea first.
 - `talk-to-me`: explains unfamiliar concepts with domain terms, a diagram, a worked example, and an analogy.
@@ -149,9 +150,10 @@ Indexed in `go` and checked by `review`:
   - `astack-status`: active workers, timers, latest branch commits, and open questions (`--line` for status bars).
   - `astack-decisions`: query `decided:` entries and verbatim `person:` directives (`--query`, `--settled-by`, `--since`, `--json`).
   - `astack-verify-merge`: verifies a claimed commit is on the target branch and can run checks in a clean worktree.
+  - `astack-statechart`: runs TLC on TLA+ models (or parses DOT/trace output), finds shortest paths to broken invariants, and renders collision-safe Mermaid `stateDiagram-v2`.
   - `astack-stamp` (+ post-edit hook): timestamps new lines appended to `LANES.md`.
   - `astack-tools`: links `astack-*` CLI scripts onto `PATH` (`link-bin`), provisions Python `>=3.11` via `uv` across macOS/Linux/Windows (arm64 & amd64), and manages an isolated venv for `taskex`, `orchestral`, and `werkflow` (`doctor`, `install`, `link-bin`, `python`, `werkflow`, `env`, `path`).
-- **Evals & CI:** 9 Claude Code evals under `evals/` (worker wind-down/reports, Go-mode routing, 6 coding rules) and GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).
+- **Evals & CI:** 11 Claude Code evals under `evals/` (worker wind-down/reports, Go-mode routing & dedicated worker/reviewer agent spawning, 6 coding rules) and GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).
 
 ## Working on astack
 

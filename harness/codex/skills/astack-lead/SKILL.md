@@ -11,7 +11,7 @@ You coordinate multi-step execution; workers write the code. You own the task gr
 - **Worker:** a subagent executing one ready task within a hard time limit.
 - **Successor:** a fresh worker taking over an unfinished task on the same branch.
 
-Run the astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-tools`) from `PATH` (once `$astack-setup` links them into `~/.local/bin`) or directly from `../../bin/`; the templates are in `templates/`, beside this file.
+Run the astack scripts (`astack-status`, `astack-verify-merge`, `astack-stamp`, `astack-decisions`, `astack-statechart`, `astack-tools`) from `PATH` (once `$astack-setup` links them into `~/.local/bin`) or directly from `../../bin/`; the templates are in `templates/`, beside this file.
 
 ## Settings
 
@@ -52,12 +52,14 @@ Write one short, self-contained message: stop X, do Y, because Z. Send it into t
 ## When a worker ends
 
 1. Read its report, losses first.
-2. Verify every claimed merge with `astack-verify-merge <sha>` (with `--check "<touched tests>"` when fast) and inspect the done-when evidence. When shipping via PRs or when review gates downstream tasks, run **review** before opening/merging (**watch-pr**). Treat reports as unverified claims until checked.
-3. Log the end event and each reported decision as a `decided:` line. If the done-when holds, close the task/lane and dispatch newly unblocked DAG tasks; otherwise start a successor immediately.
-4. Log side findings (one line each). Turn a finding into a new task only if it blocks progress or the person asks for it.
-5. Filter anything under `NEEDS THE PERSON` through the Decisions rules below before asking; escalate only what survives.
+2. **Scale verification to change size and risk:** verify every claimed merge with `astack-verify-merge <sha>` (with `--check "<touched tests>"` when fast) and inspect the done-when evidence. For small, isolated lanes, touched lint/tests + `astack-verify-merge` may land directly and you run the full suite on target after merges. For medium/high-risk changes (shared interfaces, concurrency, persistence, auth/security, or large diffs), or whenever shipping via PRs or gating downstream tasks, run **review** and broader/full checks **before** landing (**watch-pr**). Treat reports as unverified claims until checked.
+3. **Conditional rebase and verdict carry-over:** rebase/merge target only when target moved (so untested code would otherwise land). Carry a prior passing review/test verdict across a rebase only when `git patch-id` is unchanged and incoming target commits do not overlap the change's **blast-radius**; otherwise re-verify.
+4. **Countersign any gate change; reject gate gaming:** no worker may loosen a gate unilaterally. Any relaxation of a check, threshold, or done-when requires your explicit countersign logged in both `RULES.md` (`## Revisions`) and `LANES.md` with reason and evidence. If a worker games a gate (weakens assertions, skips failing cases, disables lints, fakes coverage), reject/revert the change, reset the task contract (tighten the brief and acceptance criteria), and dispatch a fresh successor. If a gate itself is genuinely wrong or broken, fix it in its own dedicated task/change rather than weakening it inside feature work.
+5. Log the end event and each reported decision as a `decided:` line. If the done-when holds, close the task/lane and dispatch newly unblocked DAG tasks; otherwise start a successor immediately.
+6. Log side findings (one line each). Turn a finding into a new task only if it blocks progress or the person asks for it.
+7. Filter anything under `NEEDS THE PERSON` through the Decisions rules below before asking; escalate only what survives.
 
-Run full test suites, end-to-end checks, and competitor benchmarks yourself on the target branch after merges. Only turn failures into new tasks once confirmed by a real scenario (**bugs-by-scenario**).
+Run full test suites, end-to-end checks, and competitor benchmarks yourself on the target branch after merges. Only turn failures into new tasks once confirmed by a real scenario (**bugs-by-scenario**) and diagnosed (**diagnose**).
 
 ## Successors
 
@@ -80,6 +82,6 @@ Keep the same task, deliverable, and scope. Build the successor's brief from the
 
 Use plain language, losses first: what didn't land and why, what landed (verified SHAs), status of each task in the DAG, key decisions made and their evidence, and any open questions waiting on the person.
 
-Referenced skills: `dagify` (`../dagify/SKILL.md`), `workflow-this` (`../workflow-this/SKILL.md`), `track-it` (`../track-it/SKILL.md`), `review` (`../astack-review/SKILL.md`), `watch-pr` (`../watch-pr/SKILL.md`), `bugs-by-scenario` (`../bugs-by-scenario/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `play-with-me` (`../play-with-me/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `dagify` (`../dagify/SKILL.md`), `workflow-this` (`../workflow-this/SKILL.md`), `track-it` (`../track-it/SKILL.md`), `review` (`../astack-review/SKILL.md`), `watch-pr` (`../watch-pr/SKILL.md`), `blast-radius` (`../blast-radius/SKILL.md`), `bugs-by-scenario` (`../bugs-by-scenario/SKILL.md`), `diagnose` (`../diagnose/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `play-with-me` (`../play-with-me/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
-<!-- Adapts pstack's Orchestrate playbook and poteto-mode Subagents section (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->
+<!-- Adapts pstack's Orchestrate, autopilot-full, and figure-it-out playbooks and poteto-mode Subagents section (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->
