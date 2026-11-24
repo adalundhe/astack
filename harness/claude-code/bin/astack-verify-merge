@@ -9,6 +9,7 @@ The first line is the verdict. Exit 0: verified. 1: not verified. 2: could not c
 """
 import argparse
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -37,6 +38,52 @@ def fetch_target(repo, target):
 def resolve(repo, ref):
     result = git(repo, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
     return result.stdout.strip() if result.returncode == 0 else None
+
+
+def _is_target_back_merge(repo, merge_sha, target_branch):
+    """Return True when merge_sha's commit message shows it merged target_branch into a lane (so ^2 is target)."""
+    subject = git(repo, "show", "-s", "--format=%s", merge_sha).stdout.strip()
+    if not subject or not target_branch:
+        return False
+    esc = re.escape(target_branch)
+    # Reject forward merges like "Merge branch 'lane/x' into main"
+    if re.search(rf"\binto\s+['\"]?(?:[^'\"\s]+/)?{esc}['\"]?(?:\s|$)", subject, re.I):
+        return False
+    # Match "Merge branch 'main'", "Merge remote-tracking branch 'origin/main' into lane/x", or "merge main"
+    if re.search(rf"\bmerge\b.*(?:branch\s+['\"](?:[^'\"]+/)?{esc}['\"]|\b(?:[^/\s]+/)?{esc}\b)", subject, re.I):
+        return True
+    return False
+
+
+def effective_lane_base(repo, sha, base_sha, target):
+    """Determine the diff base that isolates this lane's own changes, excluding commits merged in from target."""
+    target_branch = target.split("/")[-1] if target else "main"
+
+    if base_sha:
+        # Walk first-parent history from sha back to base_sha; if this lane merged target in,
+        # diff against the latest integrated target commit (M^2) so other lanes' commits on target aren't blamed here.
+        rev_list = git(repo, "rev-list", "--first-parent", f"{base_sha}..{sha}").stdout.splitlines()
+        for commit_sha in rev_list:
+            parents = git(repo, "rev-list", "--parents", "-n", "1", commit_sha).stdout.split()[1:]
+            if len(parents) < 2:
+                continue
+            p1, p2 = parents[0], parents[1]
+            # If base_sha is an ancestor of both parents, this merge integrated a parallel branch (e.g. target)
+            p1_after = git(repo, "merge-base", "--is-ancestor", base_sha, p1).returncode == 0
+            p2_after = git(repo, "merge-base", "--is-ancestor", base_sha, p2).returncode == 0
+            if p1_after and p2_after:
+                if _is_target_back_merge(repo, commit_sha, target_branch):
+                    return p2
+                if commit_sha == sha:
+                    return p1
+        return base_sha
+
+    parents = git(repo, "rev-list", "--parents", "-n", "1", sha).stdout.split()[1:]
+    if len(parents) >= 2:
+        if _is_target_back_merge(repo, sha, target_branch):
+            return parents[1]
+        return parents[0]
+    return None
 
 
 def changes(repo, sha, base_ref=None):
@@ -124,7 +171,8 @@ def main():
         print(f"NOT CHECKED: {on_target.stderr.strip()}")
         return 2
 
-    signals, gate_err = gate_signals(repo, sha, base_ref=base_sha)
+    diff_base = effective_lane_base(repo, sha, base_sha, args.target)
+    signals, gate_err = gate_signals(repo, sha, base_ref=diff_base)
     if gate_err is not None:
         print(f"NOT CHECKED: {gate_err}")
         return 2
@@ -151,9 +199,9 @@ def main():
     else:
         print(f"VERIFIED: {sha[:12]} is on {args.target} (tip {tip[:12]})")
     print("commit: " + git(repo, "show", "-s", "--format=%h %s (%an, %cI)", sha).stdout.strip())
-    scope_desc = f"against {base_sha[:12]}:" if base_sha else "against its first parent:"
+    scope_desc = f"against {diff_base[:12]}:" if diff_base else "against its first parent:"
     print(f"changed, {scope_desc}")
-    print(changes(repo, sha, base_ref=base_sha))
+    print(changes(repo, sha, base_ref=diff_base))
     if signals:
         print(f"GATE SIGNALS ({len(signals)}): inspect before accepting (countersign in RULES.md, isolate gate fix, or reset contract):")
         for s in signals:

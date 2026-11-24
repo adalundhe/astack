@@ -97,7 +97,8 @@ _STRONG_ASSERT_RE = re.compile(
     r"\bself\.assert(?:Equal|AlmostEqual|DictEqual|ListEqual|SetEqual|CountEqual|SequenceEqual|Raises|RaisesRegex|Regex)\s*\("
     r"|\bassert_(?:eq|ne|matches)!\s*\("
     r"|\.(?:toEqual|toStrictEqual|toBe|toMatchObject|toThrow|toBeCloseTo)\s*\("
-    r"|^\s*assert\s+.+\s*==\s*"
+    r"|\bpytest\.raises\s*\("
+    r"|^\s*assert\s+.+\s*(?:==|!=|<=|>=|<|>|\bin\b|\bnot\s+in\b)"
 )
 
 _WEAK_ASSERT_RE = re.compile(
@@ -106,6 +107,7 @@ _WEAK_ASSERT_RE = re.compile(
     r"|\.not\.toBeNull\s*\("
     r"|\bassert!\s*\([^)]*\.(?:is_some|is_ok)\s*\(\s*\)\s*\)"
     r"|^\s*assert\s+[A-Za-z_][\w.]*\s+is\s+not\s+None\b"
+    r"|^\s*assert\s+(?:bool\s*\([^)]+\)|[A-Za-z_][\w.]*(?:\[[^\]]+\])*(?:\(\s*\))?)(?:\s*,.*)?(?:\s*#.*)?$"
 )
 
 _TEST_DEF_RE = re.compile(
@@ -117,7 +119,7 @@ _TEST_DEF_RE = re.compile(
 
 _PLACES_RE = re.compile(r"\bplaces\s*=\s*(\d+)\b|\.toBeCloseTo\s*\([^,]+,\s*(\d+)\s*\)")
 _TOL_RE = re.compile(
-    r"\b(delta|abs_tol|rel_tol|atol|rtol|eps|epsilon|tolerance)\s*=\s*([0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)"
+    r"\b(delta|abs_tol|rel_tol|atol|rtol|rel|abs|eps|epsilon|tolerance)\s*=\s*([0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)"
 )
 
 _NARROW_FILTER_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -347,47 +349,53 @@ def analyze_diff(diff_text: str) -> list[Finding]:
 
         elif raw.startswith("-") and not raw.startswith("---"):
             content = raw[1:]
+            src_file = current_file if current_file is not None else old_file
             if current_file is not None:
                 hunk_removed.append(content)
-                if _is_test_file(current_file):
-                    if _ASSERTION_LINE_RE.search(content):
-                        prev_count, first_snip = test_removed_asserts.get(current_file, (0, content.strip()[:120]))
-                        test_removed_asserts[current_file] = (prev_count + 1, first_snip)
-                    if _TEST_DEF_RE.search(content):
-                        prev_d, first_d = test_removed_defs.get(current_file, (0, content.strip()[:120]))
-                        test_removed_defs[current_file] = (prev_d + 1, first_d)
+            if src_file is not None and _is_test_file(src_file):
+                if _ASSERTION_LINE_RE.search(content):
+                    prev_count, first_snip = test_removed_asserts.get(src_file, (0, content.strip()[:120]))
+                    test_removed_asserts[src_file] = (prev_count + 1, first_snip)
+                if _TEST_DEF_RE.search(content):
+                    prev_d, first_d = test_removed_defs.get(src_file, (0, content.strip()[:120]))
+                    test_removed_defs[src_file] = (prev_d + 1, first_d)
         elif not raw.startswith("\\"):
             new_line += 1
 
     flush_hunk()
 
-    # Flag test files where test functions/cases were removed or renamed out of discovery
-    for path, (removed, first_snip) in sorted(test_removed_defs.items()):
-        added = test_added_defs.get(path, 0)
-        if removed > added:
-            findings.append(
-                Finding(
-                    category="dropped-test",
-                    file=path,
-                    line=1,
-                    reason=f"net drop in runnable test definitions ({removed} removed, {added} added — deleted or renamed out of discovery)",
-                    snippet=first_snip,
-                )
+    # Count test definitions and assertions across the whole diff range so moving tests between files is clean
+    total_removed_defs = sum(count for count, _ in test_removed_defs.values())
+    total_added_defs = sum(test_added_defs.values())
+    if total_removed_defs > total_added_defs:
+        losing_files = [p for p, (r, _) in sorted(test_removed_defs.items()) if r > test_added_defs.get(p, 0)]
+        first_file = losing_files[0] if losing_files else sorted(test_removed_defs)[0]
+        first_snip = test_removed_defs[first_file][1]
+        findings.append(
+            Finding(
+                category="dropped-test",
+                file=first_file,
+                line=1,
+                reason=f"net drop in runnable test definitions across diff ({total_removed_defs} removed, {total_added_defs} added — deleted or renamed out of discovery)",
+                snippet=first_snip,
             )
+        )
 
-    # Flag test files where assertions were removed without equivalent replacements
-    for path, (removed, first_snip) in sorted(test_removed_asserts.items()):
-        added = test_added_asserts.get(path, 0)
-        if removed > added:
-            findings.append(
-                Finding(
-                    category="weakened-assertion",
-                    file=path,
-                    line=1,
-                    reason=f"net drop in test assertions ({removed} removed, {added} added)",
-                    snippet=first_snip,
-                )
+    total_removed_asserts = sum(count for count, _ in test_removed_asserts.values())
+    total_added_asserts = sum(test_added_asserts.values())
+    if total_removed_asserts > total_added_asserts:
+        losing_files = [p for p, (r, _) in sorted(test_removed_asserts.items()) if r > test_added_asserts.get(p, 0)]
+        first_file = losing_files[0] if losing_files else sorted(test_removed_asserts)[0]
+        first_snip = test_removed_asserts[first_file][1]
+        findings.append(
+            Finding(
+                category="weakened-assertion",
+                file=first_file,
+                line=1,
+                reason=f"net drop in test assertions across diff ({total_removed_asserts} removed, {total_added_asserts} added)",
+                snippet=first_snip,
             )
+        )
 
     return findings
 

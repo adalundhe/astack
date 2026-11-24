@@ -1156,6 +1156,99 @@ class CheckGatesTest(Scratch):
         self.assertEqual(missing_checker.returncode, 2, missing_checker.stdout + missing_checker.stderr)
         self.assertTrue(missing_checker.stdout.startswith("NOT CHECKED:"), missing_checker.stdout)
 
+    def test_pytest_idioms_backmerge_isolation_and_cross_file_test_moves(self):
+        # 1. Pytest bare truthiness downgrade (assert result == 6 -> assert result) + pytest.approx rel=/abs= loosening
+        commit(
+            self.repo,
+            "tests/test_pytest_style.py",
+            "import pytest\ndef test_calc():\n    result = 6\n    assert result == 6\n    assert result == pytest.approx(6.0, rel=1e-9, abs=1e-9)\n",
+        )
+        sha_pt = commit(
+            self.repo,
+            "tests/test_pytest_style.py",
+            "import pytest\ndef test_calc():\n    result = 6\n    assert result\n    assert result == pytest.approx(6.0, rel=0.5, abs=0.2)\n",
+        )
+        res_pt = run("astack-check-gates", sha_pt, "--repo", str(self.repo), "--json")
+        self.assertEqual(res_pt.returncode, 1, res_pt.stdout)
+        pt_reasons = [f["reason"] for f in json.loads(res_pt.stdout)["findings"]]
+        self.assertTrue(any("weaker presence/truthiness" in r for r in pt_reasons), pt_reasons)
+        self.assertTrue(any("rel " in r or "abs " in r for r in pt_reasons), pt_reasons)
+
+        # 2. Moving a test between files (refactor) produces ZERO false flags
+        move_base = commit(
+            self.repo,
+            "tests/test_src.py",
+            "def test_one():\n    assert 1 == 1\n    assert 2 == 2\ndef test_two():\n    assert 3 == 3\n",
+        )
+        (self.repo / "tests" / "test_src.py").write_text("def test_one():\n    assert 1 == 1\n    assert 2 == 2\n")
+        (self.repo / "tests" / "test_dst.py").write_text("def test_two():\n    assert 3 == 3\n")
+        git(self.repo, "add", "tests/test_src.py", "tests/test_dst.py")
+        git(self.repo, "commit", "-q", "-m", "move test_two to test_dst")
+        move_head = git(self.repo, "rev-parse", "HEAD")
+        res_move = run("astack-check-gates", f"{move_base}..{move_head}", "--repo", str(self.repo), "--json")
+        self.assertEqual(res_move.returncode, 0, res_move.stdout)
+        self.assertTrue(json.loads(res_move.stdout)["clean"])
+
+        # 3. Lane-1 merges main (which contains Lane-2's countersigned skip) and fast-forwards main:
+        #    verifying Lane-1 with --base <lane-base> or bare <merge-sha> must NOT blame Lane-1 for Lane-2's skip!
+        git(self.repo, "push", "-q", "origin", "main")
+        fork_base = git(self.repo, "rev-parse", "HEAD")
+
+        # Lane-1 branches from fork_base and makes a clean change
+        git(self.repo, "checkout", "-q", "-b", "lane/one", fork_base)
+        commit(self.repo, "lane1.py", "def ok():\n    return True\n")
+
+        # Meanwhile Lane-2 lands a countersigned skip on main
+        git(self.repo, "checkout", "-q", "main")
+        commit(
+            self.repo,
+            "tests/test_lane2.py",
+            "import unittest\nclass L2(unittest.TestCase):\n    @unittest.skip('countersigned')\n    def test_l2(self):\n        self.assertEqual(1, 1)\n",
+        )
+        git(self.repo, "push", "-q", "origin", "main")
+
+        # Lane-1 merges origin/main in, then fast-forwards main to that merge commit
+        git(self.repo, "checkout", "-q", "lane/one")
+        git(self.repo, "merge", "-q", "--no-edit", "origin/main")
+        lane1_merge = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "checkout", "-q", "main")
+        git(self.repo, "merge", "-q", "--ff-only", "lane/one")
+        git(self.repo, "push", "-q", "origin", "main")
+
+        # Both with --base fork_base and bare lane1_merge, Lane-1 verifies CLEAN under --strict-gates!
+        v_with_base = run(
+            "astack-verify-merge", lane1_merge, "--base", fork_base, "--strict-gates",
+            "--repo", str(self.repo), cache=self.dir / "cache",
+        )
+        self.assertEqual(v_with_base.returncode, 0, v_with_base.stdout + v_with_base.stderr)
+        self.assertTrue(v_with_base.stdout.startswith("VERIFIED:"), v_with_base.stdout)
+        self.assertIn("lane1.py", v_with_base.stdout)
+        self.assertNotIn("test_lane2.py", v_with_base.stdout)
+
+        v_bare = run(
+            "astack-verify-merge", lane1_merge, "--strict-gates",
+            "--repo", str(self.repo), cache=self.dir / "cache",
+        )
+        self.assertEqual(v_bare.returncode, 0, v_bare.stdout + v_bare.stderr)
+        self.assertTrue(v_bare.stdout.startswith("VERIFIED:"), v_bare.stdout)
+        self.assertIn("lane1.py", v_bare.stdout)
+        self.assertNotIn("test_lane2.py", v_bare.stdout)
+
+        # And if Lane-1 adds a clean follow-up commit after back-merging main, --base fork_base still isolates Lane-1
+        git(self.repo, "checkout", "-q", "lane/one")
+        lane1_followup = commit(self.repo, "lane1_extra.py", "EXTRA = 1\n")
+        git(self.repo, "checkout", "-q", "main")
+        git(self.repo, "merge", "-q", "--ff-only", "lane/one")
+        git(self.repo, "push", "-q", "origin", "main")
+        v_followup = run(
+            "astack-verify-merge", lane1_followup, "--base", fork_base, "--strict-gates",
+            "--repo", str(self.repo), cache=self.dir / "cache",
+        )
+        self.assertEqual(v_followup.returncode, 0, v_followup.stdout + v_followup.stderr)
+        self.assertIn("lane1.py", v_followup.stdout)
+        self.assertIn("lane1_extra.py", v_followup.stdout)
+        self.assertNotIn("test_lane2.py", v_followup.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
