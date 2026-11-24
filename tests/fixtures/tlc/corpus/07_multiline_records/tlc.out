@@ -1,0 +1,26 @@
+@!@!@STARTMSG 2262:0 @!@!@
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+@!@!@ENDMSG 2262 @!@!@
+@!@!@STARTMSG 2110:1 @!@!@
+Invariant PathSafe is violated.
+@!@!@ENDMSG 2110 @!@!@
+@!@!@STARTMSG 2121:1 @!@!@
+The behavior up to this point is:
+@!@!@ENDMSG 2121 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+1: <Initial predicate>
+/\ cfg = [host |-> "a\"b",
+          path |-> "c\\d"]
+/\ items = {1, 2, 3}
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+2: <Mutate line 12, col 1 to line 14, col 22 of module Recs>
+/\ cfg = [host |-> "a\"b",
+          path |-> "c\\e"]
+/\ items = {1, 2, 3, 4}
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2199:0 @!@!@
+2 states generated, 2 distinct states found, 0 states left on queue.
+@!@!@ENDMSG 2199 @!@!@

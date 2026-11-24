@@ -1,0 +1,12 @@
+{
+  "states": 3,
+  "transitions": 3,
+  "violations": [
+    {
+      "kind": "temporal",
+      "name": "TemporalProperty",
+      "hops": 2,
+      "cycle_back_to": 2
+    }
+  ]
+}

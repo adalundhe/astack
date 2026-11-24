@@ -1,0 +1,10 @@
+strict digraph DiskGraph {
+  -10 [label="/\\ x = 0", style = filled];
+  -11 [label="/\\ x = 1"];
+  -12 [label="/\\ x = 2"];
+  -13 [label="/\\ x = 3"];
+  -10 -> -11 [label="Inc", color="black"];
+  -11 -> -12 [label="Inc", color="black"];
+  -12 -> -13 [label="Inc", color="black"];
+  -13 -> -10 [label="Reset", color="black"];
+}

@@ -1,0 +1,10 @@
+strict digraph DiskGraph {
+  1 [label="/\\ tokens = 2", style = filled];
+  2 [label="/\\ tokens = 3"];
+  3 [label="/\\ tokens = 5"];
+  4 [label="/\\ tokens = 1"];
+  1 -> 2 [label="Refill", color="black"];
+  2 -> 3 [label="UncappedRefill", color="black"];
+  1 -> 4 [label="Consume", color="black"];
+  4 -> 1 [label="Refill", color="black"];
+}

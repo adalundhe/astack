@@ -1,0 +1,7 @@
+strict digraph DiskGraph {
+  1 [label="/\\ x = 0", style = filled];
+  2 [label="/\\ x = 1"];
+  3 [label="/\\ x = 2"];
+  1 -> 2 [label="Bump", color="black"];
+  2 -> 3 [label="Bump", color="black"];
+}

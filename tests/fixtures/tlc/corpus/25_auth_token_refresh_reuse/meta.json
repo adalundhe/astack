@@ -1,0 +1,11 @@
+{
+  "states": 4,
+  "transitions": 3,
+  "violations": [
+    {
+      "kind": "invariant",
+      "name": "NoTokenReplay",
+      "hops": 3
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+@!@!@STARTMSG 2110:1 @!@!@
+Invariant BucketBounded is violated.
+@!@!@ENDMSG 2110 @!@!@
+@!@!@STARTMSG 2121:1 @!@!@
+The behavior up to this point is:
+@!@!@ENDMSG 2121 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+1: <Initial predicate>
+/\ tokens = 2
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+2: <Refill line 2, col 1 to line 2, col 12 of module Spec>
+/\ tokens = 3
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+3: <UncappedRefill line 3, col 1 to line 3, col 12 of module Spec>
+/\ tokens = 5
+@!@!@ENDMSG 2217 @!@!@

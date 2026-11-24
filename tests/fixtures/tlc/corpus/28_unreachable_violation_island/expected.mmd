@@ -1,0 +1,9 @@
+stateDiagram-v2
+    state "/\ ok = TRUE" as s0
+    state "/\ ok = TRUE, /\ n = 1" as s1
+    state "/\ ok = FALSE [VIOLATION: AlwaysOk]" as s2
+    [*] --> s0
+    s0 --> s1: Tick
+    s1 --> s0: Reset
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s2 violation

@@ -1,0 +1,12 @@
+stateDiagram-v2
+    state "/\ x = 0" as s0
+    state "/\ x = 1 [VIOLATION: InvA]" as s1
+    state "/\ x = 2" as s2
+    state "/\ x = 3 [VIOLATION: InvB]" as s3
+    [*] --> s0
+    s0 --> s1: Step
+    s1 --> s2: Step
+    s2 --> s3: Step
+    s3 --> s3: Stay
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s1,s3 violation

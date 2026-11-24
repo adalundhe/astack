@@ -1,0 +1,9 @@
+stateDiagram-v2
+    state "part1part2" as s0
+    state "mid" as s1
+    state "bad [VIOLATION: InvChain]" as s2
+    [*] --> s0
+    s0 --> s1: ChainStep
+    s1 --> s2: ChainStep
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s2 violation

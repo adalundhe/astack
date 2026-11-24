@@ -1,0 +1,26 @@
+@!@!@STARTMSG 2110:1 @!@!@
+Invariant ConsistentDecision is violated.
+@!@!@ENDMSG 2110 @!@!@
+@!@!@STARTMSG 2121:1 @!@!@
+The behavior up to this point is:
+@!@!@ENDMSG 2121 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+1: <Initial predicate>
+/\ rm1 = "working"
+/\ rm2 = "working"
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+2: <Prep1 line 2, col 1 to line 2, col 12 of module Spec>
+/\ rm1 = "prepared"
+/\ rm2 = "working"
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+3: <EarlyCommit1 line 3, col 1 to line 3, col 12 of module Spec>
+/\ rm1 = "committed"
+/\ rm2 = "working"
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+4: <Abort2 line 4, col 1 to line 4, col 12 of module Spec>
+/\ rm1 = "committed"
+/\ rm2 = "aborted"
+@!@!@ENDMSG 2217 @!@!@

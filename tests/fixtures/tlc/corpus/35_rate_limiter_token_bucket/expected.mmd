@@ -1,0 +1,12 @@
+stateDiagram-v2
+    state "/\ tokens = 2" as s0
+    state "/\ tokens = 3" as s1
+    state "/\ tokens = 5 [VIOLATION: BucketBounded]" as s2
+    state "/\ tokens = 1" as s3
+    [*] --> s0
+    s0 --> s1: Refill
+    s1 --> s2: UncappedRefill
+    s0 --> s3: Consume
+    s3 --> s0: Refill
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s2 violation

@@ -270,6 +270,35 @@ class StatechartUnitTest(unittest.TestCase):
         self.assertEqual(by_name["Monotonic"]["steps"][1]["action"], "Drop")
         self.assertEqual(by_name["TemporalProperty"]["cycle_back_to"], 1)
 
+    def test_golden_corpus_36_models_match_committed_expected_charts(self):
+        corpus_dir = FIXTURES / "corpus"
+        model_dirs = sorted(p for p in corpus_dir.iterdir() if p.is_dir())
+        self.assertGreaterEqual(len(model_dirs), 36)
+
+        for mdir in model_dirs:
+            slug = mdir.name
+            meta = json.loads((mdir / "meta.json").read_text())
+            expected_mmd = (mdir / "expected.mmd").read_text()
+            cmd = ["render", str(mdir / "states.dot"), "--json"]
+            if (mdir / "tlc.out").is_file():
+                cmd.extend(["--trace", str(mdir / "tlc.out")])
+            if "max_states" in meta:
+                cmd.extend(["--max-states", str(meta["max_states"])])
+
+            res = run_sc(*cmd)
+            self.assertEqual(res.returncode, 0, f"{slug}: {res.stderr}")
+            data = json.loads(res.stdout)
+            self.assertEqual(data["states"], meta["states"], f"{slug}: state count")
+            self.assertEqual(data["transitions"], meta["transitions"], f"{slug}: transition count")
+            if "omitted_states" in meta:
+                self.assertEqual(data["omitted_states"], meta["omitted_states"], f"{slug}: omitted count")
+            got_v = {(v["kind"], v["name"]): (v["hops"], v.get("cycle_back_to")) for v in data["violations"]}
+            exp_v = {(v["kind"], v["name"]): (v["hops"], v.get("cycle_back_to")) for v in meta["violations"]}
+            self.assertEqual(got_v, exp_v, f"{slug}: violations mismatch")
+            self.assertEqual(data["mermaid"], expected_mmd, f"{slug}: golden chart drift")
+            expected_rendered = meta.get("max_states", meta["states"]) if "omitted_states" in meta else meta["states"]
+            _assert_valid_mermaid(self, data["mermaid"], expected_states=expected_rendered, label=slug)
+
     def test_check_flags_strict_exit_codes_truncated_crash_and_timeout(self):
         model = self.dir / "Mini.tla"
         model.write_text("---- MODULE Mini ----\n====\n")

@@ -1,0 +1,11 @@
+{
+  "states": 3,
+  "transitions": 2,
+  "violations": [
+    {
+      "kind": "violation",
+      "name": "Inv[0]",
+      "hops": 2
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+stateDiagram-v2
+    state "(star) -> % %proto" as s0
+    state "quote'here\ " as s1
+    state "end -> state [VIOLATION: Inv[0]]" as s2
+    [*] --> s0
+    s0 --> s1: a -> b
+    s1 --> s2: c% %d
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s2 violation

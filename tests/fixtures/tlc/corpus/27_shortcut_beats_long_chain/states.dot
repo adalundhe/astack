@@ -1,0 +1,12 @@
+strict digraph DiskGraph {
+  10 [label="/\\ step = 0", style = filled];
+  20 [label="/\\ step = 1"];
+  30 [label="/\\ step = 2"];
+  40 [label="/\\ step = 3"];
+  50 [label="/\\ step = 4", color=red, invariant="NoJump"];
+  10 -> 20 [label="Slow1", color="black"];
+  20 -> 30 [label="Slow2", color="black"];
+  30 -> 40 [label="Slow3", color="black"];
+  40 -> 50 [label="Slow4", color="black"];
+  10 -> 50 [label="Jump", color="black"];
+}

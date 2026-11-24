@@ -1,0 +1,13 @@
+{
+  "states": 18,
+  "transitions": 17,
+  "omitted_states": 12,
+  "violations": [
+    {
+      "kind": "violation",
+      "name": "PinnedInv",
+      "hops": 4
+    }
+  ],
+  "max_states": 6
+}

@@ -1,0 +1,12 @@
+strict digraph DiskGraph {
+  1 [label="/\\ state = \"queued\"", style = filled];
+  2 [label="/\\ state = \"running\""];
+  3 [label="/\\ state = \"retrying\""];
+  4 [label="/\\ state = \"succeeded\""];
+  5 [label="/\\ state = \"dlq\""];
+  1 -> 2 [label="Claim", color="black"];
+  2 -> 4 [label="Ack", color="black"];
+  2 -> 3 [label="TransientErr", color="black"];
+  3 -> 2 [label="Retry", color="black"];
+  3 -> 5 [label="ExhaustRetries", color="black"];
+}

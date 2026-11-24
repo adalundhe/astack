@@ -1,0 +1,7 @@
+digraph Adversarial {
+  "__proto__" [label="[*] --> %%proto", style=filled];
+  "constructor" [label="quote\"here\\"];
+  "end" [label="end --> state", color=red, invariant="Inv[0]"];
+  "__proto__" -> "constructor" [label="a --> b"];
+  "constructor" -> "end" [label="c%%d"];
+}

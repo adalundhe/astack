@@ -1,0 +1,7 @@
+stateDiagram-v2
+    state "/\ cfg = [host |-> 'a\'b', path |-> 'c\\d'], /\ items = {1, 2, 3}" as s0
+    state "/\ cfg = [host |-> 'a\'b', path |-> 'c\\e'], /\ items = {1, 2, 3, 4} [VIOLATION: PathSafe]" as s1
+    [*] --> s0
+    s0 --> s1: Mutate
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s1 violation

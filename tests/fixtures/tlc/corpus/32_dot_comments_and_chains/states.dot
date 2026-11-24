@@ -1,0 +1,15 @@
+# hash header comment
+strict digraph DiskGraph {
+  // line comment
+  /* block
+     comment */
+  node [shape=box];
+  subgraph cluster_0 {
+    -100 [label="part1\
+part2", style = filled];
+    200 [label="mid"];
+    300 [label="bad", color=red, invariant="InvChain"];
+    -100 -> 200 -> 300 [label="ChainStep"];
+  }
+  {rank = same; -100;}
+}

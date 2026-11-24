@@ -1,0 +1,8 @@
+stateDiagram-v2
+    state "/\ cb = 'closed'" as s0
+    state "/\ cb = 'open' [VIOLATION: TemporalProperty]" as s1
+    [*] --> s0
+    s0 --> s1: Trip
+    s1 --> s1: RejectCall
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s1 violation

@@ -1,0 +1,7 @@
+strict digraph DiskGraph {
+  1 [label="/\\ ok = TRUE", style = filled];
+  2 [label="/\\ ok = TRUE\n/\\ n = 1"];
+  99 [label="/\\ ok = FALSE", color=red, invariant="AlwaysOk"];
+  1 -> 2 [label="Tick", color="black"];
+  2 -> 1 [label="Reset", color="black"];
+}

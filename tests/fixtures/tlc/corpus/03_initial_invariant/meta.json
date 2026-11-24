@@ -1,0 +1,11 @@
+{
+  "states": 1,
+  "transitions": 0,
+  "violations": [
+    {
+      "kind": "invariant",
+      "name": "NotNine",
+      "hops": 0
+    }
+  ]
+}

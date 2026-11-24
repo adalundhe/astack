@@ -1,0 +1,37 @@
+strict digraph DiskGraph {
+  0 [label="/\\ id = 0", style = filled];
+  1 [label="/\\ id = 1"];
+  0 -> 1 [label="Decoy1"];
+  2 [label="/\\ id = 2"];
+  0 -> 2 [label="Decoy2"];
+  3 [label="/\\ id = 3"];
+  0 -> 3 [label="Decoy3"];
+  4 [label="/\\ id = 4"];
+  0 -> 4 [label="Decoy4"];
+  5 [label="/\\ id = 5"];
+  0 -> 5 [label="Decoy5"];
+  6 [label="/\\ id = 6"];
+  0 -> 6 [label="Decoy6"];
+  7 [label="/\\ id = 7"];
+  0 -> 7 [label="Decoy7"];
+  8 [label="/\\ id = 8"];
+  0 -> 8 [label="Decoy8"];
+  9 [label="/\\ id = 9"];
+  0 -> 9 [label="Decoy9"];
+  10 [label="/\\ id = 10"];
+  0 -> 10 [label="Decoy10"];
+  11 [label="/\\ id = 11"];
+  0 -> 11 [label="Decoy11"];
+  12 [label="/\\ id = 12"];
+  0 -> 12 [label="Decoy12"];
+  13 [label="/\\ id = 13"];
+  0 -> 13 [label="Decoy13"];
+  14 [label="/\\ id = 14"];
+  15 [label="/\\ id = 15"];
+  16 [label="/\\ id = 16"];
+  17 [label="/\\ id = 17", color=red, invariant="PinnedInv"];
+  0 -> 14 [label="P1"];
+  14 -> 15 [label="P2"];
+  15 -> 16 [label="P3"];
+  16 -> 17 [label="P4"];
+}

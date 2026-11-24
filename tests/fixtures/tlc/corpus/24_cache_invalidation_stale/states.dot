@@ -1,0 +1,7 @@
+strict digraph DiskGraph {
+  1 [label="/\\ db = 1\n/\\ cache = 1", style = filled];
+  2 [label="/\\ db = 2\n/\\ cache = 1"];
+  3 [label="/\\ db = 2\n/\\ cache = 2"];
+  1 -> 2 [label="WriteDbSkipEvict", color="black"];
+  2 -> 3 [label="TtlRefresh", color="black"];
+}

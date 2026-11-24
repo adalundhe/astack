@@ -1,0 +1,13 @@
+strict digraph DiskGraph {
+  1 [label="/\\ p1 = \"idle\"\n/\\ p2 = \"idle\"", style = filled];
+  2 [label="/\\ p1 = \"wait\"\n/\\ p2 = \"idle\""];
+  3 [label="/\\ p1 = \"crit\"\n/\\ p2 = \"idle\""];
+  4 [label="/\\ p1 = \"idle\"\n/\\ p2 = \"wait\""];
+  5 [label="/\\ p1 = \"idle\"\n/\\ p2 = \"crit\""];
+  1 -> 2 [label="Req1", color="black"];
+  2 -> 3 [label="Enter1", color="black"];
+  3 -> 1 [label="Exit1", color="black"];
+  1 -> 4 [label="Req2", color="black"];
+  4 -> 5 [label="Enter2", color="black"];
+  5 -> 1 [label="Exit2", color="black"];
+}

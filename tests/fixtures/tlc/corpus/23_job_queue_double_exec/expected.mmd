@@ -1,0 +1,9 @@
+stateDiagram-v2
+    state "/\ runs = 0, /\ acked = FALSE" as s0
+    state "/\ runs = 1, /\ acked = FALSE" as s1
+    state "/\ runs = 2, /\ acked = FALSE [VIOLATION: AtMostOnce]" as s2
+    [*] --> s0
+    s0 --> s1: ExecCrashBeforeAck
+    s1 --> s2: RedeliverExec
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s2 violation

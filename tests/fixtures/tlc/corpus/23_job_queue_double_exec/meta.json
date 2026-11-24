@@ -1,0 +1,11 @@
+{
+  "states": 3,
+  "transitions": 2,
+  "violations": [
+    {
+      "kind": "invariant",
+      "name": "AtMostOnce",
+      "hops": 2
+    }
+  ]
+}

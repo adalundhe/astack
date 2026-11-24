@@ -1,0 +1,17 @@
+@!@!@STARTMSG 2116:1 @!@!@
+Temporal properties were violated.
+@!@!@ENDMSG 2116 @!@!@
+@!@!@STARTMSG 2264:1 @!@!@
+The following behavior constitutes a counter-example:
+@!@!@ENDMSG 2264 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+1: <Initial predicate>
+/\ cb = "closed"
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+2: <Trip line 2, col 1 to line 2, col 12 of module Spec>
+/\ cb = "open"
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2122:4 @!@!@
+2: Back to state: <RejectCall line 9, col 1 to line 9, col 10 of module Spec>
+@!@!@ENDMSG 2122 @!@!@

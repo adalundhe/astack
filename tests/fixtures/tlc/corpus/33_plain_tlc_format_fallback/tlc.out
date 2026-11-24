@@ -1,0 +1,10 @@
+Model checking completed.
+Error: Invariant Bounded is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ x = 0
+State 2: <Bump>
+/\ x = 1
+State 3: <Bump>
+/\ x = 2
+3 states generated, 3 distinct states found, 0 states left on queue.

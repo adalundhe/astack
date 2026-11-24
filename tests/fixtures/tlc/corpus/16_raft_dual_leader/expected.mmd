@@ -1,0 +1,9 @@
+stateDiagram-v2
+    state "/\ leaders = {}, /\ term = 1" as s0
+    state "/\ leaders = {'n1'}, /\ term = 1" as s1
+    state "/\ leaders = {'n1', 'n2'}, /\ term = 1 [VIOLATION: ElectionSafety]" as s2
+    [*] --> s0
+    s0 --> s1: ElectN1
+    s1 --> s2: StaleVoteElectN2
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s2 violation

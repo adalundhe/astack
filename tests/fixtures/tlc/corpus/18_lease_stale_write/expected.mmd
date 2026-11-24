@@ -1,0 +1,11 @@
+stateDiagram-v2
+    state "/\ holder = 'a', /\ epoch = 1, /\ stale_write = FALSE" as s0
+    state "/\ holder = 'none', /\ epoch = 1, /\ stale_write = FALSE" as s1
+    state "/\ holder = 'b', /\ epoch = 2, /\ stale_write = FALSE" as s2
+    state "/\ holder = 'b', /\ epoch = 2, /\ stale_write = TRUE [VIOLATION: LinearizableWrite]" as s3
+    [*] --> s0
+    s0 --> s1: ExpireA
+    s1 --> s2: GrantB
+    s2 --> s3: UnfencedWriteA
+    classDef violation fill:#fee,stroke:#c00,stroke-width:2px
+    class s3 violation

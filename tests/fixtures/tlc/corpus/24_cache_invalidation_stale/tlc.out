@@ -1,0 +1,16 @@
+@!@!@STARTMSG 2110:1 @!@!@
+Invariant CacheCoherence is violated.
+@!@!@ENDMSG 2110 @!@!@
+@!@!@STARTMSG 2121:1 @!@!@
+The behavior up to this point is:
+@!@!@ENDMSG 2121 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+1: <Initial predicate>
+/\ db = 1
+/\ cache = 1
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+2: <WriteDbSkipEvict line 2, col 1 to line 2, col 12 of module Spec>
+/\ db = 2
+/\ cache = 1
+@!@!@ENDMSG 2217 @!@!@

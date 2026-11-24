@@ -1,0 +1,8 @@
+stateDiagram-v2
+    state "/\ phase = 'start'" as s0
+    state "/\ phase = 'done'" as s1
+    [*] --> s0
+    s0 --> s1: FastPath
+    s0 --> s1: FallbackPath
+    s0 --> s0: Heartbeat
+    s1 --> s1: Stay

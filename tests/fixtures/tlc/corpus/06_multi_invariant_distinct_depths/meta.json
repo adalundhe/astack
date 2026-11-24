@@ -1,0 +1,16 @@
+{
+  "states": 4,
+  "transitions": 4,
+  "violations": [
+    {
+      "kind": "invariant",
+      "name": "InvA",
+      "hops": 1
+    },
+    {
+      "kind": "invariant",
+      "name": "InvB",
+      "hops": 3
+    }
+  ]
+}

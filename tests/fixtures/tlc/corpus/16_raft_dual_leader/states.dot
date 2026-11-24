@@ -1,0 +1,7 @@
+strict digraph DiskGraph {
+  1 [label="/\\ leaders = {}\n/\\ term = 1", style = filled];
+  2 [label="/\\ leaders = {\"n1\"}\n/\\ term = 1"];
+  3 [label="/\\ leaders = {\"n1\", \"n2\"}\n/\\ term = 1"];
+  1 -> 2 [label="ElectN1", color="black"];
+  2 -> 3 [label="StaleVoteElectN2", color="black"];
+}

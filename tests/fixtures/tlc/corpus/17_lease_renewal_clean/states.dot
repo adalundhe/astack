@@ -1,0 +1,11 @@
+strict digraph DiskGraph {
+  1 [label="/\\ lease = \"free\"", style = filled];
+  2 [label="/\\ lease = \"held\""];
+  3 [label="/\\ lease = \"renewing\""];
+  4 [label="/\\ lease = \"expired\""];
+  1 -> 2 [label="Acquire", color="black"];
+  2 -> 3 [label="StartRenew", color="black"];
+  3 -> 2 [label="RenewOk", color="black"];
+  3 -> 4 [label="RenewTimeout", color="black"];
+  4 -> 1 [label="Reclaim", color="black"];
+}

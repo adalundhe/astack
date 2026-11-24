@@ -1,0 +1,17 @@
+{
+  "states": 3,
+  "transitions": 2,
+  "violations": [
+    {
+      "kind": "property",
+      "name": "Monotonic",
+      "hops": 1
+    },
+    {
+      "kind": "temporal",
+      "name": "TemporalProperty",
+      "hops": 0,
+      "cycle_back_to": 1
+    }
+  ]
+}

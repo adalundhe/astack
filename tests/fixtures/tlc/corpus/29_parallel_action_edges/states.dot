@@ -1,0 +1,8 @@
+strict digraph DiskGraph {
+  1 [label="/\\ phase = \"start\"", style = filled];
+  2 [label="/\\ phase = \"done\""];
+  1 -> 2 [label="FastPath", color="black"];
+  1 -> 2 [label="FallbackPath", color="black"];
+  1 -> 1 [label="Heartbeat", color="black"];
+  2 -> 2 [label="Stay", color="black"];
+}

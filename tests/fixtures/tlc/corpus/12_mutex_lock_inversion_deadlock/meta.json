@@ -1,0 +1,11 @@
+{
+  "states": 4,
+  "transitions": 4,
+  "violations": [
+    {
+      "kind": "deadlock",
+      "name": "Deadlock",
+      "hops": 2
+    }
+  ]
+}

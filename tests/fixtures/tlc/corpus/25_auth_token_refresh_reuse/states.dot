@@ -1,0 +1,9 @@
+strict digraph DiskGraph {
+  1 [label="/\\ gen = 1\n/\\ replayed = FALSE", style = filled];
+  2 [label="/\\ gen = 2\n/\\ replayed = FALSE"];
+  3 [label="/\\ gen = 3\n/\\ replayed = FALSE"];
+  4 [label="/\\ gen = 3\n/\\ replayed = TRUE"];
+  1 -> 2 [label="Rotate1", color="black"];
+  2 -> 3 [label="Rotate2", color="black"];
+  3 -> 4 [label="AcceptOldGen1", color="black"];
+}

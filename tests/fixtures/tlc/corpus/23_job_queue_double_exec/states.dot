@@ -1,0 +1,7 @@
+strict digraph DiskGraph {
+  1 [label="/\\ runs = 0\n/\\ acked = FALSE", style = filled];
+  2 [label="/\\ runs = 1\n/\\ acked = FALSE"];
+  3 [label="/\\ runs = 2\n/\\ acked = FALSE"];
+  1 -> 2 [label="ExecCrashBeforeAck", color="black"];
+  2 -> 3 [label="RedeliverExec", color="black"];
+}

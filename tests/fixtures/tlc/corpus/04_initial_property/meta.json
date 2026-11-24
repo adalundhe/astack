@@ -1,0 +1,11 @@
+{
+  "states": 1,
+  "transitions": 0,
+  "violations": [
+    {
+      "kind": "property",
+      "name": "InitSpec",
+      "hops": 0
+    }
+  ]
+}
