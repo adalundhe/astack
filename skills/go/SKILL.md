@@ -1,6 +1,6 @@
 ---
 name: go
-description: "Single entry point for astack—ALWAYS load this skill before doing any code review, PR review, PR comment drafting, bug diagnosis, refactor, implementation, plan, test, benchmark, research, or catch-up task; routes on demand by path to all 68 hidden engineering workflows and coding-rule skills so only one skill sits in context."
+description: "Single entry point for astack—ALWAYS load this skill before doing any code review, PR review, PR comment drafting, bug diagnosis, refactor, implementation, plan, test, benchmark, research, or catch-up task; routes on demand by path to all 71 hidden engineering workflows and coding-rule skills so only one skill sits in context."
 ---
 
 # Go mode
@@ -55,16 +55,18 @@ Read the matching skill file(s) before starting:
   - Step-by-step performance optimization: `${CLAUDE_SKILL_DIR}/../clamber/SKILL.md`
   - Build competing architectures in parallel, graft best ideas, keep winner: `${CLAUDE_SKILL_DIR}/../explore-the-limits/SKILL.md`
 - **Test, verify, and prove:**
-  - Verify against the real artifact with runnable proof: `${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`
+  - Verify against the real artifact and shrink bug reproductions with runnable proof: `${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`
   - Reproduce bugs with realistic user scenarios first: `${CLAUDE_SKILL_DIR}/../bugs-by-scenario/SKILL.md`
+  - Debug runtime behavior via built-in/astack/third-party tools—logs, stdout/stderr, screenshots, OTel-traced HTTP/2/3, Playwright, metrics, traces, profiles (`<file>_DEBUG_<shorthash>.<type>`): `${CLAUDE_SKILL_DIR}/../find-it/SKILL.md`
   - Find root causes via binary search with runtime evidence, live symptom dumps, and profile attribution: `${CLAUDE_SKILL_DIR}/../diagnose/SKILL.md`
+  - Apply disciplined, minimal, behavior-proven bug fixes (desired/expected matrix, state/concurrency rules, before/after proof): `${CLAUDE_SKILL_DIR}/../fix-it/SKILL.md`
   - Full-spectrum acceptance tests across the test diamond: `${CLAUDE_SKILL_DIR}/../full-spectrum-testing/SKILL.md`
   - Build or update a `drive-<app>` live user-flow verification skill: `${CLAUDE_SKILL_DIR}/../test-drive/SKILL.md`
   - Formal verification (TLA+, code verifiers, generated checks): `${CLAUDE_SKILL_DIR}/../every-case/SKILL.md`
 - **Refactor, review, and ship PRs:**
   - Trace indirect breakage beyond a diff: `${CLAUDE_SKILL_DIR}/../blast-radius/SKILL.md`
   - Trim unnecessary code and complexity: `${CLAUDE_SKILL_DIR}/../simplify-me/SKILL.md`
-  - Split monoliths into single-purpose modules: `${CLAUDE_SKILL_DIR}/../modularize/SKILL.md`
+  - Split monoliths via reviewed POC, `dagify`-batched migration, and `simplify-me`/`yagni` trim: `${CLAUDE_SKILL_DIR}/../modularize/SKILL.md`
   - Find structural friction in high-churn areas and plan restructuring: `${CLAUDE_SKILL_DIR}/../rearchitect/SKILL.md`
   - Adversarial multi-reviewer audit: `${CLAUDE_SKILL_DIR}/../review/SKILL.md` and `${CLAUDE_SKILL_DIR}/../adversarial-review/SKILL.md`
   - Draft, independently audit via a second reviewer agent, and post human-facing PR review comments: `${CLAUDE_SKILL_DIR}/../leave-feedback/SKILL.md`
@@ -83,7 +85,7 @@ Read the matching skill file(s) before starting:
   - Save, instrument, or inspect durable `taskex` / `orchestral` checkpoints: `${CLAUDE_SKILL_DIR}/../checkpoint/SKILL.md`
   - Suspend (pause) active `taskex` runs/schedules or `orchestral` workflows/steps cleanly: `${CLAUDE_SKILL_DIR}/../suspend/SKILL.md`
   - Resume paused runs/workflows/steps or recover crashed/failed runs from checkpoints: `${CLAUDE_SKILL_DIR}/../resume/SKILL.md`
-  - Remove temp files, build artifacts, and leftover processes: `${CLAUDE_SKILL_DIR}/../cleanup/SKILL.md`
+  - Remove temp files, debug logs/captures (`<file>_DEBUG_<shorthash>.<type>`), build artifacts, and leftover processes (post-review and during/after debugging): `${CLAUDE_SKILL_DIR}/../cleanup/SKILL.md`
   - Capture session lessons and enforce fixes structurally: `${CLAUDE_SKILL_DIR}/../make-it-stick/SKILL.md`
 
 ## Principles and coding-rules index
@@ -107,4 +109,5 @@ Read the matching rule file whenever its trigger applies to code you are designi
 | Limits, timeouts, batch/pool sizes, or thresholds | `${CLAUDE_SKILL_DIR}/../no-picked-constants/SKILL.md` |
 | Waiting, polling loops, sleeps, timers, or CI checks | `${CLAUDE_SKILL_DIR}/../event-driven/SKILL.md` |
 | Speedups, memory cuts, or approximate/deferred variants | `${CLAUDE_SKILL_DIR}/../never-trade-functionality/SKILL.md` |
+| Secrets, tokens, PII, logging, errors, telemetry, or debug dumps | `${CLAUDE_SKILL_DIR}/../no-leaked-secrets/SKILL.md` |
 | Writing, reviewing, or fixing any test or flake | `${CLAUDE_SKILL_DIR}/../tests-assert-behaviour/SKILL.md` |

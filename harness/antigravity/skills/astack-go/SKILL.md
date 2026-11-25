@@ -1,6 +1,6 @@
 ---
 name: astack-go
-description: "Single entry point for astack—ALWAYS load this skill before doing any code review, PR review, PR comment drafting, bug diagnosis, refactor, implementation, plan, test, benchmark, research, or catch-up task; routes on demand by path to all 68 hidden engineering workflows and coding-rule skills so only one skill sits in context."
+description: "Single entry point for astack—ALWAYS load this skill before doing any code review, PR review, PR comment drafting, bug diagnosis, refactor, implementation, plan, test, benchmark, research, or catch-up task; routes on demand by path to all 71 hidden engineering workflows and coding-rule skills so only one skill sits in context."
 ---
 
 # Go mode
@@ -55,16 +55,18 @@ Read the matching skill file(s) before starting:
   - Step-by-step performance optimization: `../clamber/SKILL.md`
   - Build competing architectures in parallel, graft best ideas, keep winner: `../explore-the-limits/SKILL.md`
 - **Test, verify, and prove:**
-  - Verify against the real artifact with runnable proof: `../prove-it/SKILL.md`
+  - Verify against the real artifact and shrink bug reproductions with runnable proof: `../prove-it/SKILL.md`
   - Reproduce bugs with realistic user scenarios first: `../bugs-by-scenario/SKILL.md`
+  - Debug runtime behavior via built-in/astack/third-party tools—logs, stdout/stderr, screenshots, OTel-traced HTTP/2/3, Playwright, metrics, traces, profiles (`<file>_DEBUG_<shorthash>.<type>`): `../find-it/SKILL.md`
   - Find root causes via binary search with runtime evidence, live symptom dumps, and profile attribution: `../diagnose/SKILL.md`
+  - Apply disciplined, minimal, behavior-proven bug fixes (desired/expected matrix, state/concurrency rules, before/after proof): `../fix-it/SKILL.md`
   - Full-spectrum acceptance tests across the test diamond: `../full-spectrum-testing/SKILL.md`
   - Build or update a `drive-<app>` live user-flow verification skill: `../test-drive/SKILL.md`
   - Formal verification (TLA+, code verifiers, generated checks): `../every-case/SKILL.md`
 - **Refactor, review, and ship PRs:**
   - Trace indirect breakage beyond a diff: `../blast-radius/SKILL.md`
   - Trim unnecessary code and complexity: `../simplify-me/SKILL.md`
-  - Split monoliths into single-purpose modules: `../modularize/SKILL.md`
+  - Split monoliths via reviewed POC, `dagify`-batched migration, and `simplify-me`/`yagni` trim: `../modularize/SKILL.md`
   - Find structural friction in high-churn areas and plan restructuring: `../rearchitect/SKILL.md`
   - Adversarial multi-reviewer audit: `../astack-review/SKILL.md` and `../adversarial-review/SKILL.md`
   - Draft, independently audit via a second reviewer agent, and post human-facing PR review comments: `../leave-feedback/SKILL.md`
@@ -83,7 +85,7 @@ Read the matching skill file(s) before starting:
   - Save, instrument, or inspect durable `taskex` / `orchestral` checkpoints: `../checkpoint/SKILL.md`
   - Suspend (pause) active `taskex` runs/schedules or `orchestral` workflows/steps cleanly: `../suspend/SKILL.md`
   - Resume paused runs/workflows/steps or recover crashed/failed runs from checkpoints: `../resume/SKILL.md`
-  - Remove temp files, build artifacts, and leftover processes: `../cleanup/SKILL.md`
+  - Remove temp files, debug logs/captures (`<file>_DEBUG_<shorthash>.<type>`), build artifacts, and leftover processes (post-review and during/after debugging): `../cleanup/SKILL.md`
   - Capture session lessons and enforce fixes structurally: `../make-it-stick/SKILL.md`
 
 ## Principles and coding-rules index
@@ -107,4 +109,5 @@ Read the matching rule file whenever its trigger applies to code you are designi
 | Limits, timeouts, batch/pool sizes, or thresholds | `../no-picked-constants/SKILL.md` |
 | Waiting, polling loops, sleeps, timers, or CI checks | `../event-driven/SKILL.md` |
 | Speedups, memory cuts, or approximate/deferred variants | `../never-trade-functionality/SKILL.md` |
+| Secrets, tokens, PII, logging, errors, telemetry, or debug dumps | `../no-leaked-secrets/SKILL.md` |
 | Writing, reviewing, or fixing any test or flake | `../tests-assert-behaviour/SKILL.md` |

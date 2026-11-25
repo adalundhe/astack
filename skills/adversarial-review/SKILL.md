@@ -44,6 +44,7 @@ Review a change by trying to break it the way its users would, in its real envir
    - Magic numbers, timeouts, limits, batch/pool sizes, thresholds -> **no-picked-constants**
    - Sleeps, polling loops, timers, waits -> **event-driven**
    - Optimizations, approximations, deferred/cached shortcuts -> **never-trade-functionality**
+   - Secrets, tokens, credentials, PII, logs, errors, telemetry, debug dumps -> **no-leaked-secrets**
    - Tests, assertions, mocks, tolerances, skips -> **tests-assert-behaviour**
 
    Violating the person's explicit rules, or departing from a coding rule's defaults without justification, is a real finding even when tests pass—cite `[rule: <name>]` on every rule finding.

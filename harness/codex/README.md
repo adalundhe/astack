@@ -1,6 +1,6 @@
 # astack
 
-A multi-harness agent toolkit for Claude Code, Codex, Cursor / Cursor CLI, Antigravity (`agy`), Pi, Devin, and other Agent Skills hosts with one entry point (`go`) that routes on demand to 67 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, root-cause diagnosis, cross-harness vectored review, σ-grounded benchmarking, graded research, and coding rules.
+A multi-harness agent toolkit for Claude Code, Codex, Cursor / Cursor CLI, Antigravity (`agy`), Pi, Devin, and other Agent Skills hosts with one entry point (`go`) that routes on demand to 71 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, root-cause diagnosis, cross-harness vectored review, σ-grounded benchmarking, graded research, and coding rules.
 
 Only `go` stays in the model catalog, so idle sessions cost one skill's worth of context instead of thousands of tokens. Adapted in part from [pstack](https://github.com/cursor/plugins/tree/main/pstack) and [mattpocock/skills](https://github.com/mattpocock/skills).
 
@@ -32,7 +32,7 @@ Start a new session and run `$astack-go setup` (installs `astack-worker.toml` pl
 agy plugin install ./harness/antigravity
 ```
 
-Ships native `plugin.json`, root `hooks.json` (`PostToolUse` lane-log stamper), all 68 skills, `bin/astack-*`, and all four native agents (`astack-lead`, `astack-worker`, `astack-reviewer`, `astack-researcher`). Validate anytime with `agy plugin validate harness/antigravity --strict`.
+Ships native `plugin.json`, root `hooks.json` (`PostToolUse` lane-log stamper), all 72 skills, `bin/astack-*`, and all four native agents (`astack-lead`, `astack-worker`, `astack-reviewer`, `astack-researcher`). Validate anytime with `agy plugin validate harness/antigravity --strict`.
 
 **Pi, Devin, Cursor CLI (`agent`), and other Agent Skills hosts**
 
@@ -64,7 +64,7 @@ measured against the current release on the same machine. Merges go to main afte
 
 ## Skills
 
-68 skills total (`go` + 67 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
+72 skills total (`go` + 71 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
 
 ### Entry point, planning, and catch-up
 
@@ -100,21 +100,23 @@ measured against the current release on the same machine. Merges go to main afte
 
 ### Testing and verification
 
-- `prove-it`: verifies claims on the real build (not proxies) with runnable proof and a trust ladder.
+- `prove-it`: verifies claims on the real build (not proxies) with runnable proof, repro shrinking techniques, and a trust ladder.
 - `test-drive`: builds and maintains a `drive-<app>` skill that exercises real user flows and captures evidence.
 - `every-case`: sets up and maintains formal verification (TLA+, code verifiers, property checks) for critical invariants.
 - `tests-assert-behaviour`: keeps tests checking observable behavior rather than internals, mocks, or wall-clock timing.
 - `full-spectrum-testing`: writes acceptance tests across unit/integration/E2E layers including failures, races, fuzzing, and faults.
 - `bugs-by-scenario`: confirms a failing test or suspected bug with a real user scenario before fixing it.
+- `find-it`: collects targeted runtime logs, `stdout`/`stderr`, screenshots, OTel-traced HTTP/2/3 & Playwright captures, telemetry, metrics, traces, and profiles as `<file>_DEBUG_<shorthash>.<type>` (built-in language tools -> astack tools -> third-party) and cleans them once fixed.
 - `diagnose`: narrows confirmed bugs via binary search with runtime evidence, live symptom dumps, and profile attribution, reverting disproved hypotheses.
+- `fix-it`: applies disciplined, minimal, behavior-proven bug fixes using the desired/expected behavior matrix, strict state/concurrency/scope rules, vectored review, and before/after proof.
 
 ### Refactoring and cleanup
 
 - `simplify-me`: cuts unnecessary code and complexity without losing correctness, edge cases, or speed.
-- `modularize`: splits monolithic code into single-purpose modules behind narrow interfaces.
+- `modularize`: splits monoliths via a smallest-behavior proof of concept, `dagify`-batched parallel migration, and `simplify-me`/`yagni` trim—validated with vectored review at each stage.
 - `rearchitect`: finds high-churn structural friction, ranks restructurings with diagrams, and plans the top pick via `dagify`.
 - `deeper`: tightens a task brief to primary sources, domain tools, and external proof without adding scope.
-- `cleanup`: removes temp files, build artifacts, caches, test data, and leftover processes you created.
+- `cleanup`: removes temp files, `<file>_DEBUG_<shorthash>.<type>` debug captures/logs, build artifacts, caches, test data, and leftover processes post-review and during/after debugging.
 
 ### Coding rules
 
@@ -135,6 +137,7 @@ Indexed in `go` and checked by `review`:
 - `no-picked-constants`: derive limits/timeouts from cited specs or adapt them at runtime—never pick magic numbers.
 - `event-driven`: wake on completion events instead of `sleep` loops, fixed timers, or polling.
 - `never-trade-functionality`: never trade accuracy, freshness, or features for speed; run `research-this` before accepting any limit.
+- `no-leaked-secrets`: sweeps code, diffs, configs, logs, errors, telemetry, tests, and debug artifacts for leaked secrets, credentials, unneeded PII, or excessive logging.
 
 ### Understanding, specs, docs, and communication
 

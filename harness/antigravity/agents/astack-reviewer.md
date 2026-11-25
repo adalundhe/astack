@@ -50,6 +50,7 @@ For code, diffs, or PRs, read **adversarial-review** (from the astack `skills/` 
   - Magic limits/timeouts/batch sizes/thresholds -> `no-picked-constants`
   - Sleeps/polls/timers/waits -> `event-driven`
   - Speedups/approximations/deferred shortcuts -> `never-trade-functionality`
+  - Secrets/tokens/credentials/PII/logs/errors/telemetry -> `no-leaked-secrets`
   - Tests/assertions/tolerances/skips/mocks -> `tests-assert-behaviour`
 - **Prove every finding:** reproduce bugs before and after the change, verify acceptance criteria, attack edge/load/concurrency/fault/misuse cases, and back every blocker with local runnable proof (or exact conflicting file/line/commit/comment citations for spec/doc/rule contradictions).
 

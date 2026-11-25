@@ -27,7 +27,7 @@ Never write an ad-hoc `sleep`/polling loop, and never run two watchers on the sa
 
 ## Steps
 
-1. **Open the PR/MR** only after vectored **review** clears: zero proven blocking bugs, and every suggestion/nit fixed, answered, or refuted (**worrywart**). Write a clear description: problem, what changed, how it was tested, and how to verify it.
+1. **Open the PR/MR** only after vectored **review** clears (zero proven blocking bugs, every suggestion/nit fixed, answered, or refuted via **worrywart**, secrets/PII swept via **no-leaked-secrets**, and post-review **cleanup** done). Write a clear description: problem, what changed, how it was tested, and how to verify it.
 2. **Start the background watcher with durable handoff markers (**event-driven**):**
    - For a quick inspection (single PR or stacked PRs with `--stack`):
      ```bash
@@ -80,6 +80,6 @@ Never write an ad-hoc `sleep`/polling loop, and never run two watchers on the sa
 6. **Hand off cleanly at wind-down:** confirm `<program>/watch/<PR number>.md` is current, report exact PR/MR state and remaining blockers, and stop so a successor can continue cold.
 7. **Stop when merge-ready:** notify the lead (or the person, if running standalone) and stop. Never merge the PR/MR yourself.
 
-Referenced skills: `review` (`../astack-review/SKILL.md`), `worrywart` (`../worrywart/SKILL.md`), `event-driven` (`../event-driven/SKILL.md`), `setup` (`../astack-setup/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`), `blast-radius` (`../blast-radius/SKILL.md`), `address-feedback` (`../address-feedback/SKILL.md`), `simplify-me` (`../simplify-me/SKILL.md`), `leave-feedback` (`../leave-feedback/SKILL.md`), `bugs-by-scenario` (`../bugs-by-scenario/SKILL.md`), `diagnose` (`../diagnose/SKILL.md`), `leave-it-better` (`../leave-it-better/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `review` (`../astack-review/SKILL.md`), `worrywart` (`../worrywart/SKILL.md`), `no-leaked-secrets` (`../no-leaked-secrets/SKILL.md`), `cleanup` (`../cleanup/SKILL.md`), `event-driven` (`../event-driven/SKILL.md`), `setup` (`../astack-setup/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`), `blast-radius` (`../blast-radius/SKILL.md`), `address-feedback` (`../address-feedback/SKILL.md`), `simplify-me` (`../simplify-me/SKILL.md`), `leave-feedback` (`../leave-feedback/SKILL.md`), `bugs-by-scenario` (`../bugs-by-scenario/SKILL.md`), `diagnose` (`../diagnose/SKILL.md`), `leave-it-better` (`../leave-it-better/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's autopilot-full rebase and verdict carry-over rules (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->
