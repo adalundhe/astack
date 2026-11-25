@@ -22,7 +22,9 @@ Astack skills: <path to astack skills/ directory, for reading hidden skills by p
 2. MERGE GATE (scaled to change risk):
    - Small, isolated edits: lint what you touched (`<command>`) and test what you touched (`<command>`). Full suites and whole-system benchmarks run on `<target>` after merges.
    - Medium/high-risk changes (shared interfaces, concurrency, persistence, security, or large diffs): run the broader/full suite (`<command>`) and clear pre-merge review before landing on `<target>`.
-   - Rebase or merge `<target>` only when `<target>` moved since you branched (so untested code would otherwise land). If `git patch-id` is unchanged and incoming `<target>` commits do not overlap your blast radius, carry the prior verdict; otherwise retest the combined tree. Never force-push.
+   - Rebase or merge `<target>` only when `<target>` moved since you branched (so untested code would otherwise land). After rebasing, run `astack-watch-pr patch-id-check --before <old_base>..<old_head> --after <new_base>..HEAD --json` (checks both `git patch-id` and `git range-diff` to ensure no behavior was dropped or resurrected); carry the prior verdict only when `carry_verdict` is `true` and incoming `<target>` commits do not overlap your blast radius—otherwise retest the combined tree. Never force-push shared/protected branches.
+   - Takeover credit: when finishing or squashing another person's commits/PR, preserve original git authorship or add `Co-authored-by: Name <email>` trailers (`astack-watch-pr authorship-check`).
+   - Autonomy grant (from `settings.json`): mode `<supervised|unattended>`, allow `<list>`, deny `<list>`. Never take any action in `deny` without explicit per-action approval.
    - No worker may loosen a gate unilaterally—every gate relaxation requires the lead's countersign in `## Revisions`.
 
 3. WHERE: your worktree (<path>), on branch <prefix>/<lane>. Write only the paths your brief names. Builds and

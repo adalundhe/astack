@@ -1079,8 +1079,30 @@ class PatchIdCarryOverTest(unittest.TestCase):
             ok_data = json.loads(ok_res.stdout)
             self.assertTrue(ok_data["carry_verdict"])
             self.assertTrue(ok_data["patch_ids_identical"])
+            self.assertTrue(ok_data["range_diff_clean"])
+            self.assertEqual(ok_data["range_diff_summary"], {"unchanged": 1, "modified": 0, "dropped": 0, "added": 0})
             self.assertEqual(ok_data["overlap_files"], [])
 
+            # Rebase that drops a commit -> git range-diff catches dropped behavior (exit 3)!
+            self._git(repo, "checkout", "-q", "feat")
+            (repo / "c.py").write_text("C = 1\n")
+            self._git(repo, "add", "c.py")
+            self._git(repo, "commit", "-q", "-m", "second feat commit")
+            two_commit_head = self._git(repo, "rev-parse", "HEAD")
+
+            drop_res = run_cli_subprocess(
+                "astack-watch-pr", "patch-id-check",
+                "--before", f"{new_base}..{two_commit_head}",
+                "--after", f"{new_base}..{new_head}",
+                "--repo-dir", str(repo), "--json",
+            )
+            self.assertEqual(drop_res.returncode, core.EXIT_NEEDS_REBASE, drop_res.stderr)
+            drop_data = json.loads(drop_res.stdout)
+            self.assertFalse(drop_data["carry_verdict"])
+            self.assertFalse(drop_data["range_diff_clean"])
+            self.assertEqual(drop_data["range_diff_summary"]["dropped"], 1)
+
+            # Main advances touching a.py -> overlap forces re-verify (exit 3)!
             self._git(repo, "checkout", "-q", "main")
             (repo / "a.py").write_text("A = 1\n# comment\n")
             self._git(repo, "commit", "-q", "-am", "touch a.py on main")
@@ -1101,6 +1123,201 @@ class PatchIdCarryOverTest(unittest.TestCase):
             ov_data = json.loads(ov_res.stdout)
             self.assertFalse(ov_data["carry_verdict"])
             self.assertEqual(ov_data["overlap_files"], ["a.py"])
+
+    def test_diff_guard_flags_review_growth_and_clears_after_trimming(self):
+        with tempfile.TemporaryDirectory(prefix="astack-diffguard-") as td:
+            root = Path(td)
+            repo = root / "repo"
+            repo.mkdir()
+            state_file = root / "diff-state.json"
+            self._git(repo, "init", "-q", "-b", "main")
+            self._git(repo, "config", "user.email", "test@example.com")
+            self._git(repo, "config", "user.name", "Test")
+            (repo / "mod.py").write_text("x = 1\n")
+            self._git(repo, "add", ".")
+            self._git(repo, "commit", "-q", "-m", "init")
+
+            self._git(repo, "checkout", "-q", "-b", "feat")
+            (repo / "mod.py").write_text("x = 2\ny = 3\n")
+            self._git(repo, "commit", "-q", "-am", "initial PR")
+
+            # Round 1: records baseline (3 lines changed: 1 del + 2 ins)
+            r1 = run_cli_subprocess(
+                "astack-watch-pr", "diff-guard", "--base", "main", "--head", "HEAD",
+                "--state-file", str(state_file), "--repo-dir", str(repo), "--json",
+            )
+            self.assertEqual(r1.returncode, core.EXIT_OK, r1.stderr)
+            d1 = json.loads(r1.stdout)
+            self.assertFalse(d1["grew"])
+            self.assertEqual(d1["baseline_lines"], 3)
+
+            # Round 2: review round bloats diff -> flags growth (exit 3) + simplify-me guidance!
+            (repo / "mod.py").write_text("x = 2\ny = 3\na = 4\nb = 5\nc = 6\nd = 7\n")
+            self._git(repo, "commit", "-q", "-am", "review additions")
+            r2 = run_cli_subprocess(
+                "astack-watch-pr", "diff-guard", "--base", "main", "--head", "HEAD",
+                "--state-file", str(state_file), "--repo-dir", str(repo), "--json",
+            )
+            self.assertEqual(r2.returncode, core.EXIT_NEEDS_REBASE, r2.stderr)
+            d2 = json.loads(r2.stdout)
+            self.assertTrue(d2["grew"])
+            self.assertGreater(d2["delta_lines"], 0)
+            self.assertIn("simplify-me", d2["recommendation"])
+
+            # Round 3: simplify-me trims back to <= baseline -> clears (exit 0)!
+            (repo / "mod.py").write_text("x = 2\n")
+            self._git(repo, "commit", "-q", "-am", "simplify PR")
+            r3 = run_cli_subprocess(
+                "astack-watch-pr", "diff-guard", "--base", "main", "--head", "HEAD",
+                "--state-file", str(state_file), "--repo-dir", str(repo), "--json",
+            )
+            self.assertEqual(r3.returncode, core.EXIT_OK, r3.stderr)
+            self.assertFalse(json.loads(r3.stdout)["grew"])
+
+    def test_authorship_check_catches_lost_takeover_credit_and_accepts_coauthor_trailer(self):
+        with tempfile.TemporaryDirectory(prefix="astack-authorship-") as td:
+            repo = Path(td) / "repo"
+            repo.mkdir()
+            self._git(repo, "init", "-q", "-b", "main")
+            self._git(repo, "config", "user.email", "maintainer@example.com")
+            self._git(repo, "config", "user.name", "Maintainer")
+            (repo / "app.py").write_text("v = 0\n")
+            self._git(repo, "add", ".")
+            self._git(repo, "commit", "-q", "-m", "init")
+            base = self._git(repo, "rev-parse", "HEAD")
+
+            # Original contributor branch
+            self._git(repo, "checkout", "-q", "-b", "orig-pr", base)
+            (repo / "app.py").write_text("v = 1\n")
+            self._git(
+                repo, "commit", "-q", "-am", "original implementation",
+                "--author", "Original Author <orig@example.com>",
+            )
+            orig_head = self._git(repo, "rev-parse", "HEAD")
+
+            # Bad takeover: squashes/rewrites wiping original author credit -> BLOCKED (exit 3)!
+            self._git(repo, "checkout", "-q", "-b", "bad-takeover", base)
+            (repo / "app.py").write_text("v = 2\n")
+            self._git(repo, "commit", "-q", "-am", "finish PR without credit")
+            bad_head = self._git(repo, "rev-parse", "HEAD")
+
+            bad_res = run_cli_subprocess(
+                "astack-watch-pr", "authorship-check",
+                "--before", f"{base}..{orig_head}",
+                "--after", f"{base}..{bad_head}",
+                "--repo-dir", str(repo), "--json",
+            )
+            self.assertEqual(bad_res.returncode, core.EXIT_NEEDS_REBASE, bad_res.stderr)
+            bad_data = json.loads(bad_res.stdout)
+            self.assertFalse(bad_data["preserved"])
+            self.assertEqual(bad_data["missing_contributors"], ["Original Author <orig@example.com>"])
+            self.assertEqual(bad_data["suggested_trailers"], ["Co-authored-by: Original Author <orig@example.com>"])
+
+            # Good takeover: includes Co-authored-by trailer -> PASSES (exit 0)!
+            self._git(repo, "checkout", "-q", "-b", "good-takeover", base)
+            (repo / "app.py").write_text("v = 2\n")
+            self._git(
+                repo, "commit", "-q", "-am",
+                "finish PR with credit\n\nCo-authored-by: Original Author <orig@example.com>",
+            )
+            good_head = self._git(repo, "rev-parse", "HEAD")
+
+            good_res = run_cli_subprocess(
+                "astack-watch-pr", "authorship-check",
+                "--before", f"{base}..{orig_head}",
+                "--after", f"{base}..{good_head}",
+                "--repo-dir", str(repo), "--json",
+            )
+            self.assertEqual(good_res.returncode, core.EXIT_OK, good_res.stderr)
+            self.assertTrue(json.loads(good_res.stdout)["preserved"])
+
+    def test_autonomy_settings_enforced_for_dispatch_and_reply_and_stamped_in_brief(self):
+        with tempfile.TemporaryDirectory(prefix="astack-auto-") as td:
+            root = Path(td)
+            deny_settings = root / "deny-settings.json"
+            deny_settings.write_text(json.dumps({
+                "autonomy": {
+                    "mode": "supervised",
+                    "allow": [],
+                    "deny": ["watch_pr_and_fix_ci", "post_audited_pr_replies", "merge_pr"],
+                }
+            }))
+            allow_settings = root / "allow-settings.json"
+            allow_settings.write_text(json.dumps({
+                "autonomy": {
+                    "mode": "unattended",
+                    "allow": ["watch_pr_and_fix_ci", "post_audited_pr_replies"],
+                    "deny": ["merge_pr", "push_protected_branch"],
+                }
+            }))
+
+            target = core.PRTarget(core.ForgeKind.GITHUB, "github.com", "acme/app", 33, url="https://github.com/acme/app/pull/33")
+            snap = core.PRSnapshot(
+                target=target,
+                lifecycle=core.PRLifecycle.OPEN,
+                title="Someone else's PR",
+                url=target.url,
+                head_branch="feat/other",
+                head_sha="1234567abcdef",
+                base_branch="main",
+                base_sha="9999999aaaaaa",
+                author="original-dev",
+                viewer="taking-over-dev",
+                is_draft=False,
+                mergeability=core.Mergeability.CLEAN,
+                behind_by=0,
+                review_verdict=core.ReviewVerdict.CHANGES_REQUESTED,
+                approvals_count=0,
+                approvals_required=1,
+                created_at="2026-11-24T10:00:00Z",
+                updated_at="2026-11-24T11:00:00Z",
+                threads=(
+                    core.ReviewThread("T1", "app.py", 9, resolved=False, comments=(
+                        core.ReviewComment("c1", "reviewer", False, "Fix edge case"),
+                    )),
+                ),
+            )
+            dec = core.evaluate_snapshot(snap, core.PolicyConfig())
+            wstate = core.DurableWatchState(root / "w.state.json")
+
+            # Denied by autonomy.deny -> raises BadInputError
+            with self.assertRaises(core.BadInputError) as ctx:
+                core.dispatch_remediation(
+                    snap, dec, dec.primary_action, wstate,
+                    brief_dir=root / "briefs",
+                    dispatch_cmd="echo {brief_file}",
+                    settings_path=deny_settings,
+                    dry_run=True,
+                )
+            self.assertIn("watch_pr_and_fix_ci", str(ctx.exception))
+
+            # Allowed by unattended autonomy -> writes brief with TAKEOVER credit, diff-guard, and autonomy boundaries!
+            res = core.dispatch_remediation(
+                snap, dec, dec.primary_action, wstate,
+                brief_dir=root / "briefs",
+                dispatch_cmd="echo {brief_file}",
+                settings_path=allow_settings,
+                dry_run=True,
+            )
+            brief_text = Path(res["brief_path"]).read_text()
+            self.assertIn("TAKEOVER", brief_text)
+            self.assertIn("authorship-check", brief_text)
+            self.assertIn("diff-guard", brief_text)
+            self.assertIn("mode=`unattended`", brief_text)
+            self.assertIn("merge_pr", brief_text)
+
+            # Reply also blocked by autonomy.deny (`post_audited_pr_replies`)
+            body_f = root / "r.md"
+            body_f.write_text("Fixed the edge case and added a unit test.")
+            clear_f = root / "clear.txt"
+            clear_f.write_text("Verdict: CLEAR\n")
+            rc_deny, _, err_deny = run_cli_inproc(
+                "astack-watch-github", "reply", "https://github.com/acme/app/pull/33",
+                "--body-file", str(body_f), "--audit-receipt", str(clear_f),
+                "--settings", str(deny_settings), "--dry-run",
+            )
+            self.assertEqual(rc_deny, core.EXIT_BAD_INPUT)
+            self.assertIn("post_audited_pr_replies", err_deny)
 
 
 if __name__ == "__main__":
