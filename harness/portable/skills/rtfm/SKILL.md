@@ -11,12 +11,13 @@ Read what's already available before asking the person anything.
 Before asking a question, declaring yourself blocked, calling a requirement unclear, or claiming you lack context, check in order:
 
 1. **What you were already given:** the prompt and thread, your brief, `RULES.md`, earlier decisions in the lane log, and any attached docs or examples.
-2. **The repository:** README, docs, architecture decisions, contributor/agent guides, relevant source and tests, and git/PR/issue history for the area.
-3. **The local environment:** configs, scripts, CI workflows, installed/running services, and existing logs or outputs.
-4. **Official references:** documentation and examples for the tools and libraries involved.
+2. **PR, issue, discussion, and linked context:** the PR description, **every PR comment and inline review thread** (human and bot, open and resolved), commit messages, **linked issues, parent/child PRs, discussions, ADRs, RFCs, design docs, tickets, and cited URLs** (e.g., `gh pr view --comments`, `gh issue view --comments`, `gh api` for inline review threads, `git log` / `git blame`, and reading every referenced file or spec). Follow links instead of guessing what they say.
+3. **The repository:** README, docs, architecture decisions, contributor/agent guides (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`), relevant source, callers/callees, tests, and git history for the area.
+4. **The local environment:** configs, scripts, CI workflows, installed/running services, and existing logs or outputs.
+5. **Official references:** documentation and examples for the tools and libraries involved.
 
 Then actually test what you read—run the command, inspect the source, call the API.
 
-Only ask if nothing above resolves it, and include what you already checked and tried (**decisions-in-plain-words**). Don't ask anything the existing material already answers.
+Never ask a question that the repo, git history, PR/issue comments, linked context, local execution, or official docs already answer. Only ask if nothing above resolves it, and state plainly what you checked, what conflicts or is missing, and why a human decision is required (**decisions-in-plain-words**).
 
 Referenced skills: `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.

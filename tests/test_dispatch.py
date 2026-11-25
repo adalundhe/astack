@@ -119,7 +119,7 @@ class DispatchTest(unittest.TestCase):
         sys_prompt.write_text("You are an adversarial reviewer.\n")
 
         cases = [
-            ("claude", "anthropic", "claude-opus-4-6", "high", ["--model", "claude-opus-4-6", "--effort", "high", "--append-system-prompt-file"]),
+            ("claude", "anthropic", "claude-opus-4-6", "high", ["--plugin-dir", "--model", "claude-opus-4-6", "--effort", "high", "--append-system-prompt-file"]),
             ("codex", "openai", "gpt-5.4", "high", ["exec", "--model", "gpt-5.4", "--sandbox", "read-only", "--ephemeral"]),
             ("agy", "google", "gemini-2.5-pro", "high", ["-p", "--model", "gemini-2.5-pro", "--effort", "high", "--sandbox"]),
             ("cursor", "cursor", "sonnet-4", "medium", ["-p", "--model", "sonnet-4", "--trust", "--mode", "ask"]),
@@ -236,6 +236,106 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(to.returncode, 1)
         to_data = json.loads(to.stdout)
         self.assertTrue(to_data["timed_out"])
+
+    def test_run_applies_role_timeouts_from_settings_for_worker_reviewer_and_researcher(self):
+        for cli in ("codex", "agy", "pi"):
+            _make_stub(self.stub_bin, cli, "exit 0\n")
+        settings = self.dir / "timed-settings.json"
+        settings.write_text(json.dumps({
+            "worker_minutes": 45,
+            "reviewer_minutes": 20,
+            "researcher_minutes": 15,
+            "roles": {
+                "worker": {"provider": "openai", "model": "gpt-6.2-astra", "effort": "medium", "harness": "codex"},
+                "researcher": {"provider": "google", "model": "default", "effort": "high", "harness": "agy"},
+            },
+            "reviewer_pool": [
+                {"provider": "anthropic", "model": "claude-sonnet-4-6", "effort": "medium", "harness": "pi"},
+            ],
+        }))
+
+        r_rev = self.run_dispatch(
+            "run", "--role", "reviewer", "--settings", str(settings),
+            "--provider", "anthropic", "--model", "claude-sonnet-4-6",
+            "--cwd", str(self.work), "--prompt", "Review", "--dry-run", "--json",
+        )
+        self.assertEqual(r_rev.returncode, 0, r_rev.stderr)
+        self.assertEqual(json.loads(r_rev.stdout)["timeout_s"], 1200.0)
+
+        r_res = self.run_dispatch(
+            "run", "--role", "researcher", "--settings", str(settings),
+            "--provider", "google", "--model", "default",
+            "--cwd", str(self.work), "--prompt", "Investigate", "--dry-run", "--json",
+        )
+        self.assertEqual(r_res.returncode, 0, r_res.stderr)
+        res_prev = json.loads(r_res.stdout)
+        self.assertEqual(res_prev["timeout_s"], 900.0)
+        self.assertEqual(res_prev["harness"], "agy")
+
+        r_wrk = self.run_dispatch(
+            "run", "--role", "worker", "--settings", str(settings),
+            "--provider", "openai", "--model", "gpt-6.2-astra",
+            "--cwd", str(self.work), "--prompt", "Implement", "--dry-run", "--json",
+        )
+        self.assertEqual(r_wrk.returncode, 0, r_wrk.stderr)
+        wrk_prev = json.loads(r_wrk.stdout)
+        self.assertEqual(wrk_prev["timeout_s"], 2700.0)
+        self.assertEqual(wrk_prev["harness"], "codex")
+        # Auto-loads bundled role agent prompt AND injects absolute ASTACK_SKILLS_DIR when --system-prompt-file is omitted!
+        self.assertTrue(wrk_prev["system_prompt_file"].endswith("agents/worker.md"))
+        self.assertEqual(Path(wrk_prev["skills_dir"]).resolve(), (ROOT / "skills").resolve())
+        rev_prev = json.loads(r_rev.stdout)
+        self.assertTrue(rev_prev["system_prompt_file"].endswith("agents/reviewer.md"))
+        self.assertIn(str((ROOT / "skills").resolve()), rev_prev["argv"][-1])
+
+    def test_skills_dir_works_via_symlink_and_install_agents_stamps_skills_dir(self):
+        # Verify astack-tools skills-dir works even when called via symlink in ~/.local/bin
+        bin_dir = self.dir / "linked-bin"
+        r_link = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "link-bin", "--bin-dir", str(bin_dir)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(r_link.returncode, 0, r_link.stderr)
+        r_sd = subprocess.run(
+            [sys.executable, "-B", str(bin_dir / "astack-tools"), "skills-dir"],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(r_sd.returncode, 0, r_sd.stderr)
+        self.assertEqual(Path(r_sd.stdout.strip()).resolve(), (ROOT / "skills").resolve())
+
+        # Verify doctor detects blocked Claude Skill permissions and enable-claude-skills fixes them atomically
+        claude_cfg = self.dir / "claude-settings.json"
+        claude_cfg.write_text(json.dumps({
+            "theme": "dark",
+            "permissions": {"deny": ["Skill", "Bash(rm -rf *)"], "allow": ["Read"]},
+        }))
+        env_doc = {**os.environ, "ASTACK_CLAUDE_SETTINGS": str(claude_cfg)}
+        r_doc = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "doctor", "--json"],
+            capture_output=True, text=True, env=env_doc,
+        )
+        doc_data = json.loads(r_doc.stdout)
+        self.assertTrue(doc_data["claude_settings"]["skill_blocked"])
+        self.assertFalse(doc_data["claude_settings"]["skill_allowed"])
+
+        r_en = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "enable-claude-skills", "--settings", str(claude_cfg)],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(r_en.returncode, 0, r_en.stderr)
+        updated = json.loads(claude_cfg.read_text())
+        self.assertEqual(updated["theme"], "dark")
+        self.assertEqual(updated["permissions"]["deny"], ["Bash(rm -rf *)"])
+        self.assertIn("Skill", updated["permissions"]["allow"])
+        self.assertIn("Read", updated["permissions"]["allow"])
+
+        r_doc2 = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "doctor", "--json"],
+            capture_output=True, text=True, env=env_doc,
+        )
+        doc_data2 = json.loads(r_doc2.stdout)
+        self.assertFalse(doc_data2["claude_settings"]["skill_blocked"])
+        self.assertTrue(doc_data2["claude_settings"]["skill_allowed"])
 
 
 class MultiHarnessEvalRunnerTest(unittest.TestCase):
@@ -435,6 +535,8 @@ class MultiHarnessEvalRunnerTest(unittest.TestCase):
         parsed_rev = tomllib.loads((codex_dir / "astack-reviewer-openai-gpt-6-2-astra-high.toml").read_text())
         self.assertEqual(parsed_rev["model"], "gpt-6.2-astra")
         self.assertEqual(parsed_rev["model_reasoning_effort"], "high")
+        self.assertIn("Installed astack skills directory:", parsed_rev["developer_instructions"])
+        self.assertIn(str((ROOT / "skills").resolve()), parsed_rev["developer_instructions"])
 
         # Antigravity, Cursor, Devin, Pi, Claude: all 4 native .md agents installed with harness-native frontmatter
         for h, must_contain in (

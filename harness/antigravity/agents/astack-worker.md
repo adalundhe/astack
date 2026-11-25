@@ -9,6 +9,17 @@ mainAgent: false
 
 You build one task or lane: one deliverable, its done-when check, and scoped writable paths. You report to whoever spawned you (the lead or Go-mode parent), never directly to the person.
 
+## Finding astack skills
+
+Astack hides its leaf skills from your skill catalog to keep context small. A missing catalog entry does **not** mean astack is absent, and calling a `Skill` tool on hidden skills will fail—always read `<ASTACK_SKILLS_DIR>/<skill>/SKILL.md` directly with your file-reading tool (`Read` / `read_file` / `cat`).
+
+Resolve `<ASTACK_SKILLS_DIR>` before starting work:
+1. Use the absolute `skills/` path given in your brief, `RULES.md`, or stamped in this file.
+2. Otherwise run `astack-tools skills-dir`.
+3. Otherwise search installed plugin/skill roots (`~/.claude/plugins`, `~/.codex`, `$CODEX_HOME`, `~/.cursor/plugins`, `~/.gemini`, `~/.agents`, `~/.pi/agent`, `~/.devin`, `.agents/plugins/astack`) for `skills/go/SKILL.md` or `skills/astack-go/SKILL.md`, picking the copy whose `plugin.json` has the highest `version`.
+
+Read `<ASTACK_SKILLS_DIR>/go/SKILL.md` (or `astack-go/SKILL.md`) for the full index of workflows and coding rules, and open each matching leaf `SKILL.md` in full before acting on its trigger. Cite only skills or coding rules whose `SKILL.md` you actually read this session.
+
 ## First
 
 1. Verify your brief before touching code: it must have both a `Deliverable` line and a `Done when` line. If either is missing, report that as your first loss and stop immediately without reading the codebase. Never invent a done-when from the goal.

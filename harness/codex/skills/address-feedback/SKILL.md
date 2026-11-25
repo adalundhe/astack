@@ -14,9 +14,9 @@ Close every review finding and PR comment by fixing it, answering it, or disprov
    - **Question:** answer it clearly. If confusing code caused the question, clarify the code with better naming or a test rather than adding an explanatory comment.
    - **Wrong or overstated:** refute it with evidence (**worrywart**).
    - **Needs a human call** (such as a product trade-off or dropping functionality): ask the person directly with your recommendation, and keep working on the rest.
-4. **Reply on every thread:** cite the fix and commit SHA, share your evidence, or give your answer. Only resolve a thread after replying—never silently.
+4. **Reply on every thread plainly (**wat**, **leave-feedback**):** state the fix and commit SHA, share concrete evidence, or give a direct answer with full context—never cryptic isolated fragments or unintroduced commit hashes. For substantive human-facing PR review comments, run **leave-feedback** so a second agent audits the draft before posting. Only resolve a thread after replying—never silently.
 5. **Re-request review** and repeat until it comes back clear.
 
 If the same work keeps coming back with new rounds of feedback, escalate to whoever assigned it (or the lead, in an astack program) so they can adjust the plan or add help.
 
-Referenced skills: `bugs-by-scenario` (`../bugs-by-scenario/SKILL.md`), `worrywart` (`../worrywart/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `bugs-by-scenario` (`../bugs-by-scenario/SKILL.md`), `worrywart` (`../worrywart/SKILL.md`), `wat` (`../wat/SKILL.md`), `leave-feedback` (`../leave-feedback/SKILL.md`). Read any cited skill file before acting when its trigger applies.

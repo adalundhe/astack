@@ -872,9 +872,15 @@ def run_case(
     judge_harness: str = "auto",
     timeout: float = 600.0,
     dry_run: bool = False,
+    without_plugin: bool = False,
 ) -> dict[str, Any]:
     yaml_text = (case_dir / "case.yaml").read_text(encoding="utf-8")
-    _, prompt_body = split_front_matter((case_dir / "prompt.md").read_text(encoding="utf-8"))
+    pfields, prompt_body = split_front_matter((case_dir / "prompt.md").read_text(encoding="utf-8"))
+    if "timeout_seconds" in pfields:
+        try:
+            timeout = max(timeout, float(_unquote(pfields["timeout_seconds"])))
+        except ValueError:
+            pass
 
     # Determine settings override if applicable
     settings_override: dict[str, Any] | None = None
@@ -909,8 +915,27 @@ def run_case(
             except json.JSONDecodeError:
                 active_settings = None
 
-        env_over, extra_args = mount_harness_into_workspace(harness, ws, active_settings)
-        prompt_text = adapt_prompt(prompt_body, harness, active_settings)
+        if without_plugin:
+            env_over, extra_args = {}, []
+            if harness == "codex":
+                # Isolate CODEX_HOME on baseline arm so host-installed skills/agents don't contaminate ablation
+                bare_codex = ws / ".codex_home_without"
+                bare_codex.mkdir(parents=True, exist_ok=True)
+                src_codex = Path(os.environ.get("CODEX_HOME") or (Path.home() / ".codex")).expanduser()
+                for fname in ("auth.json", "config.toml"):
+                    src_f = src_codex / fname
+                    try:
+                        if src_f.is_file():
+                            shutil.copy2(src_f, bare_codex / fname)
+                    except OSError:
+                        pass
+                env_over["CODEX_HOME"] = str(bare_codex)
+            # Strip skill-invocation prefix so baseline arm runs the exact same user task without astack
+            clean_prompt = re.sub(r"`?/astack:go`?\s*", "", prompt_body.strip())
+            prompt_text = adapt_prompt(clean_prompt, harness, active_settings)
+        else:
+            env_over, extra_args = mount_harness_into_workspace(harness, ws, active_settings)
+            prompt_text = adapt_prompt(prompt_body, harness, active_settings)
         argv, stdin_text = build_eval_command(
             harness, binary, prompt_text, ws, extra_args=extra_args, model=model, effort=effort
         )
@@ -963,6 +988,23 @@ def run_case(
                     ok, detail = run_llm_judge(resolved_judge, gbody, final_text, active_settings)
                     results.append({"name": grader_path.stem, "type": gtype, "passed": ok, "detail": detail})
 
+        # Executable workspace outcome verifier (`verify.py` in case dir, if present):
+        # checks objective post-run invariants (e.g. repo untouched, real tests pass, real artifacts valid)
+        verify_script = case_dir / "verify.py"
+        if verify_script.is_file():
+            v_env = {**os.environ, "ASTACK_EVAL_FINAL_TEXT": final_text, "ASTACK_EVAL_HARNESS": harness}
+            v_proc = subprocess.run(
+                [sys.executable, "-B", str(verify_script), str(ws)],
+                cwd=ws,
+                env=v_env,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            v_ok = v_proc.returncode == 0
+            v_detail = (v_proc.stdout.strip() or v_proc.stderr.strip() or f"exit {v_proc.returncode}")[:200]
+            results.append({"name": "workspace-verify", "type": "command", "passed": v_ok, "detail": v_detail})
+
         scored = [r for r in results if r["passed"] is not None]
         score = round(sum(1 for r in scored if r["passed"]) / len(scored), 2) if scored else 0.0
         errors = [e["message"] for e in events if e.get("kind") == "error"]
@@ -995,6 +1037,13 @@ def main(argv: list[str] | None = None) -> int:
         choices=("auto", "none", *SUPPORTED_HARNESSES),
         help="harness used for llm graders (default: auto = same as --harness; 'none' skips llm graders)",
     )
+    parser.add_argument(
+        "--ablation",
+        default="none",
+        choices=("none", "with-without"),
+        help="run a no-plugin baseline arm alongside the with-plugin arm to measure real delta",
+    )
+    parser.add_argument("--runs", type=int, default=1, help="number of runs per case (default: 1)")
     parser.add_argument("--timeout", type=float, default=600.0, help="per-case timeout in seconds")
     parser.add_argument("--dry-run", action="store_true", help="print resolved commands without executing")
     parser.add_argument("--json", action="store_true", dest="as_json")
@@ -1020,37 +1069,44 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     reports = []
+    arms = ("with", "without") if args.ablation == "with-without" else ("with",)
     for case in cases:
-        res = run_case(
-            case,
-            args.harness,
-            binary=binary,
-            model=args.model,
-            effort=args.effort,
-            pool_override=pool_override,
-            worker_override=worker_override,
-            judge_harness=args.judge_harness,
-            timeout=args.timeout,
-            dry_run=args.dry_run,
-        )
-        reports.append(res)
-        if not args.as_json:
-            if res.get("dry_run"):
-                print(f"[DRY-RUN] {res['case']} ({res['harness']}): {' '.join(res['argv'][:8])} ...")
-            else:
-                mark = "✓" if res.get("score", 0) == 1.0 else "✗"
-                print(f"{mark} {res['case']} ({res['harness']})  score {res.get('score', 0):.2f}  ({res.get('duration_s', 0)}s)")
-                for g in res.get("graders", []):
-                    gm = "✓" if g["passed"] is True else ("-" if g["passed"] is None else "✗")
-                    print(f"    {gm} {g['name']} ({g['type']}): {g['detail']}")
-                for err in res.get("errors", []):
-                    print(f"    ! error: {err}")
+        for arm in arms:
+            for run_idx in range(1, max(1, args.runs) + 1):
+                res = run_case(
+                    case,
+                    args.harness,
+                    binary=binary,
+                    model=args.model,
+                    effort=args.effort,
+                    pool_override=pool_override,
+                    worker_override=worker_override,
+                    judge_harness=args.judge_harness,
+                    timeout=args.timeout,
+                    dry_run=args.dry_run,
+                    without_plugin=(arm == "without"),
+                )
+                res["arm"] = arm
+                res["run"] = run_idx
+                reports.append(res)
+                if not args.as_json:
+                    if res.get("dry_run"):
+                        print(f"[DRY-RUN] {res['case']} ({res['harness']}/{arm}): {' '.join(res['argv'][:8])} ...")
+                    else:
+                        mark = "✓" if res.get("score", 0) == 1.0 else "✗"
+                        print(f"{mark} {res['case']} ({res['harness']}/{arm} {run_idx}/{args.runs})  score {res.get('score', 0):.2f}  ({res.get('duration_s', 0)}s)")
+                        for g in res.get("graders", []):
+                            gm = "✓" if g["passed"] is True else ("-" if g["passed"] is None else "✗")
+                            print(f"    {gm} {g['name']} ({g['type']}): {g['detail']}")
+                        for err in res.get("errors", []):
+                            print(f"    ! error: {err}")
 
     if args.as_json:
         print(json.dumps(reports, indent=2))
     if args.dry_run:
         return 0
-    return 0 if all(r.get("score", 0) == 1.0 for r in reports) else 1
+    with_reports = [r for r in reports if r.get("arm") == "with"]
+    return 0 if all(r.get("score", 0) == 1.0 for r in with_reports) else 1
 
 
 if __name__ == "__main__":

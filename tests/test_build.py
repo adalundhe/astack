@@ -52,6 +52,17 @@ class BuildTest(unittest.TestCase):
             HARNESS / "portable/plugin.json",
         ]
         self.assertEqual(len({(load(m)["name"], load(m)["version"]) for m in manifests}), 1)
+        for m in manifests:
+            data = load(m)
+            self.assertEqual(data.get("skills"), "./skills/", f"{m} missing explicit skills path")
+            if "claude-code" in str(m):
+                self.assertEqual(
+                    data.get("agents"),
+                    ["./agents/lead.md", "./agents/worker.md", "./agents/reviewer.md", "./agents/researcher.md"],
+                    f"{m} must declare all 4 .md agent paths for Claude Code manifest schema",
+                )
+            else:
+                self.assertEqual(data.get("agents"), "./agents/", f"{m} missing explicit agents path")
 
     def test_each_marketplace_points_at_its_package(self):
         claude = load(ROOT / ".claude-plugin/marketplace.json")["plugins"][0]
@@ -267,6 +278,43 @@ class BuildTest(unittest.TestCase):
             self.assertIn("which vendors/providers see their code", setup, f"{tool}/setup missing vendor-visibility warning")
             self.assertIn("VECTOR:", reviewer_agent, f"{tool}/reviewer agent missing VECTOR header")
             self.assertIn("MODEL:", reviewer_agent, f"{tool}/reviewer agent missing MODEL header")
+            # Review rigor, linked context, plain contradictions, coding rules, leave-feedback, and reviewer/researcher timers
+            adv = (HARNESS / tool / "skills" / "adversarial-review" / "SKILL.md").read_text()
+            leave_fb = (HARNESS / tool / "skills" / "leave-feedback" / "SKILL.md").read_text()
+            researcher_agent = (
+                HARNESS / tool / "agents" / (
+                    "researcher.md" if tool == "claude-code"
+                    else "astack-researcher.toml" if tool == "codex"
+                    else "astack-researcher.md"
+                )
+            ).read_text()
+            self.assertIn("no-hidden-flow-control", reviewer_agent, f"{tool}/reviewer missing coding-rule checklist")
+            self.assertIn("no-picked-constants", adv, f"{tool}/adversarial-review missing coding-rule checklist")
+            self.assertIn("linked issue", review.lower(), f"{tool}/review missing linked-context check")
+            self.assertIn("contradiction", reviewer_agent.lower(), f"{tool}/reviewer missing plain-contradiction rule")
+            self.assertIn("reviewer_minutes", setup, f"{tool}/setup missing reviewer_minutes")
+            self.assertIn("researcher_minutes", setup, f"{tool}/setup missing researcher_minutes")
+            self.assertIn("reviewer_minutes", lead, f"{tool}/lead missing reviewer timer enforcement")
+            self.assertIn("researcher_minutes", lead, f"{tool}/lead missing researcher timer enforcement")
+            self.assertIn("role reviewer", lead, f"{tool}/lead missing reviewer LANES.md clock logging")
+            self.assertIn("role researcher", lead, f"{tool}/lead missing researcher LANES.md clock logging")
+            self.assertIn("Wind down at", reviewer_agent, f"{tool}/reviewer missing wind-down clock rule")
+            self.assertIn("Wind down at", researcher_agent, f"{tool}/researcher missing wind-down clock rule")
+            self.assertIn("REVISE", leave_fb, f"{tool}/leave-feedback missing mandatory second-agent pre-post audit")
+            self.assertIn("leave-feedback", review, f"{tool}/review missing leave-feedback reference")
+            # Self-discovery of hidden skills in ALL 4 agents across ALL 5 harnesses
+            for role in ("lead", "worker", "reviewer", "researcher"):
+                agent_file = HARNESS / tool / "agents" / (
+                    f"{role}.md" if tool == "claude-code"
+                    else f"astack-{role}.toml" if tool == "codex"
+                    else f"astack-{role}.md"
+                )
+                atext = agent_file.read_text()
+                self.assertIn("Finding astack skills", atext, f"{tool}/{role} missing skill self-discovery block")
+                self.assertIn("astack-tools skills-dir", atext, f"{tool}/{role} missing astack-tools skills-dir lookup")
+                self.assertIn("Skill", atext, f"{tool}/{role} missing warning not to use Skill tool for hidden skills")
+            self.assertNotIn("(`..` from this skill)", go, f"{tool}/go still passes broken relative '..' skills path")
+            self.assertNotIn("(`..` from this skill", review, f"{tool}/review still passes broken relative '..' skills path")
 
     @unittest.skipUnless(shutil.which("codex"), "codex CLI not installed")
     def test_codex_registers_worker_and_reviewer_agents_in_prompt_input(self):
@@ -314,9 +362,11 @@ class BuildTest(unittest.TestCase):
         self.assertGreaterEqual(len(cases), 9)
         for case in cases:
             yaml_text = (case / "case.yaml").read_text()
+            self.assertIn("schema_version:", yaml_text, f"{case.name} case.yaml missing schema_version")
             self.assertIn(f"name: {case.name}", yaml_text)
             _, prompt_body = front_matter(case / "prompt.md")
-            if "scaffold_script: setup.sh" in yaml_text:
+            if (case / "setup.sh").is_file():
+                self.assertIn("context:\n  scaffold_script: setup.sh", yaml_text, f"{case.name} must nest scaffold_script under context:")
                 self.assertTrue((case / "setup.sh").stat().st_mode & 0o111, case.name)
             graders = sorted((case / "graders").glob("*.md"))
             self.assertTrue(graders, f"{case.name} has no graders")
@@ -369,6 +419,22 @@ class BuildTest(unittest.TestCase):
         self.assertIn("no-internal-leak", planted_graders)
         for vcase in ("vectored-review-concurrency", "vectored-review-small-change", "vectored-review-cross-harness", "vectored-review-planted-bugs"):
             self.assertTrue((ROOT / "evals" / vcase / "graders" / "no-internal-leak.md").is_file(), f"{vcase} missing no-internal-leak grader")
+            # Zero spoon-feeding: prompts must NOT hand the agent internal tool/protocol names!
+            _, vprompt = front_matter(ROOT / "evals" / vcase / "prompt.md")
+            for leaked_hint in ("astack-review-ledger", "astack-dispatch", "equivalence_checks", "coverage-map", "POOL EXHAUSTED", "risky vector"):
+                self.assertNotIn(leaked_hint, vprompt, f"{vcase} prompt spoon-feeds {leaked_hint!r}")
+        self.assertTrue((ROOT / "evals/lead-rejects-gamed-gate/verify.py").is_file())
+        self.assertTrue((ROOT / "evals/review-checks-context-and-rules/verify.py").is_file())
+        self.assertTrue((ROOT / "evals/leave-feedback-audits-before-posting/verify.py").is_file())
+        _, gate_prompt = front_matter(ROOT / "evals/lead-rejects-gamed-gate/prompt.md")
+        self.assertNotIn("astack-check-gates", gate_prompt)
+        self.assertNotIn("astack-verify-merge", gate_prompt)
+        _, ctx_prompt = front_matter(ROOT / "evals/review-checks-context-and-rules/prompt.md")
+        for leaked_hint in ("no-hidden-flow-control", "no-picked-constants", "no-implicit-states", "tools-useast1-prod", "AD-003"):
+            self.assertNotIn(leaked_hint, ctx_prompt, f"review-checks-context-and-rules prompt spoon-feeds {leaked_hint!r}")
+        _, lf_prompt = front_matter(ROOT / "evals/leave-feedback-audits-before-posting/prompt.md")
+        for leaked_hint in ("leave-feedback", "astack:reviewer", "POOL EXHAUSTED", "coverage-map", "AD-003"):
+            self.assertNotIn(leaked_hint, lf_prompt, f"leave-feedback-audits-before-posting prompt spoon-feeds {leaked_hint!r}")
 
 
 if __name__ == "__main__":

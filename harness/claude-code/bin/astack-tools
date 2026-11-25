@@ -5,6 +5,9 @@ Usage:
   astack-tools doctor [--venv DIR] [--json]
   astack-tools install [--profile core|standard|all] [--modules LIST] [--from-github] [--python SPEC] [--venv DIR] [--dry-run]
   astack-tools link-bin [--bin-dir DIR] [--copy] [--dry-run]
+  astack-tools install-agents --harness HARNESS [--settings PATH] [--target DIR] [--dry-run]
+  astack-tools enable-claude-skills [--settings PATH] [--dry-run]
+  astack-tools skills-dir
   astack-tools python [--venv DIR] [ARGS...]
   astack-tools werkflow [--venv DIR] [ARGS...]
   astack-tools env [--venv DIR] [--shell sh|powershell|cmd]
@@ -313,6 +316,108 @@ def resolve_packages(profile: str, modules: str | None, from_github: bool) -> li
     return specs
 
 
+def _default_claude_settings_path() -> Path:
+    if env_path := os.environ.get("ASTACK_CLAUDE_SETTINGS"):
+        return Path(env_path).expanduser()
+    return Path.home() / ".claude" / "settings.json"
+
+
+def _is_skill_rule(entry: object) -> bool:
+    if not isinstance(entry, str):
+        return False
+    val = entry.strip()
+    return val == "Skill" or val.startswith("Skill(")
+
+
+def inspect_claude_settings(settings_path: Path | None = None) -> dict:
+    path = (settings_path or _default_claude_settings_path()).expanduser()
+    result = {
+        "settings_path": str(path),
+        "exists": False,
+        "readable": False,
+        "skill_blocked": False,
+        "skill_allowed": False,
+        "deny_matches": [],
+    }
+    try:
+        if not path.is_file():
+            return result
+        result["exists"] = True
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        result["readable"] = True
+    except (OSError, json.JSONDecodeError):
+        return result
+    if not isinstance(raw, dict):
+        return result
+    perms = raw.get("permissions")
+    if isinstance(perms, dict):
+        deny = perms.get("deny")
+        allow = perms.get("allow")
+        if isinstance(deny, list):
+            matches = [e for e in deny if _is_skill_rule(e)]
+            result["deny_matches"] = matches
+            result["skill_blocked"] = len(matches) > 0
+        if isinstance(allow, list):
+            result["skill_allowed"] = any(_is_skill_rule(e) for e in allow)
+    return result
+
+
+def cmd_enable_claude_skills(args) -> int:
+    path = Path(args.settings).expanduser() if args.settings else _default_claude_settings_path()
+    data: dict = {}
+    if path.exists():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(loaded, dict):
+                print(f"error: {path} is not a JSON object", file=sys.stderr)
+                return 2
+            data = loaded
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"error: failed to read {path}: {exc}", file=sys.stderr)
+            return 2
+
+    perms = data.get("permissions")
+    if not isinstance(perms, dict):
+        perms = {}
+        data["permissions"] = perms
+
+    deny = perms.get("deny")
+    removed: list[str] = []
+    if isinstance(deny, list):
+        kept = []
+        for item in deny:
+            if _is_skill_rule(item):
+                removed.append(str(item))
+            else:
+                kept.append(item)
+        perms["deny"] = kept
+
+    allow = perms.get("allow")
+    if not isinstance(allow, list):
+        allow = []
+        perms["allow"] = allow
+    added = False
+    if not any(_is_skill_rule(item) for item in allow):
+        allow.append("Skill")
+        added = True
+
+    summary = []
+    if removed:
+        summary.append(f"removed from permissions.deny: {', '.join(removed)}")
+    if added:
+        summary.append("added 'Skill' to permissions.allow")
+    if not summary:
+        summary.append("already enabled (no changes needed)")
+
+    if args.dry_run:
+        print(f"dry-run {path}: {'; '.join(summary)}")
+        return 0
+
+    _write_atomic(path, json.dumps(data, indent=2) + "\n")
+    print(f"updated {path}: {'; '.join(summary)}")
+    return 0
+
+
 def inspect_venv(venv: Path) -> dict:
     py = venv_bin(venv, "python")
     wf_cli = venv_bin(venv, "werkflow")
@@ -322,6 +427,7 @@ def inspect_venv(venv: Path) -> dict:
         compatible_python = find_python(None)
     on_path = shutil.which("astack-tools")
     harnesses = detect_harnesses()
+    claude_settings = inspect_claude_settings()
     py_exists = _is_file_safe(py)
     wf_exists = _is_file_safe(wf_cli)
     info = {
@@ -329,6 +435,7 @@ def inspect_venv(venv: Path) -> dict:
         "arch": normalized_arch(),
         "astack_tools_on_path": on_path,
         "harnesses": harnesses,
+        "claude_settings": claude_settings,
         "venv": str(venv),
         "venv_exists": py_exists,
         "python": str(py) if py_exists else None,
@@ -404,6 +511,15 @@ def cmd_doctor(args) -> int:
         print("\nDetected agent harnesses")
         for key, meta in info["harnesses"].items():
             print(f"  {key} ({meta['provider']}): {meta['path']}")
+    cs = info.get("claude_settings") or {}
+    if "claude" in info["harnesses"] and cs.get("readable"):
+        if cs.get("skill_blocked"):
+            blocked = ", ".join(cs.get("deny_matches") or [])
+            print(f"  claude Skill permission: BLOCKED ({blocked}) in {cs['settings_path']} — run `astack-tools enable-claude-skills`")
+        elif cs.get("skill_allowed"):
+            print(f"  claude Skill permission: enabled ({cs['settings_path']})")
+        else:
+            print(f"  claude Skill permission: default (run `astack-tools enable-claude-skills` to allow `Skill` explicitly in {cs['settings_path']})")
     print("\nCore packages")
     caps = info["capabilities"]
     orch_feats = []
@@ -698,12 +814,44 @@ def _default_agents_dir(harness: str) -> Path:
     raise ValueError(f"unsupported harness: {harness}")
 
 
+def _resolve_skills_dir(source_root: Path | None = None) -> Path | None:
+    root = (source_root or Path(__file__).resolve().parent.parent).resolve()
+    candidates = (root / "skills", root.parent / "skills")
+    for cand in candidates:
+        if cand.is_dir() and (
+            (cand / "go" / "SKILL.md").is_file() or (cand / "astack-go" / "SKILL.md").is_file()
+        ):
+            return cand.resolve()
+    return None
+
+
+def _stamp_skills_dir(body: str, skills_dir: Path | None) -> str:
+    if skills_dir is None:
+        return body
+    stamp = (
+        f"<!-- astack-installed-skills-dir -->\n"
+        f"Installed astack skills directory: `{skills_dir}` "
+        f"(open `<skill>/SKILL.md` directly with your file-reading tool; never call the Skill tool for hidden skills).\n\n"
+    )
+    return stamp + body
+
+
+def cmd_skills_dir() -> int:
+    skills_dir = _resolve_skills_dir()
+    if skills_dir is None:
+        print("error: could not locate bundled astack skills/ directory", file=sys.stderr)
+        return 1
+    print(skills_dir)
+    return 0
+
+
 def cmd_install_agents(args) -> int:
     source_root = Path(__file__).resolve().parent.parent
     agents = _load_bundled_agents(source_root)
     if not agents:
         print(f"error: no bundled agents found under {source_root / 'agents'}", file=sys.stderr)
         return 1
+    skills_dir = _resolve_skills_dir(source_root)
 
     settings_path = Path(args.settings).expanduser() if args.settings else _default_settings_path()
     settings: dict = {}
@@ -740,12 +888,14 @@ def cmd_install_agents(args) -> int:
                 if role not in agents:
                     continue
                 desc, body, _ = agents[role]
+                body = _stamp_skills_dir(body, skills_dir)
                 dst = target_dir / f"astack-{role}.toml"
                 actions.append(f"write {dst}")
                 if not args.dry_run:
                     _write_atomic(dst, _format_toml_agent(f"astack-{role}", desc, body, roles_cfg.get(role)))
             if "reviewer" in agents:
                 desc, body, _ = agents["reviewer"]
+                body = _stamp_skills_dir(body, skills_dir)
                 if not args.dry_run and target_dir.is_dir():
                     for stale in target_dir.glob("astack-reviewer*.toml"):
                         stale.unlink(missing_ok=True)
@@ -778,6 +928,7 @@ def cmd_install_agents(args) -> int:
                 if role not in agents:
                     continue
                 desc, body, disallowed = agents[role]
+                body = _stamp_skills_dir(body, skills_dir)
                 cfg = roles_cfg.get(role) if role != "reviewer" else None
                 dst = target_dir / f"astack-{role}.md"
                 actions.append(f"write {dst}")
@@ -866,6 +1017,14 @@ def main(argv=None) -> int:
     p_agents.add_argument("--target", help="override destination agents directory")
     p_agents.add_argument("--dry-run", action="store_true", help="print actions without writing files")
 
+    p_enable_cs = sub.add_parser(
+        "enable-claude-skills",
+        help="ensure Skill is not denied and is allowed in ~/.claude/settings.json so claude sessions can auto-discover astack skills",
+    )
+    p_enable_cs.add_argument("--settings", help="path to Claude settings.json (default: ~/.claude/settings.json)")
+    p_enable_cs.add_argument("--dry-run", action="store_true", help="print actions without modifying settings.json")
+
+    sub.add_parser("skills-dir", help="print the absolute path to the installed astack skills/ directory")
     sub.add_parser("python", help="run python inside the managed venv")
     sub.add_parser("werkflow", help="run the werkflow CLI inside the managed venv")
 
@@ -885,6 +1044,10 @@ def main(argv=None) -> int:
         return cmd_link_bin(args)
     if args.command == "install-agents":
         return cmd_install_agents(args)
+    if args.command == "enable-claude-skills":
+        return cmd_enable_claude_skills(args)
+    if args.command == "skills-dir":
+        return cmd_skills_dir()
     if args.command == "env":
         return cmd_env(args)
     if args.command == "path":

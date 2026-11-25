@@ -1,6 +1,6 @@
 ---
 name: lead
-description: "Execute a reviewed dagify task graph (or multi-step program) with parallel time-boxed astack:worker subagents in isolated git worktrees, verified merges, and durable logs. Use for /astack:lead or routed from /astack:go."
+description: "Execute a reviewed dagify task graph (or multi-step program) with parallel time-boxed astack:worker, reviewer, and researcher subagents in isolated git worktrees, verified merges, and durable logs. Use for /astack:lead, coordinating parallel work, or verifying worker branches before merge."
 disable-model-invocation: true
 ---
 
@@ -16,39 +16,39 @@ Run the astack scripts (`astack-status`, `astack-verify-merge`, `astack-check-ga
 
 ## Settings
 
-Read `~/.config/astack/settings.json`, written by `/astack:setup`: `worker_minutes`, `wind_down_minutes`, `check_in_minutes` (defaults `60`, `5`, `5`), optional `roles` (`lead`, `worker`, `researcher`, each with `provider`, `model`, `effort`, optional `harness`), and `reviewer_pool` (the user-approved list of `{provider, model, effort}` reviewer models with optional `harness`—which also decides which vendors see the code). If missing, use the defaults (treating the active session model as a 1-model `reviewer_pool`) and mention that once. Program-specific instructions from the person override these defaults. Apply each role's or pool entry's configured `provider` / `model` / `effort` / `harness`: pass `model` / `effort` to the host subagent tool when the host supports it natively, or dispatch via `astack-dispatch run` (`claude`, `codex`, `agy`, `cursor-agent`/`agent`, `devin`, `pi`, `gemini`, or custom CLI) when cross-harness or cross-provider; report any unreachable approved model rather than silently substituting another model.
+Read `~/.config/astack/settings.json`, written by `/astack:setup`: timing (`worker_minutes`, `reviewer_minutes`, `researcher_minutes`, `wind_down_minutes`, `check_in_minutes`, defaults `60 / 30 / 30 / 5 / 5`; fall back to `worker_minutes` if `reviewer_minutes` or `researcher_minutes` is omitted), optional `roles` (`lead`, `worker`, `researcher`, each with `provider`, `model`, `effort`, optional `harness`), and `reviewer_pool` (the user-approved list of `{provider, model, effort}` reviewer models with optional `harness`—which also decides which vendors see the code). If missing, use the defaults (treating the active session model as a 1-model `reviewer_pool`) and mention that once. Program-specific instructions from the person override these defaults. Apply each role's or pool entry's configured `provider` / `model` / `effort` / `harness`: pass `model` / `effort` to the host subagent tool when the host supports it natively, or dispatch via `astack-dispatch run` (`claude`, `codex`, `agy`, `cursor-agent`/`agent`, `devin`, `pi`, `gemini`, or custom CLI, automatically enforcing the role's configured time limit via `--settings` / `--timeout`) when cross-harness or cross-provider; report any unreachable approved model rather than silently substituting another model.
 
 ## Set up the program
 
 1. Restate the goal in 1–2 sentences (what the person gets and how it's verified). Create the program folder outside the repository (`~/.cache/astack/<program>/` unless told otherwise) and copy `RULES.md` and `LANES.md` from the templates so they survive workers and context resets.
 2. Plan multi-task work as a reviewed dependency DAG (**dagify**) saved in the program folder: small tasks with acceptance criteria, tests, non-overlapping file boundaries, and dependency edges ordered so work runs **work -> robust -> fast** (failing test before fix, baseline before optimization). Start immediately without waiting for approval—misreads are cheap to correct via directives.
 3. If the graph should run unattended, repeat, or recur without an agent steering each step, turn it into an automated workflow (**workflow-this**).
-4. Fill in `RULES.md` with Rule 0 first: goal, lint/test checks, merge target, branch prefix, time limit, build environment, path to the astack `skills/` directory (so workers can read hidden skills by path), and project rules. Put the repository's absolute path in `LANES.md`'s header. Every worker reads `RULES.md` first.
-5. Schedule a check-in every `check_in_minutes` with `CronCreate` (or `/loop`). A worker's end wakes you; drift and the clock don't.
+4. Fill in `RULES.md` with Rule 0 first: goal, lint/test checks, merge target, branch prefix, per-role time limits (`worker_minutes`, `reviewer_minutes`, `researcher_minutes`, `wind_down_minutes`), build environment, path to the astack `skills/` directory (so workers, reviewers, and researchers can read hidden skills by path), and project rules. Put the repository's absolute path in `LANES.md`'s header. Every worker, reviewer, and researcher reads `RULES.md` first.
+5. Schedule a check-in every `check_in_minutes` with `CronCreate` (or `/loop`). A worker's end wakes you; drift and the clock don't. Every check-in monitors **all active subagents—workers, reviewers, and researchers**—not just workers.
 6. If the person tracks work in an issue tracker, create and maintain one issue per DAG task (**track-it**). Only the lead updates the tracker.
 
-## Start a worker
+## Start a worker, reviewer, or researcher
 
-Dispatch only tasks whose DAG dependencies are verified closed, running independent tasks in parallel without overlapping writable paths.
+Dispatch only tasks whose DAG dependencies are verified closed, running independent tasks in parallel without overlapping writable paths. Apply the configured time limit (`worker_minutes`, `reviewer_minutes`, or `researcher_minutes`) and `wind_down_minutes` to **every** spawned worker, reviewer, and researcher:
 
-1. Create an isolated worktree: `git worktree add <program folder>/<worker> -b <prefix>/<lane>`. For a successor, remove the old worktree first and create a new one on the task's branch so workers never overwrite each other.
-2. Write its brief from `brief.md`: deliverable, done-when, out of scope, writable paths, worktree and branch, `RULES.md` and report paths, and start/wind-down/end UTC timestamps from `date -u`.
-3. Spawn it with `subagent_type: "astack:worker"` in the background, passing the brief and `roles.worker` (`model`, `effort`) from settings when set.
-4. Log the start in `LANES.md`. Keep one worker per task; workers never spawn subagents.
+1. For a **worker**, create an isolated worktree: `git worktree add <program folder>/<worker> -b <prefix>/<lane>`. For a successor, remove the old worktree first and create a new one on the task's branch so workers never overwrite each other.
+2. Write its brief from `brief.md` (or a structured brief for a reviewer/researcher): **on line 1, put the resolved absolute path to the astack `skills/` directory** (from `astack-tools skills-dir` or parent of this skill—never relative `..`), plus deliverable or review/research scope, done-when or vector/questions, out of scope, writable paths (workers) or read-only/repro folder (reviewers/researchers), linked PR/issue/doc references, `RULES.md` and report paths, and `Started` / `Wind down at` / `End by` UTC timestamps from `date -u`.
+3. Spawn it with `subagent_type: "astack:worker"` in the background, passing the brief and `roles.worker` (`model`, `effort`) from settings when set. Spawn reviewers (`astack:reviewer`, per **review** and `reviewer_pool`) and researchers (`astack:researcher`, per `roles.researcher`) in the background with their UTC timestamps too (and `--settings <settings>` / `--timeout` when using `astack-dispatch run`).
+4. Log every start in `LANES.md`—workers (`branch ...`), reviewers (`role reviewer | model <p>/<m> | wind-down <UTC> | ends <UTC>`), and researchers (`role researcher | wind-down <UTC> | ends <UTC>`)—so `astack-status` tracks every active clock. Keep one worker per task; workers, reviewers, and researchers never spawn subagents.
 
 ## Check in
 
-Run `astack-status`. For each running worker:
+Run `astack-status`. For every running **worker, reviewer, and researcher**:
 
-- **Clock:** at wind-down, remind it to wrap up. Past the limit, tell it to merge, push, report, and exit; if it doesn't, stop it with `TaskStop` and start a successor from its branch.
-- **Progress:** judge by actual commits on its branch, not prose.
-- **Drift:** steer it back if it starts benchmarking before code works, producing failure lists instead of fixes, adding extra units, or chasing side investigations.
+- **Clock:** at wind-down, remind it to wrap up and return its report (verified work/findings so far). Past the limit, tell it to finish reporting (workers: merge/push first) and exit; if it doesn't, stop it with `TaskStop` and start a successor from its branch. For an overdue reviewer or researcher, stop it, harvest any partial reproduction scripts or verified findings, log `ended <name>`, and dispatch a fresh replacement with narrowed scope if still needed.
+- **Progress:** judge workers by actual commits on their branch (not prose), reviewers by reproduction scripts and verified findings on disk, and researchers by verified citations/evidence—not idle turns.
+- **Drift:** steer workers back if they start benchmarking before code works, producing failure lists instead of fixes, adding extra units, or chasing side investigations. Steer reviewers back if they touch code under review, speculate without running code, ignore coding rules/linked context, or emit lazy questions instead of checking the repo/PR. Steer researchers back if they edit files or rabbit-hole outside the brief's questions.
 
-Don't message workers just to ask how it's going—check their branch instead.
+Don't message agents just to ask how it's going—check their branch, artifacts, and `astack-status` clock instead.
 
 ## Steer
 
-Write one short, self-contained message: stop X, do Y, because Z. Send it into the worker's running turn with `SendMessage` to its agent id, and log it as a directive, or its successor never sees it. Never steer to expand scope.
+Write one short, self-contained message: stop X, do Y, because Z. Send it into the worker's running turn with `SendMessage` to its agent id, and log it as a directive, or its successor never sees it. (Use the same mechanism for running reviewers and researchers.) Never steer to expand scope.
 
 ## When a worker ends
 
@@ -81,8 +81,8 @@ Keep the same task, deliverable, and scope. Build the successor's brief from the
 
 ## Report
 
-Use plain language, losses first: proven high-signal issues and what didn't land and why, what landed (verified SHAs), status of each task in the DAG, key decisions made and their evidence, and any open questions waiting on the person. Never leak internal vectored-review status or process bookkeeping (pool exhaustion labels, coverage-map paths, which or how many reviewer models ran, vector-assignment bookkeeping, or capture–recapture formulas) to the user; if a risky change hasn't converged, frame it plainly as the proven bugs found, likely remaining blocking bugs with their range, and the choice to approve more models or accept the risk.
+Use plain language, losses first: proven high-signal issues and what didn't land and why, what landed (verified SHAs), status of each task in the DAG, key decisions made and their evidence, and any open questions waiting on the person. Never leak internal vectored-review status or process bookkeeping (pool exhaustion labels, coverage-map paths, which or how many reviewer models ran, vector-assignment bookkeeping, or capture–recapture formulas) to the user; if a risky change hasn't converged, frame it plainly as the proven bugs found, likely remaining blocking bugs with their range, and the choice to approve more models or accept the risk. Before posting any review comment to a PR for human review (e.g., GitHub), run **leave-feedback** and spin up an independent reviewer agent to audit the comment for clarity, actionability, surrounding-context verification, and zero leaked internal thinking or bare SHAs.
 
-Referenced skills: `dagify` (`${CLAUDE_SKILL_DIR}/../dagify/SKILL.md`), `workflow-this` (`${CLAUDE_SKILL_DIR}/../workflow-this/SKILL.md`), `track-it` (`${CLAUDE_SKILL_DIR}/../track-it/SKILL.md`), `review` (`${CLAUDE_SKILL_DIR}/../review/SKILL.md`), `blast-radius` (`${CLAUDE_SKILL_DIR}/../blast-radius/SKILL.md`), `watch-pr` (`${CLAUDE_SKILL_DIR}/../watch-pr/SKILL.md`), `bugs-by-scenario` (`${CLAUDE_SKILL_DIR}/../bugs-by-scenario/SKILL.md`), `diagnose` (`${CLAUDE_SKILL_DIR}/../diagnose/SKILL.md`), `research-this` (`${CLAUDE_SKILL_DIR}/../research-this/SKILL.md`), `play-with-me` (`${CLAUDE_SKILL_DIR}/../play-with-me/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `dagify` (`${CLAUDE_SKILL_DIR}/../dagify/SKILL.md`), `workflow-this` (`${CLAUDE_SKILL_DIR}/../workflow-this/SKILL.md`), `track-it` (`${CLAUDE_SKILL_DIR}/../track-it/SKILL.md`), `review` (`${CLAUDE_SKILL_DIR}/../review/SKILL.md`), `blast-radius` (`${CLAUDE_SKILL_DIR}/../blast-radius/SKILL.md`), `watch-pr` (`${CLAUDE_SKILL_DIR}/../watch-pr/SKILL.md`), `bugs-by-scenario` (`${CLAUDE_SKILL_DIR}/../bugs-by-scenario/SKILL.md`), `diagnose` (`${CLAUDE_SKILL_DIR}/../diagnose/SKILL.md`), `research-this` (`${CLAUDE_SKILL_DIR}/../research-this/SKILL.md`), `play-with-me` (`${CLAUDE_SKILL_DIR}/../play-with-me/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`), `leave-feedback` (`${CLAUDE_SKILL_DIR}/../leave-feedback/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's Orchestrate, autopilot-full, and figure-it-out playbooks and poteto-mode Subagents section (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

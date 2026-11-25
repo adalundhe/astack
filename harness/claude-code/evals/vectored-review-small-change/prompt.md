@@ -1,7 +1,9 @@
 ---
-description: "A small, isolated low-risk change under Go mode spawns one astack:reviewer agent (preferring a non-worker model), stops on a clean single review, saves the internal coverage map to disk, and returns a concise user-facing summary without leaking internal ledger status."
-expected_outcome: "Reads review/SKILL.md, classifies the change as low-risk, spawns one astack:reviewer agent on sonnet, stops cleanly via astack-review-ledger (saving internal coverage map to program/coverage-map.md), and returns a clean user-facing summary with zero leaked internal ledger status."
+description: "Unprompted review of a small, clean change with an intentional non-bug preservation detail: tests whether the skill itself classifies it low-risk, spawns exactly one non-worker reviewer, does not fabricate false positives, uses astack-review-ledger, and gives a clean summary with zero leaked internal status."
+expected_outcome: "Follows review/SKILL.md without prompt spoon-feeding: spawns exactly one astack:reviewer on sonnet (not haiku), runs astack-review-ledger, confirms no blocking bugs without raising false positives on preserved tabs/newlines or apostrophes, leaves repo/ untouched, and leaks zero internal status."
+max_turns: 12
+timeout_seconds: 300
 allowed_tools: [Read, Glob, Grep, Bash, Agent]
 ---
 
-`/astack:go` Run a vectored review of the branch `lane/collapse-spaces` vs `main` in `repo/` (diff also saved at `program/change.diff`, base files at `program/base/`) using ONLY the approved `reviewer_pool` in `program/settings.json`. The worker built this change on `anthropic/haiku`. Review it as a single vector, run `astack-review-ledger` saving the internal coverage map to `program/coverage-map.md`, and give me a concise user-facing summary without leaking internal ledger status codes.
+`/astack:go` Review branch `lane/collapse-spaces` against `main` in `repo/` before we merge it (diff saved at `program/change.diff`, base files at `program/base/`). Settings are in `program/settings.json`; this branch was built by the worker configured there.

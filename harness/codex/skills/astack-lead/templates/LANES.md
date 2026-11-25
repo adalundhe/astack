@@ -13,12 +13,16 @@ time from memory.
 
     started <worker> on <lane> (<agent id>) | branch <branch> | wind-down <UTC> | ends <UTC> | deliverable: <one line> | done when: <evidence>
     started <worker> on <lane> (<agent id>) | successor of <worker> | branch <branch> | wind-down <UTC> | ends <UTC> | deliverable: <one line> | done when: <evidence>
-    steer <worker>: <the directive>
+    started <reviewer> on <vector> (<agent id>) | role reviewer | model <provider>/<model> | wind-down <UTC> | ends <UTC> | scope: <scope>
+    started <researcher> on <topic> (<agent id>) | role researcher | wind-down <UTC> | ends <UTC> | question: <one line>
+    steer <agent>: <the directive>
     asked: "<the question, as asked>"
-    person: "<their words, verbatim>" -> <what changed; workers told>
+    person: "<their words, verbatim>" -> <what changed; agents told>
     decided: <the question> -> <the choice> (settled by <what>; evidence: <where>)
-    rules rev: <what changed, and why>; told: <workers>
+    rules rev: <what changed, and why>; told: <agents>
     ended <worker>: MERGED <sha> (verified) | NOT MERGED <branch>@<sha>; losses: <...>
+    ended <reviewer>: <VERDICT>; blocking=<N> minor=<N> dropped=<N>
+    ended <researcher>: <summary>; gaps: <...>
     closed <lane>: <the done-when, and its evidence>
     finding <worker>: <one line>
     correction: <what an earlier line got wrong, and the right value>

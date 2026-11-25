@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Show an astack program's running workers, their clocks and their last commits.
+"""Show an astack program's running workers, reviewers, and researchers, their clocks, and latest commits.
 
 Usage: astack-status [LANES.md | PROGRAM_FOLDER] [--repo DIR] [--line]
 
@@ -45,7 +45,7 @@ def find_log(arg):
 
 
 def read_log(path):
-    workers, lanes, asks, repository = {}, {}, [], None
+    agents, lanes, asks, repository = {}, {}, [], None
     in_log = False
     for raw in path.read_text().splitlines():
         if raw.startswith("Repository:") and not in_log:
@@ -60,24 +60,45 @@ def read_log(path):
         if started := STARTED.match(rest):
             fields = {}
             for item in started["fields"].split(" | "):
-                key, _, value = item.strip().partition(" ")
-                if key in ("branch", "wind-down", "ends"):
+                text = item.strip()
+                if not text:
+                    continue
+                if text.startswith("successor of "):
+                    fields["successor of"] = text[len("successor of "):].strip()
+                    continue
+                if text.startswith("scope:"):
+                    fields["scope"] = text.split(":", 1)[1].strip()
+                    continue
+                if text.startswith("question:"):
+                    fields["question"] = text.split(":", 1)[1].strip()
+                    continue
+                key, _, value = text.partition(" ")
+                if key in ("branch", "wind-down", "ends", "role", "model"):
                     fields[key] = value.strip()
-                elif item.strip().startswith("successor of "):
-                    fields["successor of"] = item.strip()[len("successor of "):]
-            worker = {"lane": started["lane"], "agent": started["agent"], "started": when, "ended": None, **fields}
-            workers[started["worker"]] = worker
-            lanes.setdefault(started["lane"], {"workers": 0, "closed": None})["workers"] += 1
+            role = fields.get("role", "worker").lower()
+            if role not in ("worker", "reviewer", "researcher"):
+                role = "worker"
+            entry = {
+                "lane": started["lane"],
+                "agent": started["agent"],
+                "role": role,
+                "started": when,
+                "ended": None,
+                **fields,
+            }
+            agents[started["worker"]] = entry
+            if role == "worker":
+                lanes.setdefault(started["lane"], {"workers": 0, "closed": None})["workers"] += 1
         elif ended := ENDED.match(rest):
-            if ended["worker"] in workers:
-                workers[ended["worker"]]["ended"] = when
+            if ended["worker"] in agents:
+                agents[ended["worker"]]["ended"] = when
         elif closed := CLOSED.match(rest):
             lanes.setdefault(closed["lane"], {"workers": 0, "closed": None})["closed"] = when
         elif rest.startswith("asked:"):
             asks.append((when, rest))
         elif rest.startswith("person:"):
             asks = []
-    return workers, lanes, asks, repository
+    return agents, lanes, asks, repository
 
 
 def span(minutes):
@@ -85,14 +106,14 @@ def span(minutes):
     return f"{minutes // 60}h{minutes % 60:02d}m" if minutes >= 60 else f"{minutes}m"
 
 
-def clock(worker, now):
-    parts = [f"started {worker['started']:%H:%MZ}"]
+def clock(agent, now):
+    parts = [f"started {agent['started']:%H:%MZ}"]
     for key in ("wind-down", "ends"):
-        if key not in worker:
+        if key not in agent:
             continue
-        at = maybe_time(worker[key])
+        at = maybe_time(agent[key])
         if not at:
-            parts.append(f"{key} {worker[key]}")
+            parts.append(f"{key} {agent[key]}")
             continue
         left = (at - now).total_seconds() / 60
         parts.append(f"{key} {at:%H:%MZ} ({'in ' + span(left) if left >= 0 else 'PAST by ' + span(left)})")
@@ -113,7 +134,7 @@ def last_commit(repo, branch, now):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Show an astack program's running workers.")
+    parser = argparse.ArgumentParser(description="Show an astack program's running workers, reviewers, and researchers.")
     parser.add_argument("path", nargs="?")
     parser.add_argument("--repo")
     parser.add_argument("--line", action="store_true", help="print one summary line")
@@ -123,17 +144,31 @@ def main():
     if not log or not log.is_file():
         print("astack: no lane log found" if args.line else "No astack lane log found.")
         return 1
-    workers, lanes, asks, repository = read_log(log)
+    agents, lanes, asks, repository = read_log(log)
     repo = args.repo or repository or "."
     now = datetime.now(timezone.utc)
-    running = {name: w for name, w in workers.items() if not w["ended"]}
+    running = {name: a for name, a in agents.items() if not a["ended"]}
+    running_workers = {n: a for n, a in running.items() if a["role"] == "worker"}
+    running_reviewers = {n: a for n, a in running.items() if a["role"] == "reviewer"}
+    running_researchers = {n: a for n, a in running.items() if a["role"] == "researcher"}
     program = log.parent.name
 
     if args.line:
-        ends = sorted(at for w in running.values() if (at := maybe_time(w.get("ends"))))
+        ends = sorted(at for a in running.values() if (at := maybe_time(a.get("ends"))))
         late = sum(1 for at in ends if at < now)
         upcoming = [at for at in ends if at >= now]
-        summary = [f"astack {program}: {len(running)} running"]
+        if running_reviewers or running_researchers:
+            breakdown = ", ".join(
+                part for part in (
+                    f"{len(running_workers)}w" if running_workers else "",
+                    f"{len(running_reviewers)}r" if running_reviewers else "",
+                    f"{len(running_researchers)}res" if running_researchers else "",
+                )
+                if part
+            )
+            summary = [f"astack {program}: {len(running)} running ({breakdown})"]
+        else:
+            summary = [f"astack {program}: {len(running)} running"]
         if upcoming:
             summary.append(f"next end {upcoming[0]:%H:%MZ} ({span((upcoming[0] - now).total_seconds() / 60)})")
         if late:
@@ -144,12 +179,30 @@ def main():
         return 0
 
     print(f"astack status at {now:{STAMP_FORMAT}}: {program} ({log})")
-    print("\nRunning workers" if running else "\nNo workers running.")
-    for name, worker in sorted(running.items(), key=lambda item: item[1]["started"]):
-        successor = f", successor of {worker['successor of']}" if "successor of" in worker else ""
-        print(f"  {name} on {worker['lane']} (agent {worker['agent'] or '?'}{successor})")
-        print(f"    {clock(worker, now)}")
-        print(f"    {last_commit(repo, worker.get('branch'), now)}")
+    if not running:
+        print("\nNo active agents (workers, reviewers, or researchers).")
+    if running_workers:
+        print("\nRunning workers")
+        for name, worker in sorted(running_workers.items(), key=lambda item: item[1]["started"]):
+            successor = f", successor of {worker['successor of']}" if "successor of" in worker else ""
+            print(f"  {name} on {worker['lane']} (agent {worker['agent'] or '?'}{successor})")
+            print(f"    {clock(worker, now)}")
+            print(f"    {last_commit(repo, worker.get('branch'), now)}")
+    if running_reviewers:
+        print("\nRunning reviewers")
+        for name, rev in sorted(running_reviewers.items(), key=lambda item: item[1]["started"]):
+            model = f", model {rev['model']}" if rev.get("model") else ""
+            print(f"  {name} on {rev['lane']} (agent {rev['agent'] or '?'}{model})")
+            print(f"    {clock(rev, now)}")
+            if rev.get("scope"):
+                print(f"    scope: {rev['scope']}")
+    if running_researchers:
+        print("\nRunning researchers")
+        for name, res in sorted(running_researchers.items(), key=lambda item: item[1]["started"]):
+            print(f"  {name} on {res['lane']} (agent {res['agent'] or '?'})")
+            print(f"    {clock(res, now)}")
+            if res.get("question"):
+                print(f"    question: {res['question']}")
     if lanes:
         print("\nLanes")
         for lane, state in sorted(lanes.items()):

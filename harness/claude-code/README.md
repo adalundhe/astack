@@ -79,8 +79,9 @@ measured against the current release on the same machine. Merges go to main afte
 
 ### Code review and PRs
 
-- `review`: splits a change into risk-classified vectors, runs blind adversarial reviewers from `reviewer_pool` in separate worktrees (no cap), counts only proven blocking bugs with fix-equivalence overlap checks, stops on cautious capture–recapture / $M_h$ jackknife bounds (`astack-review-ledger`), holds risky non-converged changes for human sign-off, and relays only proven high-signal issues without leaking internal ledger status.
-- `adversarial-review`: single-reviewer playbook—reproduce before, confirm fix, attack edge cases, prove every finding.
+- `review`: splits a change into risk-classified vectors, gathers PR/issue/discussion/ADR context first, runs time-boxed blind adversarial reviewers from `reviewer_pool` enforcing coding rules and disciplines, counts only proven blocking bugs with fix-equivalence overlap checks, stops on cautious capture–recapture / $M_h$ jackknife bounds (`astack-review-ledger`), holds risky non-converged changes for human sign-off, and relays only proven high-signal issues plainly without leaking internal ledger status.
+- `adversarial-review`: single-reviewer playbook—research linked context first, enforce coding rules and disciplines, state contradictions plainly with both sides, reproduce before/after, attack edge cases, and prove every finding.
+- `leave-feedback`: drafts, independently audits via a second reviewer agent, and posts clear, concise, actionable human-facing PR comments—verifying surrounding PR/issue/doc context was inspected and blocking cryptic SHAs, awkward/stilted/rambling prose, missing actions, or leaked internal thinking before posting.
 - `challenge`: peer-to-peer adversarial interrogation of hypotheses, repeated fixes, diagnoses, designs, or code.
 - `worrywart`: pushes back on wrong or unproven review points with concrete evidence.
 - `blast-radius`: traces indirect breakage outside a diff and runs code to verify safety.
@@ -164,7 +165,7 @@ Indexed in `go` and checked by `review`:
 
 - **Agents:** `lead` (program coordinator & merge/review gatekeeper), `worker` (builds one task within its time limit, reports losses first), `reviewer` (read-only adversarial vectored review), and `researcher` (read-only codebase walks & A–F primary-source research)—shipped as full native agents across Claude Code (`.md`), Codex (`.toml`), Antigravity (`.md` with `subagent`/`mainAgent`), Cursor (`.md` with `is_background`), Devin (`.md`), and Pi (`.md` with `tools`/`readOnly`), and installable via `astack-tools install-agents`.
 - **CLI scripts (`bin/`):**
-  - `astack-status`: active workers, timers, latest branch commits, and open questions (`--line` for status bars).
+  - `astack-status`: active workers, reviewers, and researchers, their timers/wind-down clocks, latest branch commits, and open questions (`--line` for status bars).
   - `astack-decisions`: query `decided:` entries and verbatim `person:` directives (`--query`, `--settled-by`, `--since`, `--json`).
   - `astack-verify-merge`: verifies a claimed commit is on the target branch, audits strictly `--base <last-verified-target>..<sha>` (or every parent side of a merge commit when `--base` is omitted, never trusting commit messages; fails closed on checker errors; `--strict-gates` blocks without countersign), and can run checks in a clean worktree.
   - `astack-check-gates`: structural tripwire auditing a git range (`<base>..<head>`) or commit for deleted/renamed tests, skips, lint/typecheck suppressions, assertion downgrades, cross-diff test swaps, tautologies, loosened numeric tolerances, and CI/lint/gate config edits.
@@ -173,7 +174,7 @@ Indexed in `go` and checked by `review`:
   - `astack-statechart`: runs TLC in `-tool` mode with `-dump dot,actionlabels`, single-worker minimum-depth BFS default (`--workers 1`), `--timeout`, and `--no-deadlock` (or parses DOT/trace output offline, rejecting malformed input), follows TLC exit status strictly, preserves multiple broken invariants per state, finds shortest paths via full untruncated state matching, and renders collision-safe Mermaid `stateDiagram-v2` (tested against 40 real `.tla`/`.cfg` specs recorded with TLC 2.19 and re-checked live in CI, plus a 10-spec live BFS differential fuzzer).
   - `astack-stamp` (+ post-edit hook): timestamps new lines appended to `LANES.md`.
   - `astack-tools`: links `astack-*` CLI scripts onto `PATH` (`link-bin`), provisions Python `>=3.11` via `uv` across macOS/Linux/Windows (arm64 & amd64), and manages an isolated venv for `taskex`, `orchestral`, and `werkflow` (`doctor`, `install`, `link-bin`, `python`, `werkflow`, `env`, `path`).
-- **Evals & CI:** 15 multi-harness evals under `evals/` (worker wind-down/reports, Go-mode routing & dedicated worker/reviewer agent spawning, vectored concurrency, low-risk, cross-harness, and planted-bug outcome reviews, 6 coding rules), runnable on Claude Code, Codex, Antigravity (`agy`), Cursor CLI, Devin, or Pi via `python3 scripts/eval.py --harness <name>`, plus GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).
+- **Evals & CI:** 19 multi-harness, zero-hint outcome evals under `evals/` (cold-start skill discovery without `/astack:go`, worker wind-down/reports, Go-mode routing & dedicated agent spawning, multi-file planted-bug & decoy review, cross-harness review, context/contradiction/coding-rule review, pre-post PR comment auditing via `leave-feedback`, multi-file gamed-gate rejection, 6 coding rules) with executable workspace verifiers (`verify.py`) and `--ablation with-without`, runnable on Claude Code, Codex, Antigravity (`agy`), Cursor CLI, Devin, or Pi via `python3 scripts/eval.py --harness <name>`, plus GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).
 
 ## Working on astack
 

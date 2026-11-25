@@ -397,6 +397,48 @@ def resolve_entry_route(
     }
 
 
+def _bundled_skills_dir() -> Path | None:
+    root = Path(__file__).resolve().parent.parent
+    for cand in (root / "skills", root.parent / "skills"):
+        if cand.is_dir() and (
+            (cand / "go" / "SKILL.md").is_file() or (cand / "astack-go" / "SKILL.md").is_file()
+        ):
+            return cand.resolve()
+    return None
+
+
+def _bundled_claude_plugin_dir() -> Path | None:
+    root = Path(__file__).resolve().parent.parent
+    for cand in (root, root / "harness" / "claude-code"):
+        if (cand / ".claude-plugin" / "plugin.json").is_file():
+            return cand.resolve()
+    return None
+
+
+def _bundled_agent_prompt_file(role: str) -> Path | None:
+    root = Path(__file__).resolve().parent.parent
+    agents_dir = root / "agents"
+    for name in (f"astack-{role}.md", f"{role}.md", f"astack-{role}.toml"):
+        cand = agents_dir / name
+        if cand.is_file():
+            return cand.resolve()
+    return None
+
+
+def _read_system_prompt_body(path: Path) -> str:
+    raw = path.read_text(encoding="utf-8").strip()
+    if path.suffix == ".toml":
+        import re
+        match = re.search(r"developer_instructions\s*=\s*'''\n(.*?)\n'''", raw, re.S)
+        if match:
+            return match.group(1).strip()
+    if raw.startswith("---\n"):
+        parts = raw.split("\n---\n", 1)
+        if len(parts) == 2:
+            return parts[1].strip()
+    return raw
+
+
 def build_command(
     harness: str,
     binary: str,
@@ -408,14 +450,26 @@ def build_command(
     prompt_text: str,
     role: str = "reviewer",
     system_prompt_file: Path | None = None,
+    skills_dir: Path | None = None,
     custom_command: list[str] | None = None,
     out_file: Path | None = None,
 ) -> tuple[list[str], str | None]:
     """Build exact non-interactive (argv, stdin_text) for the target harness."""
-    combined_prompt = prompt_text
+    effective_prompt = prompt_text
+    if skills_dir is not None and str(skills_dir) not in prompt_text:
+        go_name = "astack-go" if (skills_dir / "astack-go" / "SKILL.md").is_file() else "go"
+        effective_prompt = (
+            f"ASTACK_SKILLS_DIR: {skills_dir}\n"
+            f"Astack hides leaf skills from your skill catalog; read `{skills_dir}/{go_name}/SKILL.md` "
+            f"and every applicable `<skill>/SKILL.md` directly with your file-reading tool "
+            f"(never call the Skill tool for hidden skills).\n\n"
+            f"{prompt_text}"
+        )
+
+    combined_prompt = effective_prompt
     if system_prompt_file is not None and harness != "claude":
-        sys_body = system_prompt_file.read_text(encoding="utf-8").strip()
-        combined_prompt = f"{sys_body}\n\n---\n\n{prompt_text}"
+        sys_body = _read_system_prompt_body(system_prompt_file)
+        combined_prompt = f"{sys_body}\n\n---\n\n{effective_prompt}"
 
     if harness == "custom":
         if not custom_command:
@@ -439,15 +493,20 @@ def build_command(
 
     if harness == "claude":
         argv = [binary, "-p", "--no-session-persistence", "--output-format", "text"]
+        if plugin_dir := _bundled_claude_plugin_dir():
+            argv.extend(["--plugin-dir", str(plugin_dir)])
         if not is_default_model:
             argv.extend(["--model", model])
         if effort:
             argv.extend(["--effort", effort])
-        if system_prompt_file is not None:
+        if system_prompt_file is not None and system_prompt_file.suffix != ".toml":
             argv.extend(["--append-system-prompt-file", str(system_prompt_file)])
+        elif system_prompt_file is not None:
+            effective_prompt = f"{_read_system_prompt_body(system_prompt_file)}\n\n---\n\n{effective_prompt}"
         if role in ("reviewer", "researcher"):
+            # Never block Skill or Read — subagents need Skill/Read to locate and load astack skills.
             argv.extend(["--disallowedTools", "Agent,AskUserQuestion" + (",Edit,Write,MultiEdit,NotebookEdit" if role == "researcher" else "")])
-        return argv, prompt_text
+        return argv, effective_prompt
 
     if harness == "codex":
         argv = [
@@ -587,6 +646,32 @@ def _find_approved_entry(pool: list[dict[str, Any]], provider: str, model: str, 
     return matches[0]
 
 
+def _load_settings_dict(settings_path: Path) -> dict[str, Any]:
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise DispatchError(f"settings file not found: {settings_path}") from exc
+    except (OSError, json.JSONDecodeError) as exc:
+        raise DispatchError(f"failed to read settings {settings_path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise DispatchError(f"settings file {settings_path} must be a JSON object")
+    return data
+
+
+def _resolve_role_timeout_seconds(settings_data: dict[str, Any], role: str) -> float | None:
+    """Resolve hard timeout (seconds) for worker/reviewer/researcher from settings.json."""
+    key_order = {
+        "worker": ("worker_minutes",),
+        "reviewer": ("reviewer_minutes", "worker_minutes"),
+        "researcher": ("researcher_minutes", "worker_minutes"),
+    }.get(role, ())
+    for key in key_order:
+        val = settings_data.get(key)
+        if isinstance(val, (int, float)) and not isinstance(val, bool) and val > 0:
+            return float(val) * 60.0
+    return None
+
+
 def cmd_run(args) -> int:
     try:
         provider = _non_empty_str(args.provider, "--provider")
@@ -598,20 +683,40 @@ def cmd_run(args) -> int:
     effort = (args.effort or "").strip()
     harness = (args.harness or "").strip().lower()
     custom_command: list[str] | None = None
+    timeout_s: float | None = args.timeout
 
     if args.settings:
+        settings_path = Path(args.settings).expanduser()
         try:
-            pool = load_pool(Path(args.settings).expanduser(), None)
-            approved = _find_approved_entry(pool, provider, model, harness)
+            settings_data = _load_settings_dict(settings_path)
+            if args.role == "reviewer":
+                pool = load_pool(settings_path, None)
+                approved = _find_approved_entry(pool, provider, model, harness)
+                if not effort and approved.get("effort"):
+                    effort = approved["effort"]
+                if not harness and approved.get("harness"):
+                    harness = approved["harness"]
+                if approved.get("command"):
+                    custom_command = approved["command"]
+            else:
+                roles = settings_data.get("roles")
+                if isinstance(roles, dict) and isinstance(roles.get(args.role), dict):
+                    role_cfg = roles[args.role]
+                    if (
+                        str(role_cfg.get("provider", "")).lower() == provider.lower()
+                        and str(role_cfg.get("model", "")) == model
+                    ):
+                        if not effort and isinstance(role_cfg.get("effort"), str):
+                            effort = role_cfg["effort"].strip()
+                        if not harness and isinstance(role_cfg.get("harness"), str):
+                            harness = role_cfg["harness"].strip().lower()
+                        if isinstance(role_cfg.get("command"), list):
+                            custom_command = list(role_cfg["command"])
+            if timeout_s is None:
+                timeout_s = _resolve_role_timeout_seconds(settings_data, args.role)
         except DispatchError as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
-        if not effort and approved.get("effort"):
-            effort = approved["effort"]
-        if not harness and approved.get("harness"):
-            harness = approved["harness"]
-        if approved.get("command"):
-            custom_command = approved["command"]
 
     if args.prompt_file:
         try:
@@ -642,6 +747,9 @@ def cmd_run(args) -> int:
         if not sys_prompt_path.is_file():
             print(f"error: --system-prompt-file not found: {sys_prompt_path}", file=sys.stderr)
             return 2
+    else:
+        sys_prompt_path = _bundled_agent_prompt_file(args.role)
+    skills_dir = _bundled_skills_dir()
 
     detected = detect_harnesses()
     entry: dict[str, Any] = {"provider": provider, "model": model}
@@ -680,6 +788,7 @@ def cmd_run(args) -> int:
             prompt_text=prompt_text,
             role=args.role,
             system_prompt_file=sys_prompt_path,
+            skills_dir=skills_dir,
             custom_command=custom_command,
             out_file=out_path if resolved_harness == "codex" else None,
         )
@@ -699,6 +808,9 @@ def cmd_run(args) -> int:
             "binary": binary,
             "argv": argv,
             "uses_stdin": stdin_text is not None,
+            "timeout_s": timeout_s,
+            "system_prompt_file": str(sys_prompt_path) if sys_prompt_path else None,
+            "skills_dir": str(skills_dir) if skills_dir else None,
         }
         if args.as_json:
             print(json.dumps(preview, indent=2))
@@ -715,7 +827,7 @@ def cmd_run(args) -> int:
             cwd=cwd,
             capture_output=True,
             text=True,
-            timeout=args.timeout,
+            timeout=timeout_s,
         )
         timed_out = False
         exit_code = proc.returncode
@@ -725,7 +837,7 @@ def cmd_run(args) -> int:
         timed_out = True
         exit_code = 124
         stdout = exc.stdout if isinstance(exc.stdout, str) else (exc.stdout.decode("utf-8", "replace") if exc.stdout else "")
-        stderr = (exc.stderr if isinstance(exc.stderr, str) else (exc.stderr.decode("utf-8", "replace") if exc.stderr else "")) + f"\ntimed out after {args.timeout}s"
+        stderr = (exc.stderr if isinstance(exc.stderr, str) else (exc.stderr.decode("utf-8", "replace") if exc.stderr else "")) + f"\ntimed out after {timeout_s}s"
 
     duration_s = round(time.monotonic() - started, 3)
 
@@ -751,6 +863,7 @@ def cmd_run(args) -> int:
         "argv": argv,
         "exit_code": exit_code,
         "timed_out": timed_out,
+        "timeout_s": timeout_s,
         "duration_s": duration_s,
         "stdout_len": len(output_text),
         "out_file": str(out_path) if out_path else None,

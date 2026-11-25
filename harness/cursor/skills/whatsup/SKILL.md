@@ -1,6 +1,6 @@
 ---
 name: whatsup
-description: "Single-pane-of-glass catch-up and context rebuild after a break, restart, or compaction: waiting decisions, bugs/regressions, features/fixes/milestones, hypotheses/experiments/research proved or disproved, and active work. Use for /whatsup."
+description: "Single-pane-of-glass catch-up and context rebuild after a break, restart, or compaction: waiting decisions, bugs/regressions, features/fixes/milestones, hypotheses/experiments/research proved or disproved, and active work. Use for /whatsup or when catching up on a project."
 disable-model-invocation: true
 ---
 

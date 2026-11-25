@@ -14,8 +14,10 @@ Astack skills: <path to astack skills/ directory, for reading hidden skills by p
    - A failing test or suspected bug is real only when a real scenario shows it: <this project's scenarios>. If
      the scenario behaves, write one line and move on.
 
-1. TIME LIMIT, HARD: <worker_minutes> minutes. At <worker_minutes minus wind_down_minutes> minutes, merge what is
-   green, push the rest to your branch, report and end. The lead starts your successor from your report.
+1. TIME LIMITS, HARD:
+   - Workers: <worker_minutes> minutes (wind down at <worker_minutes minus wind_down_minutes>m: merge what is green, push the rest, report and end; the lead starts your successor from your report).
+   - Reviewers: <reviewer_minutes> minutes (wind down at <reviewer_minutes minus wind_down_minutes>m: finalize verified findings, list unfinished areas under `COULD NOT TEST`, report and end).
+   - Researchers: <researcher_minutes> minutes (wind down at <researcher_minutes minus wind_down_minutes>m: finalize verified citations, list unfinished lookups under `COULD NOT ACCESS`, report and end).
 
 2. MERGE GATE (scaled to change risk):
    - Small, isolated edits: lint what you touched (`<command>`) and test what you touched (`<command>`). Full suites and whole-system benchmarks run on `<target>` after merges.

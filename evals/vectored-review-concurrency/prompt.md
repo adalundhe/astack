@@ -1,7 +1,9 @@
 ---
-description: "A concurrency-touching change under Go mode triggers a risky vector, spawns at least two blind astack:reviewer agents on different approved models, runs astack-review-ledger, saves internal audit artifacts to disk, and reports only proven high-signal issues without leaking internal status."
-expected_outcome: "Reads review/SKILL.md, classifies the concurrency vector as risky, spawns at least two astack:reviewer agents on different approved models (sonnet and haiku) from program/settings.json, proves the concurrency bug and any overlap by fix-equivalence, runs astack-review-ledger (saving internal coverage map to program/coverage-map.md), and relays only proven high-signal issues (plus a plain-language risk decision with remaining-bug range if not converged) without leaking internal ledger status."
+description: "Unprompted review of a concurrency-touching change: tests whether the skill itself (without prompt hints) classifies risk, spawns at least two blind reviewers on different models, uses astack-review-ledger, proves the race, blocks landing with a plain-language risk range, and never leaks internal ledger status."
+expected_outcome: "Follows review/SKILL.md without prompt spoon-feeding: spawns blind astack:reviewer agents on sonnet and haiku, runs astack-review-ledger, proves the lock-split race, holds landing with a plain-language remaining-bug range, leaves repo/ untouched, and leaks zero internal status."
+max_turns: 14
+timeout_seconds: 360
 allowed_tools: [Read, Glob, Grep, Bash, Agent]
 ---
 
-`/astack:go` Run a vectored review of the branch `lane/concurrent-batch` vs `main` in `repo/` (diff also saved at `program/change.diff`, base file at `program/base/pool.py`) using ONLY the approved `reviewer_pool` in `program/settings.json`. The worker built this change on `anthropic/haiku`. Review the concurrency vector, decide any overlap by fix-equivalence, run `astack-review-ledger` saving the internal coverage map to `program/coverage-map.md`, and give me a user-facing summary with only proven, high-signal issues (and a plain-language decision if landing should pause—do not leak internal ledger status codes).
+`/astack:go` Review branch `lane/concurrent-batch` against `main` in `repo/` before we merge it (diff saved at `program/change.diff`, base at `program/base/pool.py`). Settings are in `program/settings.json`; this branch was built by the worker configured there.

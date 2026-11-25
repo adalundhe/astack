@@ -185,6 +185,33 @@ class StatusTest(Scratch):
         line = run("astack-status", str(path), "--line").stdout.strip()
         self.assertRegex(line, r"^astack prog: 2 running · next end \d\d:\d\dZ \(\d+m\) · 1 past limit · 1 waiting on you$")
 
+    def test_tracks_reviewer_and_researcher_timers_alongside_workers(self):
+        path = self.write_log([
+            f"{stamp_at(-40)} started w-1 on api (a1) | branch lane/search | wind-down {stamp_at(15)} | ends {stamp_at(20)} | deliverable: d | done when: e",
+            f"{stamp_at(-35)} started rev-1 on concurrency (r1) | role reviewer | model openai/gpt-6.2-astra | wind-down {stamp_at(-10)} | ends {stamp_at(-5)} | scope: repo/src/inventory.py",
+            f"{stamp_at(-20)} started res-1 on auth-history (q1) | role researcher | wind-down {stamp_at(5)} | ends {stamp_at(10)} | question: why was token tag added?",
+            f"{stamp_at(-50)} started rev-done on pricing (r0) | role reviewer | model anthropic/sonnet | wind-down {stamp_at(-25)} | ends {stamp_at(-20)} | scope: repo/src/pricing.py",
+            f"{stamp_at(-25)} ended rev-done: CLEAR; blocking=0 minor=1 dropped=0",
+        ])
+        result = run("astack-status", str(path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        out = result.stdout
+        self.assertIn("Running workers", out)
+        self.assertIn("Running reviewers", out)
+        self.assertIn("rev-1 on concurrency (agent r1, model openai/gpt-6.2-astra)", out)
+        self.assertIn("scope: repo/src/inventory.py", out)
+        self.assertRegex(out, r"ends \d\d:\d\dZ \(PAST by \d+m\)")
+        self.assertIn("Running researchers", out)
+        self.assertIn("res-1 on auth-history (agent q1)", out)
+        self.assertIn("question: why was token tag added?", out)
+        self.assertNotIn("rev-done", out)
+        # Non-worker roles must NOT pollute Lanes counts
+        self.assertIn("api: open, 1 worker", out)
+        self.assertNotIn("concurrency: open", out)
+        self.assertNotIn("auth-history: open", out)
+        line = run("astack-status", str(path), "--line").stdout.strip()
+        self.assertRegex(line, r"^astack prog: 3 running \(1w, 1r, 1res\) · next end \d\d:\d\dZ \(\d+m\) · 1 past limit$")
+
 
 class VerifyMergeTest(Scratch):
     def setUp(self):
