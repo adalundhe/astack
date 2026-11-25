@@ -157,7 +157,7 @@ class DispatchTest(unittest.TestCase):
                 self.assertNotIn("--mode", preview["argv"])
 
         # Codex reviewer with external --repro-dir (outside repo) uses `-C <repro_dir> --sandbox workspace-write`
-        # so the OS sandbox keeps repo READ-ONLY while allowing Codex to write reproduction scripts!
+        # AND explicitly excludes /tmp, $TMPDIR, and extra writable_roots so repos under /tmp or $TMPDIR stay read-only!
         repro_out = self.dir / "repros"
         repro_out.mkdir()
         res_cx_repro = self.run_dispatch(
@@ -171,18 +171,34 @@ class DispatchTest(unittest.TestCase):
         self.assertIn("--sandbox", prev_cx["argv"])
         self.assertEqual(prev_cx["argv"][prev_cx["argv"].index("--sandbox") + 1], "workspace-write")
         self.assertEqual(Path(prev_cx["argv"][prev_cx["argv"].index("-C") + 1]).resolve(), repro_out.resolve())
+        self.assertIn("sandbox_workspace_write.exclude_slash_tmp=true", prev_cx["argv"])
+        self.assertIn("sandbox_workspace_write.exclude_tmpdir_env_var=true", prev_cx["argv"])
+        self.assertIn("sandbox_workspace_write.writable_roots=[]", prev_cx["argv"])
 
-        # --repro-dir inside --cwd MUST be rejected (exit 2) so the target repo can never become writable!
+        # Overlapping --repro-dir in EITHER direction (inside --cwd OR ancestor of --cwd) MUST be rejected (exit 2)!
         bad_repro = self.work / "repros"
         bad_repro.mkdir()
-        res_bad_repro = self.run_dispatch(
+        for bad_dir in (bad_repro, self.work, self.dir):
+            res_bad_repro = self.run_dispatch(
+                "run", "--harness", "codex", "--role", "reviewer",
+                "--provider", "openai", "--model", "gpt-5.4",
+                "--cwd", str(self.work), "--repro-dir", str(bad_dir),
+                "--prompt", "Review auth.py", "--dry-run",
+            )
+            self.assertEqual(res_bad_repro.returncode, 2, f"expected exit 2 for overlapping repro-dir {bad_dir}")
+            self.assertIn("strictly disjoint", res_bad_repro.stderr)
+
+        # Auto-derived --out whose parent is an ancestor of --cwd (e.g. self.dir/out.md) MUST NOT make --cwd writable!
+        res_ancestor_out = self.run_dispatch(
             "run", "--harness", "codex", "--role", "reviewer",
             "--provider", "openai", "--model", "gpt-5.4",
-            "--cwd", str(self.work), "--repro-dir", str(bad_repro),
-            "--prompt", "Review auth.py", "--dry-run",
+            "--cwd", str(self.work), "--out", str(self.dir / "codex.md"),
+            "--prompt", "Review auth.py", "--dry-run", "--json",
         )
-        self.assertEqual(res_bad_repro.returncode, 2)
-        self.assertIn("must be outside --cwd", res_bad_repro.stderr)
+        self.assertEqual(res_ancestor_out.returncode, 0, res_ancestor_out.stderr)
+        prev_anc = json.loads(res_ancestor_out.stdout)
+        self.assertIsNone(prev_anc["repro_dir"])
+        self.assertEqual(prev_anc["argv"][prev_anc["argv"].index("--sandbox") + 1], "read-only")
 
         # Researcher on Cursor stays read-only (`--mode ask`) and on Codex stays `--sandbox read-only`
         res_cur_res = self.run_dispatch(
@@ -243,18 +259,29 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(denied.returncode, 2)
         self.assertIn("not in approved reviewer_pool", denied.stderr)
 
-        # Approved Codex model -> writes report & structured receipt JSON
+        # Approved Codex model with --repro-dir -> writes report & structured receipt JSON AND redirects TMPDIR inside repro_dir/.tmp
+        _make_stub(
+            self.stub_bin,
+            "codex",
+            'out=""\nprev=""\nfor a in "$@"; do\n  if [ "$prev" = "-o" ]; then out="$a"; fi\n  prev="$a"\ndone\n'
+            'body=$(cat)\n'
+            'msg="VECTOR: auth\nMODEL: openai/gpt-5.4 (high)\nVERDICT: BLOCKED: token replay\nTMPDIR=$TMPDIR\n"\n'
+            'if [ -n "$out" ]; then printf "%s" "$msg" > "$out"; else printf "%s" "$msg"; fi\n',
+        )
         out_codex = self.dir / "out" / "codex-review.md"
+        repro_codex = self.dir / "repros-codex"
         ok_codex = self.run_dispatch(
             "run", "--settings", str(settings), "--provider", "openai", "--model", "gpt-5.4",
-            "--vector", "auth", "--cwd", str(self.work), "--prompt", "Review auth.py",
-            "--out", str(out_codex), "--json",
+            "--vector", "auth", "--cwd", str(self.work), "--repro-dir", str(repro_codex),
+            "--prompt", "Review auth.py", "--out", str(out_codex), "--json",
         )
         self.assertEqual(ok_codex.returncode, 0, ok_codex.stderr)
         payload = json.loads(ok_codex.stdout)
         self.assertEqual(payload["harness"], "codex")
         self.assertEqual(payload["vector"], "auth")
         self.assertIn("BLOCKED: token replay", out_codex.read_text())
+        self.assertIn(f"TMPDIR={(repro_codex / '.tmp').resolve()}", out_codex.read_text())
+        self.assertTrue((repro_codex / ".tmp").is_dir())
         receipt_path = out_codex.with_suffix(".md.receipt.json")
         self.assertTrue(receipt_path.is_file())
         rec = json.loads(receipt_path.read_text())

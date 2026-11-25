@@ -518,9 +518,10 @@ def build_command(
         return argv, effective_prompt
 
     if harness == "codex":
-        # For Codex reviewers with an external repro_dir (outside the repo under review),
-        # set `-C <repro_dir> --sandbox workspace-write` so the OS sandbox keeps the target repo
-        # strictly READ-ONLY while allowing Codex to save runnable reproduction scripts in repro_dir!
+        # For Codex reviewers with a strictly disjoint external repro_dir (outside the repo under review),
+        # set `-C <repro_dir> --sandbox workspace-write` AND exclude `/tmp`, `$TMPDIR`, and extra writable
+        # roots so even a repo under `/tmp` or `$TMPDIR` stays strictly READ-ONLY in Codex's OS sandbox
+        # while Codex can still save runnable reproduction scripts in `repro_dir` (with `TMPDIR=<repro_dir>/.tmp`).
         if role == "reviewer" and repro_dir is not None:
             codex_cd = repro_dir
             codex_sandbox = "workspace-write"
@@ -537,6 +538,12 @@ def build_command(
             "--ephemeral",
             "--skip-git-repo-check",
         ]
+        if role == "reviewer" and repro_dir is not None:
+            argv.extend([
+                "-c", "sandbox_workspace_write.exclude_slash_tmp=true",
+                "-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+                "-c", "sandbox_workspace_write.writable_roots=[]",
+            ])
         if not is_default_model:
             argv.extend(["--model", model])
         if effort:
@@ -692,6 +699,21 @@ def _resolve_role_timeout_seconds(settings_data: dict[str, Any], role: str) -> f
     return None
 
 
+def _paths_overlap(a: Path, b: Path) -> bool:
+    """Return True if `a` and `b` are equal or either directory contains the other."""
+    ra, rb = a.resolve(), b.resolve()
+    try:
+        ra.relative_to(rb)
+        return True
+    except ValueError:
+        pass
+    try:
+        rb.relative_to(ra)
+        return True
+    except ValueError:
+        return False
+
+
 def cmd_run(args) -> int:
     try:
         provider = _non_empty_str(args.provider, "--provider")
@@ -800,24 +822,19 @@ def cmd_run(args) -> int:
     repro_dir: Path | None = None
     if args.repro_dir:
         repro_dir = Path(args.repro_dir).expanduser().resolve()
-        # Reject --repro-dir inside cwd so a reviewer sandbox never makes the target repo writable!
-        try:
-            repro_dir.relative_to(cwd)
+        # Reject overlapping trees in EITHER direction so a reviewer sandbox never makes --cwd writable!
+        if _paths_overlap(repro_dir, cwd):
             print(
-                f"error: --repro-dir ({repro_dir}) must be outside --cwd ({cwd}) so the repo under review stays read-only",
+                f"error: --repro-dir ({repro_dir}) must be strictly disjoint from --cwd ({cwd}) so the repo under review stays read-only",
                 file=sys.stderr,
             )
             return 2
-        except ValueError:
-            pass
         if not args.dry_run:
             repro_dir.mkdir(parents=True, exist_ok=True)
     elif args.role == "reviewer" and resolved_harness == "codex" and out_path is not None:
-        # Auto-derive a writable reproduction directory outside cwd from --out's parent when --repro-dir is omitted
+        # Auto-derive a writable reproduction directory ONLY when --out's parent is strictly disjoint from --cwd
         candidate_dir = out_path.parent.resolve()
-        try:
-            candidate_dir.relative_to(cwd)
-        except ValueError:
+        if not _paths_overlap(candidate_dir, cwd):
             repro_dir = candidate_dir
 
     try:
@@ -865,11 +882,19 @@ def cmd_run(args) -> int:
 
     started = time.monotonic()
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    proc_env = dict(os.environ)
+    if resolved_harness == "codex" and args.role == "reviewer" and repro_dir is not None:
+        # Since /tmp and host $TMPDIR are excluded from Codex's writable roots, point TMPDIR into a hidden
+        # directory inside repro_dir so reproduction scripts calling tempfile still work cleanly.
+        repro_tmp = repro_dir / ".tmp"
+        repro_tmp.mkdir(parents=True, exist_ok=True)
+        proc_env["TMPDIR"] = str(repro_tmp)
     try:
         proc = subprocess.run(
             argv,
             input=stdin_text,
             cwd=cwd,
+            env=proc_env,
             capture_output=True,
             text=True,
             timeout=timeout_s,

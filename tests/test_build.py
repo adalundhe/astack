@@ -343,7 +343,12 @@ class BuildTest(unittest.TestCase):
 
     def test_the_scripts_are_executable_in_every_package(self):
         for tool in ("claude-code", "cursor", "codex", "antigravity", "portable"):
-            for script in ("astack-check-gates", "astack-decisions", "astack-dispatch", "astack-review-ledger", "astack-stamp", "astack-stamp-hook", "astack-statechart", "astack-status", "astack-tools", "astack-verify-merge"):
+            for script in (
+                "astack-check-gates", "astack-decisions", "astack-dispatch", "astack-review-ledger",
+                "astack-stamp", "astack-stamp-hook", "astack-statechart", "astack-status",
+                "astack-tools", "astack-verify-merge",
+                "astack-watch-pr", "astack-watch-github", "astack-watch-gitlab", "astack-watch-bitbucket",
+            ):
                 self.assertTrue((HARNESS / tool / "bin" / script).stat().st_mode & 0o111, f"{tool}/{script}")
 
     def test_readme_lists_every_skill_and_notice_attributions_hold(self):

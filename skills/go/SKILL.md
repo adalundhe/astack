@@ -9,7 +9,7 @@ You are running in astack Go mode. Every other astack skill is hidden from the m
 
 Skill files live beside this one at `${CLAUDE_SKILL_DIR}/../<name>/SKILL.md` (and `astack-tools skills-dir` prints the exact absolute `skills/` directory from any shell). Never guess a skill's instructions from the one-line summary below—read the file first when it applies. Whenever spawning any worker, reviewer, or researcher subagent, put the **resolved absolute path** to the astack `skills/` directory (never a relative `..` path) on line 1 of its brief so the subagent can read hidden skills immediately.
 
-Run the astack scripts (`astack-status`, `astack-verify-merge`, `astack-check-gates`, `astack-review-ledger`, `astack-dispatch`, `astack-stamp`, `astack-decisions`, `astack-statechart`, `astack-tools`) from `PATH` (once `/astack:setup` links them into `~/.local/bin`) or directly from `${CLAUDE_SKILL_DIR}/../../bin/`.
+Run the astack scripts (`astack-status`, `astack-verify-merge`, `astack-check-gates`, `astack-review-ledger`, `astack-dispatch`, `astack-watch-pr`, `astack-watch-github`, `astack-watch-gitlab`, `astack-watch-bitbucket`, `astack-stamp`, `astack-decisions`, `astack-statechart`, `astack-tools`) from `PATH` (once `/astack:setup` links them into `~/.local/bin`) or directly from `${CLAUDE_SKILL_DIR}/../../bin/`.
 
 ## Startup
 

@@ -451,7 +451,12 @@ class ToolsTest(Scratch):
         bin_dir = self.dir / "user-bin"
         first = run("astack-tools", "link-bin", "--bin-dir", str(bin_dir))
         self.assertEqual(first.returncode, 0, first.stderr)
-        for name in ("astack-tools", "astack-dispatch", "astack-status", "astack-decisions", "astack-verify-merge", "astack-check-gates", "astack-review-ledger", "astack-statechart", "astack-stamp"):
+        for name in (
+            "astack-tools", "astack-dispatch", "astack-status", "astack-decisions",
+            "astack-verify-merge", "astack-check-gates", "astack-review-ledger",
+            "astack-statechart", "astack-stamp",
+            "astack-watch-pr", "astack-watch-github", "astack-watch-gitlab", "astack-watch-bitbucket",
+        ):
             linked = bin_dir / name
             self.assertTrue(linked.is_symlink(), f"missing symlink {linked}")
             self.assertEqual(linked.resolve(), (BIN / name).resolve())

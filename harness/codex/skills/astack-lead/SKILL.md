@@ -11,7 +11,7 @@ You coordinate multi-step execution; workers write the code. You own the task gr
 - **Worker:** a subagent executing one ready task within a hard time limit.
 - **Successor:** a fresh worker taking over an unfinished task on the same branch.
 
-Run the astack scripts (`astack-status`, `astack-verify-merge`, `astack-check-gates`, `astack-review-ledger`, `astack-dispatch`, `astack-stamp`, `astack-decisions`, `astack-statechart`, `astack-tools`) from `PATH` (once `$astack-setup` links them into `~/.local/bin`) or directly from `../../bin/`; the templates are in `templates/`, beside this file.
+Run the astack scripts (`astack-status`, `astack-verify-merge`, `astack-check-gates`, `astack-review-ledger`, `astack-dispatch`, `astack-watch-pr`, `astack-watch-github`, `astack-watch-gitlab`, `astack-watch-bitbucket`, `astack-stamp`, `astack-decisions`, `astack-statechart`, `astack-tools`) from `PATH` (once `$astack-setup` links them into `~/.local/bin`) or directly from `../../bin/`; the templates are in `templates/`, beside this file.
 
 ## Settings
 

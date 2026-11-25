@@ -1,6 +1,6 @@
 {
   "name": "astack",
-  "version": "0.7.7",
+  "version": "0.7.8",
   "description": "Portable Agent Skills package for Antigravity (agy), Pi, Devin, Cursor CLI, and other Agent Skills hosts: single-entry Go mode routing to 68 hidden skills, parallel worktree lanes, cross-harness vectored review, and formal TLC statecharts.",
   "author": {
     "name": "Ada Lündhé",
