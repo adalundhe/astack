@@ -222,59 +222,91 @@ class ReviewLedgerTest(unittest.TestCase):
         self.assertEqual(clean_single_prov["vectors"][0]["verdict"], "clean_uncalibrated")
         self.assertFalse(clean_single_prov["landing_blocked"])
 
-    def test_empirical_catch_rate_calibration_drives_clean_risky_stopping_without_picked_constants(self):
-        # Strong calibrated models (5/5 each -> Jeffreys miss prob = 0.5/6 = 0.0833 -> 2 models = 0.0069 < 0.05) clear at k=2!
-        cal_strong = {
-            "anthropic/claude-opus-4-6": {"detected": 5, "planted": 5},
-            "openai/gpt-5.4": {"detected": 5, "planted": 5},
+    def test_empirical_joint_per_bug_calibration_detects_shared_blind_spots_without_independence(self):
+        # Bug 5 fix: NEVER multiply per-model miss rates assuming independence!
+        # 1) Shared blind spot: 4 models ALL catch bugs 1-4 and ALL miss bug5 -> empirical_joint_miss_rate = 1/5 = 0.20,
+        #    jointly_missed_bugs = ["bug5"] -> MUST NOT clear no matter how many models share that blind spot!
+        same_blind = {
+            "bug1": {"detected": 1, "trials": 1},
+            "bug2": {"detected": 1, "trials": 1},
+            "bug3": {"detected": 1, "trials": 1},
+            "bug4": {"detected": 1, "trials": 1},
+            "bug5": {"detected": 0, "trials": 1},
         }
-        strong = eval_json({
-            "model_catch_rates": cal_strong,
+        complementary = {
+            "bug1": {"detected": 1, "trials": 1},
+            "bug2": {"detected": 0, "trials": 1},
+            "bug3": {"detected": 0, "trials": 1},
+            "bug4": {"detected": 0, "trials": 1},
+            "bug5": {"detected": 1, "trials": 1},
+        }
+        cal_blind_4 = {
+            f"{m['provider']}/{m['model']}": {"detected": 4, "planted": 5, "per_bug": same_blind}
+            for m in POOL_4
+        }
+        cal_blind_4["openai/o3"] = {"detected": 2, "planted": 5, "per_bug": complementary}
+
+        # After ALL 4 blind-spot models review cleanly: STILL continues and specifically picks openai/o3 (which caught bug5)!
+        res_4 = eval_json({
+            "model_catch_rates": cal_blind_4,
+            "reviewer_pool": POOL_5,
+            "vectors": [{"name": "auth", "risk": "risky"}],
+            "reviews": [
+                {"vector": "auth", "provider": POOL_4[i]["provider"], "model": POOL_4[i]["model"], "verified": [], "dropped": 0}
+                for i in range(4)
+            ],
+        })
+        v4 = res_4["vectors"][0]
+        self.assertEqual(v4["action"], "continue")
+        self.assertEqual(v4["reason"], "shared_blind_spots_need_complementary_model")
+        self.assertTrue(v4["estimate"]["joint_calibration"])
+        self.assertEqual(v4["estimate"]["jointly_missed_bugs"], ["bug5"])
+        self.assertAlmostEqual(v4["estimate"]["empirical_joint_miss_rate"], 0.2)
+        self.assertEqual(v4["next_models"][0]["model"], "o3")
+
+        # If pool only contains the 4 blind-spot models -> flags landing_blocked citing shared blind spots!
+        res_4_exhausted = eval_json({
+            "model_catch_rates": cal_blind_4,
             "reviewer_pool": POOL_4,
             "vectors": [{"name": "auth", "risk": "risky"}],
             "reviews": [
-                {"vector": "auth", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 0},
-                {"vector": "auth", "provider": "openai", "model": "gpt-5.4", "verified": [], "dropped": 0},
+                {"vector": "auth", "provider": POOL_4[i]["provider"], "model": POOL_4[i]["model"], "verified": [], "dropped": 0}
+                for i in range(4)
             ],
         })
-        v_s = strong["vectors"][0]
-        self.assertEqual(v_s["action"], "stop")
-        self.assertEqual(v_s["verdict"], "clean_calibrated")
-        self.assertEqual(v_s["reason"], "clean_calibrated_review")
-        self.assertFalse(v_s["landing_blocked"])
-        self.assertTrue(v_s["estimate"]["calibrated"])
-        self.assertLess(v_s["estimate"]["zero_bug_miss_prob"], 0.05)
-        self.assertIn("harder bugs or shared blind spots", v_s["scope_note"])
+        self.assertEqual(res_4_exhausted["vectors"][0]["action"], "flag")
+        self.assertTrue(res_4_exhausted["landing_blocked"])
+        self.assertIn("shared blind-spot miss rate", res_4_exhausted["person_decisions"][0]["question"])
 
-        # Moderate calibrated models (3/5 each -> Jeffreys miss prob = 2.5/6 = 0.4167):
-        # k=2 (0.1736) continues, k=3 (0.0723) continues, k=4 (0.0301 < 0.05) clears!
-        cal_mod = {
-            f"{m['provider']}/{m['model']}": {"detected": 3, "planted": 5}
-            for m in POOL_4
-        }
+        # 2) Complementary pair: Model 1 catches {1,2,3,4} + Model 5 (o3) catches {1,5} -> ALL 5/5 covered, 0 shared blind spots -> clears at k=2!
         with tempfile.TemporaryDirectory(prefix="astack-cal-test-") as td:
             cal_file = Path(td) / "calibration.json"
-            cal_file.write_text(json.dumps({"schema_version": "1.0", "models": cal_mod}))
-            for k, expected_action in ((2, "continue"), (3, "continue"), (4, "stop")):
-                res = eval_json(
-                    {
-                        "reviewer_pool": POOL_4,
-                        "vectors": [{"name": "auth", "risk": "risky"}],
-                        "reviews": [
-                            {"vector": "auth", "provider": POOL_4[i]["provider"], "model": POOL_4[i]["model"], "verified": [], "dropped": 0}
-                            for i in range(k)
-                        ],
-                    },
-                    "--calibration",
-                    str(cal_file),
-                )
-                self.assertEqual(res["vectors"][0]["action"], expected_action, f"unexpected action at k={k}")
+            cal_file.write_text(json.dumps({"schema_version": "1.1", "models": cal_blind_4}))
+            res_pair = eval_json(
+                {
+                    "reviewer_pool": POOL_5,
+                    "vectors": [{"name": "auth", "risk": "risky"}],
+                    "reviews": [
+                        {"vector": "auth", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 0},
+                        {"vector": "auth", "provider": "openai", "model": "o3", "verified": [], "dropped": 0},
+                    ],
+                },
+                "--calibration",
+                str(cal_file),
+            )
+        vp = res_pair["vectors"][0]
+        self.assertEqual(vp["action"], "stop")
+        self.assertEqual(vp["verdict"], "clean_calibrated")
+        self.assertEqual(vp["estimate"]["jointly_missed_bugs"], [])
+        self.assertEqual(vp["estimate"]["empirical_joint_miss_rate"], 0.0)
+        self.assertFalse(vp["landing_blocked"])
 
-        # Weak calibrated 2-model pool (1/5 each -> 0.75^2 = 0.5625 >= 0.05) -> flags landing_blocked with measured 56% risk!
-        weak = eval_json({
+        # 3) Legacy count-only calibration (no per_bug): NEVER multiplies assuming independence!
+        # Two 3/5 models -> Fréchet bound = min(2.5/6, 2.5/6) = 0.4167 (NOT 0.4167^2 = 0.1736) -> flags landing_blocked!
+        count_only = eval_json({
             "reviewer_pool": [
-                {**POOL_4[0], "catch_rate": {"detected": 1, "planted": 5}},
-                {**POOL_4[1], "catch_rate": {"detected": 1, "planted": 5}},
+                {**POOL_4[0], "catch_rate": {"detected": 3, "planted": 5}},
+                {**POOL_4[1], "catch_rate": {"detected": 3, "planted": 5}},
             ],
             "vectors": [{"name": "auth", "risk": "risky"}],
             "reviews": [
@@ -282,9 +314,12 @@ class ReviewLedgerTest(unittest.TestCase):
                 {"vector": "auth", "provider": "openai", "model": "gpt-5.4", "verified": [], "dropped": 0},
             ],
         })
-        self.assertEqual(weak["vectors"][0]["action"], "flag")
-        self.assertTrue(weak["landing_blocked"])
-        self.assertIn("56% chance", weak["person_decisions"][0]["question"])
+        vc = count_only["vectors"][0]
+        self.assertEqual(vc["action"], "flag")
+        self.assertTrue(count_only["landing_blocked"])
+        self.assertEqual(vc["estimate"]["estimator"], "empirical_frechet_clean_sweep")
+        self.assertTrue(vc["estimate"]["independence_unverified"])
+        self.assertAlmostEqual(vc["estimate"]["zero_bug_miss_prob"], 2.5 / 6.0, places=4)
 
     def test_k2_cautious_upper_bound_refuses_premature_stop_on_small_counts(self):
         shared = [f"s{i}" for i in range(5)]

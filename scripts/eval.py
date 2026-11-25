@@ -348,7 +348,6 @@ def build_eval_command(
     if harness == "devin":
         argv = [
             binary,
-            "-p",
             "--respect-workspace-trust",
             "false",
             "--permission-mode",
@@ -357,7 +356,7 @@ def build_eval_command(
         ]
         if model:
             argv.extend(["--model", model])
-        argv.append(prompt_text)
+        argv.extend(["-p", "--", prompt_text])
         return argv, None
 
     if harness == "pi":
@@ -950,7 +949,9 @@ def run_case(
                 "prompt": prompt_text,
             }
 
-        run_env = {**os.environ, **env_over}
+        receipt_dir = ws / "program" / "dispatch-receipts"
+        receipt_dir.mkdir(parents=True, exist_ok=True)
+        run_env = {**os.environ, **env_over, "ASTACK_DISPATCH_RECEIPT_DIR": str(receipt_dir)}
         started = time.monotonic()
         try:
             proc = subprocess.run(argv, input=stdin_text, cwd=ws, env=run_env, capture_output=True, text=True, timeout=timeout)
@@ -965,9 +966,41 @@ def run_case(
         duration_s = round(time.monotonic() - started, 2)
 
         final_text, events = parse_harness_events(harness, stdout, workspace=ws, settings=active_settings)
+        errors = [e["message"] for e in events if e.get("kind") == "error"]
+        launch_failed = (
+            timed_out
+            or exit_code != 0
+            or (not final_text.strip() and len(events) == 0)
+            or (bool(errors) and not final_text.strip())
+        )
+
+        # Runtime gate: never award partial credit to a run that failed to launch, timed out, or crashed
+        results: list[dict[str, Any]] = []
+        if launch_failed:
+            fail_reason = (
+                f"timed out after {timeout}s"
+                if timed_out
+                else f"exit code {exit_code}: {(stderr.strip() or '; '.join(errors) or 'no output')[:180]}"
+            )
+            results.append({"name": "harness-run", "type": "runtime", "passed": False, "detail": fail_reason})
+            return {
+                "case": case_dir.name,
+                "harness": harness,
+                "exit_code": exit_code,
+                "timed_out": timed_out,
+                "launch_failed": True,
+                "duration_s": duration_s,
+                "score": 0.0,
+                "events_count": len(events),
+                "errors": errors or ([stderr.strip()[:240]] if stderr.strip() else []),
+                "graders": results,
+                "final_text_preview": final_text[:600],
+                "stderr_preview": stderr[:400],
+            }
+
+        results.append({"name": "harness-run", "type": "runtime", "passed": True, "detail": f"exit 0 ({len(events)} event(s))"})
 
         # Grade all graders
-        results: list[dict[str, Any]] = []
         resolved_judge = harness if judge_harness == "auto" else judge_harness
         for grader_path in sorted((case_dir / "graders").glob("*.md")):
             gfields, gbody = split_front_matter(grader_path.read_text(encoding="utf-8"))
@@ -989,7 +1022,7 @@ def run_case(
                     results.append({"name": grader_path.stem, "type": gtype, "passed": ok, "detail": detail})
 
         # Executable workspace outcome verifier (`verify.py` in case dir, if present):
-        # checks objective post-run invariants (e.g. repo untouched, real tests pass, real artifacts valid)
+        # checks objective post-run invariants (e.g. repo untouched, reproductions fail-buggy/pass-fixed, cross-harness receipts)
         verify_script = case_dir / "verify.py"
         if verify_script.is_file():
             v_env = {**os.environ, "ASTACK_EVAL_FINAL_TEXT": final_text, "ASTACK_EVAL_HARNESS": harness}
@@ -1007,12 +1040,12 @@ def run_case(
 
         scored = [r for r in results if r["passed"] is not None]
         score = round(sum(1 for r in scored if r["passed"]) / len(scored), 2) if scored else 0.0
-        errors = [e["message"] for e in events if e.get("kind") == "error"]
         return {
             "case": case_dir.name,
             "harness": harness,
             "exit_code": exit_code,
             "timed_out": timed_out,
+            "launch_failed": False,
             "duration_s": duration_s,
             "score": score,
             "events_count": len(events),
@@ -1109,6 +1142,7 @@ def calibrate_model(
 
     total_detected = 0
     total_planted = 0
+    per_bug_counts: dict[str, dict[str, int]] = {}
     per_run: list[dict[str, Any]] = []
     verify_script = case_dir / "verify.py"
 
@@ -1150,8 +1184,17 @@ def calibrate_model(
                 "detected_count": 0,
                 "planted_count": 5,
             }
-            det = int(parsed.get("detected_count", 0))
-            plt = int(parsed.get("planted_count", 5))
+            det_list = list(parsed.get("detected", []))
+            miss_list = list(parsed.get("missed", []))
+            det = int(parsed.get("detected_count", len(det_list)))
+            plt = int(parsed.get("planted_count", len(det_list) + len(miss_list) or 5))
+            for bug_id in det_list:
+                rec = per_bug_counts.setdefault(bug_id, {"detected": 0, "trials": 0})
+                rec["detected"] += 1
+                rec["trials"] += 1
+            for bug_id in miss_list:
+                rec = per_bug_counts.setdefault(bug_id, {"detected": 0, "trials": 0})
+                rec["trials"] += 1
             total_detected += det
             total_planted += plt
             per_run.append(
@@ -1160,8 +1203,8 @@ def calibrate_model(
                     "exit_code": exit_code,
                     "timed_out": timed_out,
                     "duration_s": duration_s,
-                    "detected": parsed.get("detected", []),
-                    "missed": parsed.get("missed", []),
+                    "detected": det_list,
+                    "missed": miss_list,
                     "detected_count": det,
                     "planted_count": plt,
                 }
@@ -1174,18 +1217,20 @@ def calibrate_model(
         "planted": total_planted,
         "observed_rate": observed_rate,
         "jeffreys_miss_prob": jeffreys_miss,
+        "per_bug": {k: per_bug_counts[k] for k in sorted(per_bug_counts)},
         "runs": max(1, runs),
         "harness": harness,
         "source": "vectored-review-planted-bugs",
     }
 
     target_file = out_path or default_calibration_path()
-    existing: dict[str, Any] = {"schema_version": "1.0", "models": {}}
+    existing: dict[str, Any] = {"schema_version": "1.1", "models": {}}
     if target_file.is_file():
         try:
             loaded = json.loads(target_file.read_text(encoding="utf-8"))
             if isinstance(loaded, dict) and isinstance(loaded.get("models"), dict):
                 existing = loaded
+                existing["schema_version"] = "1.1"
         except (OSError, json.JSONDecodeError):
             pass
     existing["models"][model_key] = entry
