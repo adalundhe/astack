@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-mkdir -p program repo/src repo/tests
+mkdir -p program/repros repo/src repo/tests
 if [ -n "${ASTACK_EVAL_SETTINGS_JSON:-}" ]; then
   printf '%s\n' "$ASTACK_EVAL_SETTINGS_JSON" > program/settings.json
 else

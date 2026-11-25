@@ -1023,12 +1023,199 @@ def run_case(
         }
 
 
+def parse_proven_bugs_json(text: str) -> dict[str, Any] | None:
+    """Extract structured `PROVEN_BUGS_JSON: {...}` payload emitted by `scripts/repro_verify.py`."""
+    for line in reversed(text.splitlines()):
+        if line.startswith("PROVEN_BUGS_JSON:"):
+            raw = line.split(":", 1)[1].strip()
+            try:
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    return data
+            except json.JSONDecodeError:
+                return None
+    return None
+
+
+def default_provider_for_harness(harness: str) -> str:
+    return {
+        "claude": "anthropic",
+        "codex": "openai",
+        "agy": "google",
+        "cursor": "cursor",
+        "devin": "devin",
+        "pi": "pi",
+    }.get(harness, harness)
+
+
+def default_calibration_path() -> Path:
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(xdg).expanduser() if xdg else (Path.home() / ".config")
+    return base / "astack" / "calibration.json"
+
+
+def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def calibrate_model(
+    harness: str,
+    *,
+    binary: str,
+    provider: str = "",
+    model: str = "",
+    effort: str = "",
+    runs: int = 1,
+    timeout: float = 600.0,
+    out_path: Path | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Measure one model's real bug-detection rate on `vectored-review-planted-bugs` using `verify.py`.
+
+    Runs the single target model directly (not a multi-model pool) against the 5-bug fixture,
+    executes saved reproduction scripts against buggy/fixed/leave-one-bug-in copies via `verify.py`,
+    and records the empirical `detected / planted` count for `astack-review-ledger --calibration`.
+    """
+    case_dir = EVALS_DIR / "vectored-review-planted-bugs"
+    resolved_provider = provider or default_provider_for_harness(harness)
+    resolved_model = model or (_detect_codex_default_model() if harness == "codex" else "default")
+    model_key = f"{resolved_provider}/{resolved_model}"
+    cal_prompt = (
+        "Review branch `lane/order-checkout` against `main` in `repo/` (diff saved at `program/change.diff`). "
+        "Work strictly as a single read-only reviewer: NEVER modify `repo/`. "
+        "For every blocking bug you prove, save a standalone failing Python reproduction script in `program/repros/` "
+        "that exits non-zero on the buggy `repo/` and exits 0 once the bug is fixed. "
+        "Keep reproductions focused on genuine blocking bugs (do not fabricate false positives)."
+    )
+
+    if dry_run:
+        with tempfile.TemporaryDirectory(prefix="astack-cal-dry-") as scratch:
+            ws = Path(scratch)
+            env_over, extra_args = mount_harness_into_workspace(harness, ws, None)
+            argv, _ = build_eval_command(
+                harness, binary, cal_prompt, ws, extra_args=extra_args, model=model, effort=effort
+            )
+            return {
+                "dry_run": True,
+                "model_key": model_key,
+                "harness": harness,
+                "runs": max(1, runs),
+                "argv": argv,
+                "out_path": str(out_path or default_calibration_path()),
+            }
+
+    total_detected = 0
+    total_planted = 0
+    per_run: list[dict[str, Any]] = []
+    verify_script = case_dir / "verify.py"
+
+    for run_idx in range(1, max(1, runs) + 1):
+        with tempfile.TemporaryDirectory(prefix=f"astack-cal-{run_idx}-") as scratch:
+            ws = Path(scratch)
+            proc_sc = subprocess.run(
+                ["bash", str(case_dir / "setup.sh")], cwd=ws, capture_output=True, text=True
+            )
+            if proc_sc.returncode != 0:
+                raise RuntimeError(f"setup.sh failed: {proc_sc.stderr}")
+            env_over, extra_args = mount_harness_into_workspace(harness, ws, None)
+            argv, stdin_text = build_eval_command(
+                harness, binary, cal_prompt, ws, extra_args=extra_args, model=model, effort=effort
+            )
+            run_env = {**os.environ, **env_over}
+            started = time.monotonic()
+            try:
+                proc = subprocess.run(
+                    argv, input=stdin_text, cwd=ws, env=run_env, capture_output=True, text=True, timeout=timeout
+                )
+                exit_code = proc.returncode
+                timed_out = False
+            except subprocess.TimeoutExpired:
+                exit_code = 124
+                timed_out = True
+            duration_s = round(time.monotonic() - started, 2)
+
+            v_proc = subprocess.run(
+                [sys.executable, "-B", str(verify_script), str(ws)],
+                cwd=ws,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            parsed = parse_proven_bugs_json(v_proc.stdout) or {
+                "detected": [],
+                "missed": [],
+                "detected_count": 0,
+                "planted_count": 5,
+            }
+            det = int(parsed.get("detected_count", 0))
+            plt = int(parsed.get("planted_count", 5))
+            total_detected += det
+            total_planted += plt
+            per_run.append(
+                {
+                    "run": run_idx,
+                    "exit_code": exit_code,
+                    "timed_out": timed_out,
+                    "duration_s": duration_s,
+                    "detected": parsed.get("detected", []),
+                    "missed": parsed.get("missed", []),
+                    "detected_count": det,
+                    "planted_count": plt,
+                }
+            )
+
+    observed_rate = round(total_detected / total_planted, 4) if total_planted else 0.0
+    jeffreys_miss = round((total_planted - total_detected + 0.5) / (total_planted + 1.0), 4) if total_planted else 1.0
+    entry = {
+        "detected": total_detected,
+        "planted": total_planted,
+        "observed_rate": observed_rate,
+        "jeffreys_miss_prob": jeffreys_miss,
+        "runs": max(1, runs),
+        "harness": harness,
+        "source": "vectored-review-planted-bugs",
+    }
+
+    target_file = out_path or default_calibration_path()
+    existing: dict[str, Any] = {"schema_version": "1.0", "models": {}}
+    if target_file.is_file():
+        try:
+            loaded = json.loads(target_file.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict) and isinstance(loaded.get("models"), dict):
+                existing = loaded
+        except (OSError, json.JSONDecodeError):
+            pass
+    existing["models"][model_key] = entry
+    _atomic_write_json(target_file, existing)
+
+    return {
+        "model_key": model_key,
+        "entry": entry,
+        "runs": per_run,
+        "out_path": str(target_file),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run astack evals across Claude, Codex, Antigravity, Cursor CLI, Devin, or Pi.")
     parser.add_argument("--harness", required=True, choices=SUPPORTED_HARNESSES, help="target host harness")
     parser.add_argument("--case", default="*", help="case name glob (default: *)")
+    parser.add_argument("--provider", default="", help="provider name for --calibrate (default: inferred from harness)")
     parser.add_argument("--model", default="", help="override host harness model")
     parser.add_argument("--effort", default="", help="override host harness effort")
+    parser.add_argument(
+        "--calibrate",
+        action="store_true",
+        help="measure this single model's empirical catch rate on vectored-review-planted-bugs and save calibration.json",
+    )
+    parser.add_argument(
+        "--calibration-out",
+        default="",
+        help="output path for --calibrate (default: ~/.config/astack/calibration.json)",
+    )
     parser.add_argument("--reviewer-pool", help="JSON list (or path to JSON file) overriding program/settings.json reviewer_pool")
     parser.add_argument("--worker-model", help="JSON object overriding roles.worker in program/settings.json")
     parser.add_argument(
@@ -1054,6 +1241,32 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: harness {args.harness!r} CLI not found ({', '.join(HARNESS_BINARIES[args.harness])})", file=sys.stderr)
         return 2
     binary = binary or HARNESS_BINARIES[args.harness][0]
+
+    if args.calibrate:
+        cal_out = Path(args.calibration_out).expanduser() if args.calibration_out else default_calibration_path()
+        cal = calibrate_model(
+            args.harness,
+            binary=binary,
+            provider=args.provider,
+            model=args.model,
+            effort=args.effort,
+            runs=args.runs,
+            timeout=args.timeout,
+            out_path=cal_out,
+            dry_run=args.dry_run,
+        )
+        if args.as_json:
+            print(json.dumps(cal, indent=2))
+        elif cal.get("dry_run"):
+            print(f"[DRY-RUN CALIBRATE] {cal['model_key']} ({cal['harness']}, {cal['runs']} run(s)) -> {cal['out_path']}")
+        else:
+            ent = cal["entry"]
+            print(
+                f"Calibrated {cal['model_key']}: detected {ent['detected']}/{ent['planted']} planted bugs "
+                f"(observed {ent['observed_rate']*100:.1f}%, Jeffreys miss prob {ent['jeffreys_miss_prob']*100:.1f}%) "
+                f"-> {cal['out_path']}"
+            )
+        return 0
 
     pool_override: list[dict[str, Any]] | None = None
     if args.reviewer_pool:

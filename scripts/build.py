@@ -224,7 +224,10 @@ def build_tool(tool, out):
     for doc in DOCS:
         write(out / doc, (ROOT / doc).read_text())
     if tool == "claude-code":
-        for source in sorted(p for p in (ROOT / "evals").rglob("*") if p.is_file()):
+        for source in sorted(
+            p for p in (ROOT / "evals").rglob("*")
+            if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"
+        ):
             write(out / "evals" / source.relative_to(ROOT / "evals"), source.read_text(),
                   executable=bool(source.stat().st_mode & 0o111))
 

@@ -1,13 +1,14 @@
 """Behaviour tests for bin/astack-review-ledger: blocking-only estimates, fix-equivalence overlap checks,
-cautious k=2 exact hypergeometric lower/upper bounds, k>=3 Burnham-Overton + Beta-Binomial M_h 95% CI,
-zero-finding risky-vector guard, risky landing gate, cross-harness metadata, unreachable models,
-and Monte Carlo calibration verification."""
+exact k=2 hypergeometric lower/upper bounds, k>=3 Burnham-Overton + Beta-Binomial M_h observable-class
+saturation, empirical per-model catch-rate calibration (zero picked 0.5 constant), clean uncalibrated
+risky sweeps (no false landing block on 2-4 model pools), provider diversity, unreachable models,
+and boundary validation."""
 import importlib.machinery
 import importlib.util
 import json
-import random
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -44,8 +45,8 @@ def run_ledger(payload, *extra_args):
     )
 
 
-def eval_json(payload):
-    res = run_ledger(payload, "--json")
+def eval_json(payload, *extra_args):
+    res = run_ledger(payload, "--json", *extra_args)
     assert res.returncode == 0, f"unexpected exit {res.returncode}: {res.stderr}"
     return json.loads(res.stdout)
 
@@ -66,7 +67,6 @@ def eq_checks(vector, rcs):
 
 class ReviewLedgerTest(unittest.TestCase):
     def test_low_risk_clean_single_review_stops_even_with_minor_findings(self):
-        # Point 1: Minor suggestions/nits are reported separately and NEVER prevent a clean low-risk stop.
         data = eval_json({
             "worker_model": {"provider": "anthropic", "model": "claude-sonnet-4-6", "effort": "medium"},
             "reviewer_pool": POOL_4,
@@ -87,6 +87,7 @@ class ReviewLedgerTest(unittest.TestCase):
         })
         vec = data["vectors"][0]
         self.assertEqual(vec["action"], "stop")
+        self.assertEqual(vec["verdict"], "clean_low_risk")
         self.assertEqual(vec["reason"], "clean_single_review")
         self.assertEqual(vec["verified_count"], 0)
         self.assertEqual(vec["minor_count"], 3)
@@ -94,7 +95,6 @@ class ReviewLedgerTest(unittest.TestCase):
         self.assertFalse(vec["landing_blocked"])
 
     def test_low_risk_clean_two_reviews_still_stops_cleanly(self):
-        # Low-risk vector with worker + non-worker clean reviews stops cleanly without needing 5 reviewers.
         data = eval_json({
             "worker_model": POOL_4[3],
             "reviewer_pool": POOL_4,
@@ -106,6 +106,7 @@ class ReviewLedgerTest(unittest.TestCase):
         })
         vec = data["vectors"][0]
         self.assertEqual(vec["action"], "stop")
+        self.assertEqual(vec["verdict"], "clean_low_risk")
         self.assertEqual(vec["reason"], "clean_low_risk_review")
         self.assertFalse(vec["landing_blocked"])
 
@@ -148,7 +149,7 @@ class ReviewLedgerTest(unittest.TestCase):
         self.assertEqual(by_vec["cli"]["reason"], "external_verified_bug_on_low_risk_vector")
         self.assertEqual(by_vec["cli"]["verified_root_causes"], ["rc-cli-flag"])
 
-    def test_risky_vector_with_one_reviewer_never_stops_and_adds_second_model(self):
+    def test_risky_vector_with_one_reviewer_never_stops_and_blocks_single_model_pool(self):
         data = eval_json({
             "reviewer_pool": POOL_4,
             "vectors": [{"name": "concurrency", "risk": "risky", "triggers": ["concurrency"]}],
@@ -160,9 +161,132 @@ class ReviewLedgerTest(unittest.TestCase):
         self.assertEqual(vec["action"], "continue")
         self.assertEqual(vec["reason"], "risky_vector_requires_second_model")
 
+        # 1-model pool on risky vector MUST still block landing
+        one_model = eval_json({
+            "reviewer_pool": POOL_4[:1],
+            "vectors": [{"name": "concurrency", "risk": "risky"}],
+            "reviews": [
+                {"vector": "concurrency", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 0},
+            ],
+        })
+        self.assertEqual(one_model["vectors"][0]["action"], "flag")
+        self.assertTrue(one_model["landing_blocked"])
+
+    def test_uncalibrated_clean_risky_sweep_does_not_block_2_to_4_model_pools_and_enforces_provider_diversity(self):
+        # Bug 2 fix: clean risky vectors with 2-4 uncalibrated models must NOT block landing 100% of the time,
+        # and must NEVER invent a picked 0.5 catch rate or claim 95% proof!
+        # 1) 4-model multi-provider pool, 2 distinct providers clean -> clears honestly without blocking
+        clean_2_provs = eval_json({
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "seams", "risk": "risky"}],
+            "reviews": [
+                {"vector": "seams", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "minor": ["nit-1"], "dropped": 1},
+                {"vector": "seams", "provider": "openai", "model": "gpt-5.4", "verified": [], "dropped": 0},
+            ],
+        })
+        vec = clean_2_provs["vectors"][0]
+        self.assertEqual(vec["action"], "stop")
+        self.assertEqual(vec["verdict"], "clean_uncalibrated")
+        self.assertEqual(vec["reason"], "clean_sweep_uncalibrated")
+        self.assertFalse(vec["landing_blocked"])
+        self.assertFalse(vec["estimate"]["calibrated"])
+        self.assertIsNone(vec["estimate"]["zero_bug_miss_prob"])
+        self.assertIsNone(vec["estimate"]["estimated_unfound_upper"])
+        self.assertIn("not yet calibrated", vec["scope_note"])
+        self.assertIn("not proof", vec["scope_note"])
+
+        # 2) Same-provider pair while another provider exists in the pool -> asks for cross-provider diversity first!
+        same_prov = eval_json({
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "seams", "risk": "risky"}],
+            "reviews": [
+                {"vector": "seams", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 0},
+                {"vector": "seams", "provider": "anthropic", "model": "claude-sonnet-4-6", "verified": [], "dropped": 0},
+            ],
+        })
+        self.assertEqual(same_prov["vectors"][0]["action"], "continue")
+        self.assertEqual(same_prov["vectors"][0]["reason"], "clean_review_needs_provider_diversity")
+        self.assertNotEqual(same_prov["vectors"][0]["next_models"][0]["provider"], "anthropic")
+
+        # 3) Single-provider 2-model pool (no other provider exists) -> clears cleanly without blocking landing
+        single_prov_pool = [POOL_4[0], POOL_4[3]]
+        clean_single_prov = eval_json({
+            "reviewer_pool": single_prov_pool,
+            "vectors": [{"name": "seams", "risk": "risky"}],
+            "reviews": [
+                {"vector": "seams", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 0},
+                {"vector": "seams", "provider": "anthropic", "model": "claude-sonnet-4-6", "verified": [], "dropped": 0},
+            ],
+        })
+        self.assertEqual(clean_single_prov["vectors"][0]["action"], "stop")
+        self.assertEqual(clean_single_prov["vectors"][0]["verdict"], "clean_uncalibrated")
+        self.assertFalse(clean_single_prov["landing_blocked"])
+
+    def test_empirical_catch_rate_calibration_drives_clean_risky_stopping_without_picked_constants(self):
+        # Strong calibrated models (5/5 each -> Jeffreys miss prob = 0.5/6 = 0.0833 -> 2 models = 0.0069 < 0.05) clear at k=2!
+        cal_strong = {
+            "anthropic/claude-opus-4-6": {"detected": 5, "planted": 5},
+            "openai/gpt-5.4": {"detected": 5, "planted": 5},
+        }
+        strong = eval_json({
+            "model_catch_rates": cal_strong,
+            "reviewer_pool": POOL_4,
+            "vectors": [{"name": "auth", "risk": "risky"}],
+            "reviews": [
+                {"vector": "auth", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 0},
+                {"vector": "auth", "provider": "openai", "model": "gpt-5.4", "verified": [], "dropped": 0},
+            ],
+        })
+        v_s = strong["vectors"][0]
+        self.assertEqual(v_s["action"], "stop")
+        self.assertEqual(v_s["verdict"], "clean_calibrated")
+        self.assertEqual(v_s["reason"], "clean_calibrated_review")
+        self.assertFalse(v_s["landing_blocked"])
+        self.assertTrue(v_s["estimate"]["calibrated"])
+        self.assertLess(v_s["estimate"]["zero_bug_miss_prob"], 0.05)
+        self.assertIn("harder bugs or shared blind spots", v_s["scope_note"])
+
+        # Moderate calibrated models (3/5 each -> Jeffreys miss prob = 2.5/6 = 0.4167):
+        # k=2 (0.1736) continues, k=3 (0.0723) continues, k=4 (0.0301 < 0.05) clears!
+        cal_mod = {
+            f"{m['provider']}/{m['model']}": {"detected": 3, "planted": 5}
+            for m in POOL_4
+        }
+        with tempfile.TemporaryDirectory(prefix="astack-cal-test-") as td:
+            cal_file = Path(td) / "calibration.json"
+            cal_file.write_text(json.dumps({"schema_version": "1.0", "models": cal_mod}))
+            for k, expected_action in ((2, "continue"), (3, "continue"), (4, "stop")):
+                res = eval_json(
+                    {
+                        "reviewer_pool": POOL_4,
+                        "vectors": [{"name": "auth", "risk": "risky"}],
+                        "reviews": [
+                            {"vector": "auth", "provider": POOL_4[i]["provider"], "model": POOL_4[i]["model"], "verified": [], "dropped": 0}
+                            for i in range(k)
+                        ],
+                    },
+                    "--calibration",
+                    str(cal_file),
+                )
+                self.assertEqual(res["vectors"][0]["action"], expected_action, f"unexpected action at k={k}")
+
+        # Weak calibrated 2-model pool (1/5 each -> 0.75^2 = 0.5625 >= 0.05) -> flags landing_blocked with measured 56% risk!
+        weak = eval_json({
+            "reviewer_pool": [
+                {**POOL_4[0], "catch_rate": {"detected": 1, "planted": 5}},
+                {**POOL_4[1], "catch_rate": {"detected": 1, "planted": 5}},
+            ],
+            "vectors": [{"name": "auth", "risk": "risky"}],
+            "reviews": [
+                {"vector": "auth", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "dropped": 0},
+                {"vector": "auth", "provider": "openai", "model": "gpt-5.4", "verified": [], "dropped": 0},
+            ],
+        })
+        self.assertEqual(weak["vectors"][0]["action"], "flag")
+        self.assertTrue(weak["landing_blocked"])
+        self.assertIn("56% chance", weak["person_decisions"][0]["question"])
+
     def test_k2_cautious_upper_bound_refuses_premature_stop_on_small_counts(self):
-        # With n1=8, n2=6, m=5, Chapman point unfound is 0.5,
-        # but exact hypergeometric 95% upper bound is 7 >= 1 -> MUST CONTINUE (adds 3rd reviewer).
         shared = [f"s{i}" for i in range(5)]
         r1 = shared + ["a1", "a2", "a3"]
         r2 = shared + ["b1"]
@@ -177,7 +301,7 @@ class ReviewLedgerTest(unittest.TestCase):
         })
         vec = data["vectors"][0]
         self.assertEqual(vec["action"], "continue")
-        self.assertEqual(vec["reason"], "cautious_upper_at_least_one")
+        self.assertEqual(vec["reason"], "models_still_finding_new_bugs")
         est = vec["estimate"]
         self.assertEqual(est["estimator"], "chapman_hypergeometric_95")
         self.assertAlmostEqual(est["estimated_unfound"], 0.5)
@@ -185,8 +309,6 @@ class ReviewLedgerTest(unittest.TestCase):
         self.assertEqual(vec["next_models"][0]["model"], "gemini-2.5-pro")
 
     def test_k2_exact_hypergeometric_lower_and_upper_bounds(self):
-        # Exact lower bound must NOT always collapse to 0 when overlap is low relative to sample sizes,
-        # and exact upper bound must resolve without an arbitrary search cap when m >= 1.
         # Case 1: n1=6, n2=6, m=1 (D=11) -> exact lower_N = 13 (unfound_lower = 2), exact upper_N = 707 (unfound_upper = 696).
         r1 = ["s0", "a1", "a2", "a3", "a4", "a5"]
         r2 = ["s0", "b1", "b2", "b3", "b4", "b5"]
@@ -234,77 +356,7 @@ class ReviewLedgerTest(unittest.TestCase):
         self.assertEqual(est_m2["estimated_unfound_lower"], 5.0)
         self.assertEqual(est_m2["estimated_unfound_upper"], 244.0)
 
-    def test_k2_identical_small_finds_still_requires_third_reviewer(self):
-        # Even when 2 reviewers find the exact same 2 bugs (n1=2, n2=2, m=2), exact hypergeometric
-        # 95% upper bound is 4 unfound bugs >= 1 -> does NOT stop prematurely at k=2!
-        shared = ["rc-1", "rc-2"]
-        data = eval_json({
-            "reviewer_pool": POOL_4,
-            "vectors": [{"name": "seams", "risk": "risky"}],
-            "equivalence_checks": eq_checks("seams", shared),
-            "reviews": [
-                {"vector": "seams", "provider": "anthropic", "model": "claude-opus-4-6", "verified": shared, "dropped": 0},
-                {"vector": "seams", "provider": "openai", "model": "gpt-5.4", "verified": shared, "dropped": 0},
-            ],
-        })
-        vec = data["vectors"][0]
-        self.assertEqual(vec["action"], "continue")
-        self.assertEqual(vec["estimate"]["estimated_unfound"], 0.0)
-        self.assertEqual(vec["estimate"]["estimated_unfound_lower"], 0.0)
-        self.assertEqual(vec["estimate"]["estimated_unfound_upper"], 4.0)
-
-    def test_zero_bug_risky_vector_never_stops_at_k2_to_k4_and_clears_at_k5(self):
-        # Risky vector with D=0 must NOT stop at k=2 (25% miss rate for a p=0.5 bug), k=3 (12.5%), or k=4 (6.25%).
-        # It blocks landing if the pool runs out early, and clears cleanly once k=5 independent reviewers find 0 blocking bugs (3.125% < 5%).
-        def clean_reviews(n):
-            return [
-                {
-                    "vector": "seams",
-                    "provider": POOL_5[i]["provider"],
-                    "model": POOL_5[i]["model"],
-                    "verified": [],
-                    "minor": [f"nit-{i}"],
-                    "dropped": 1,
-                }
-                for i in range(n)
-            ]
-
-        for k in (2, 3, 4):
-            cont = eval_json({
-                "reviewer_pool": POOL_5,
-                "vectors": [{"name": "seams", "risk": "risky"}],
-                "reviews": clean_reviews(k),
-            })
-            vec = cont["vectors"][0]
-            self.assertEqual(vec["action"], "continue", f"expected continue at k={k}")
-            self.assertEqual(vec["reason"], "zero_bugs_need_more_independent_reviews")
-            self.assertGreaterEqual(vec["estimate"]["estimated_unfound_upper"], 1.0)
-            self.assertAlmostEqual(vec["estimate"]["zero_bug_miss_prob"], 0.5**k, places=4)
-
-        # If a smaller pool runs out at k=2 with 0 bugs on a risky vector -> flags landing_blocked with plain miss risk
-        exhausted = eval_json({
-            "reviewer_pool": POOL_5[:2],
-            "vectors": [{"name": "seams", "risk": "risky"}],
-            "reviews": clean_reviews(2),
-        })
-        self.assertEqual(exhausted["overall"], "flagged")
-        self.assertTrue(exhausted["landing_blocked"])
-        self.assertIn("25% chance", exhausted["person_decisions"][0]["question"])
-
-        # At k=5 independent clean reviews -> 0.5^5 = 0.03125 < 0.05 -> clears cleanly!
-        cleared = eval_json({
-            "reviewer_pool": POOL_5,
-            "vectors": [{"name": "seams", "risk": "risky"}],
-            "reviews": clean_reviews(5),
-        })
-        vec5 = cleared["vectors"][0]
-        self.assertEqual(vec5["action"], "stop")
-        self.assertEqual(vec5["reason"], "zero_bug_confidence_reached")
-        self.assertFalse(vec5["landing_blocked"])
-        self.assertLess(vec5["estimate"]["estimated_unfound_upper"], 1.0)
-
-    def test_k2_large_complete_overlap_stops_when_exact_hypergeometric_upper_below_one(self):
-        # At n1=20, n2=20, m=20, P(M=20 | N=21) = 1/21 = 0.0476 < 0.05 -> exact upper unfound = 0 < 1 -> stops!
+    def test_k2_large_complete_overlap_saturates(self):
         shared = [f"rc-{i}" for i in range(20)]
         data = eval_json({
             "reviewer_pool": POOL_4,
@@ -317,6 +369,9 @@ class ReviewLedgerTest(unittest.TestCase):
         })
         vec = data["vectors"][0]
         self.assertEqual(vec["action"], "stop")
+        self.assertEqual(vec["verdict"], "saturated")
+        self.assertEqual(vec["status"], "STOPPED (saturated)")
+        self.assertIn("stopped finding new blocking bugs", vec["scope_note"])
         self.assertEqual(vec["estimate"]["estimated_unfound_lower"], 0.0)
         self.assertEqual(vec["estimate"]["estimated_unfound_upper"], 0.0)
 
@@ -334,22 +389,19 @@ class ReviewLedgerTest(unittest.TestCase):
         self.assertEqual(vec["reason"], "uninformative_no_verified_overlap")
         self.assertIsNone(vec["estimate"]["estimated_unfound_upper"])
 
-    def test_point_2_unverified_overlap_merge_is_rejected_and_split(self):
-        # Claiming the same root cause ID across reviewers WITHOUT a fix-verified equivalence check
-        # MUST NOT count as overlap; it is split into distinct findings and flagged under rule_violations!
-        shared_5 = [f"rc-{i}" for i in range(1, 6)]
+    def test_unverified_overlap_merge_is_rejected_and_split(self):
+        shared = ["rc-1", "rc-2"]
         data = eval_json({
             "reviewer_pool": POOL_5,
             "vectors": [{"name": "auth", "risk": "risky"}],
             "reviews": [
-                {"vector": "auth", "provider": POOL_5[i]["provider"], "model": POOL_5[i]["model"], "verified": shared_5, "dropped": 0}
-                for i in range(4)
+                {"vector": "auth", "provider": POOL_5[i]["provider"], "model": POOL_5[i]["model"], "verified": shared, "dropped": 0}
+                for i in range(3)
             ],
         })
         vec = data["vectors"][0]
         self.assertEqual(vec["action"], "continue")
         self.assertTrue(any("unverified_overlap_merge" in v for v in vec["rule_violations"]))
-        self.assertEqual(vec["estimate"]["estimator"], "jackknife_mh")
         self.assertEqual(vec["estimate"]["recaptured"], 0)
         self.assertFalse(vec["estimate"]["informative"])
 
@@ -359,113 +411,52 @@ class ReviewLedgerTest(unittest.TestCase):
             "vectors": [{"name": "auth", "risk": "risky"}],
             "equivalence_checks": [
                 {"vector": "auth", "root_cause": rc, "reproductions": [f"r-{rc}-1.py", f"r-{rc}-2.py"], "fix_verified": False}
-                for rc in shared_5
+                for rc in shared
             ],
             "reviews": [
-                {"vector": "auth", "provider": POOL_5[i]["provider"], "model": POOL_5[i]["model"], "verified": shared_5, "dropped": 0}
-                for i in range(4)
+                {"vector": "auth", "provider": POOL_5[i]["provider"], "model": POOL_5[i]["model"], "verified": shared, "dropped": 0}
+                for i in range(3)
             ],
         })
         self.assertEqual(data_false["vectors"][0]["action"], "continue")
 
-        # Once fix_verified=True proves all 5 shared root causes across 4 reviewers -> freqs=[0,0,0,5] -> STOPS cleanly!
+        # Once fix_verified=True proves both shared root causes across 3 reviewers -> freqs=[0,0,2] -> saturates!
         data_ok = eval_json({
             "reviewer_pool": POOL_5,
             "vectors": [{"name": "auth", "risk": "risky"}],
-            "equivalence_checks": eq_checks("auth", shared_5),
+            "equivalence_checks": eq_checks("auth", shared),
             "reviews": [
-                {"vector": "auth", "provider": POOL_5[i]["provider"], "model": POOL_5[i]["model"], "verified": shared_5, "dropped": 0}
-                for i in range(4)
+                {"vector": "auth", "provider": POOL_5[i]["provider"], "model": POOL_5[i]["model"], "verified": shared, "dropped": 0}
+                for i in range(3)
             ],
         })
         vec_ok = data_ok["vectors"][0]
         self.assertEqual(vec_ok["action"], "stop")
-        self.assertEqual(vec_ok["estimate"]["estimator"], "jackknife_mh")
-        self.assertEqual(vec_ok["estimate"]["frequencies"], [0, 0, 0, 5])
+        self.assertEqual(vec_ok["verdict"], "saturated")
+        self.assertEqual(vec_ok["estimate"]["frequencies"], [0, 0, 2])
         self.assertEqual(vec_ok["estimate"]["estimated_unfound_upper"], 0.0)
 
-    def test_beta_binomial_prevents_f1_zero_collapse_and_is_monotone_for_strong_consensus(self):
-        # f1=0 alone must NOT collapse the 95% upper bound to 0 when heterogeneity could hide a harder bug.
-        # 1) t=3, freqs=[0, 0, 2] -> continues (only 3 reviewers cannot rule out 1 harder bug)
-        data_t3 = eval_json({
-            "reviewer_pool": POOL_5,
-            "vectors": [{"name": "auth", "risk": "risky"}],
-            "equivalence_checks": eq_checks("auth", ["rc-1", "rc-2"]),
-            "reviews": [
-                {"vector": "auth", "provider": POOL_5[i]["provider"], "model": POOL_5[i]["model"], "verified": ["rc-1", "rc-2"], "dropped": 0}
-                for i in range(3)
-            ],
-        })
-        self.assertEqual(data_t3["vectors"][0]["action"], "continue")
-        self.assertGreaterEqual(data_t3["vectors"][0]["estimate"]["estimated_unfound_upper"], 1.0)
-
-        # 2) t=4, freqs=[0, 2, 1, 1] -> continues (2 bugs seen by only half the reviewers -> harder bug plausible!)
-        data_t4_weak = eval_json({
-            "reviewer_pool": POOL_5,
-            "vectors": [{"name": "storage", "risk": "risky"}],
-            "equivalence_checks": eq_checks("storage", ["rc-1", "rc-2", "rc-3", "rc-hard"]),
-            "reviews": [
-                {"vector": "storage", "provider": POOL_5[0]["provider"], "model": POOL_5[0]["model"], "verified": ["rc-1", "rc-2", "rc-3"], "dropped": 0},
-                {"vector": "storage", "provider": POOL_5[1]["provider"], "model": POOL_5[1]["model"], "verified": ["rc-1", "rc-2"], "dropped": 0},
-                {"vector": "storage", "provider": POOL_5[2]["provider"], "model": POOL_5[2]["model"], "verified": ["rc-1", "rc-2", "rc-3", "rc-hard"], "dropped": 0},
-                {"vector": "storage", "provider": POOL_5[3]["provider"], "model": POOL_5[3]["model"], "verified": ["rc-1", "rc-hard"], "dropped": 0},
-            ],
-        })
-        self.assertEqual(data_t4_weak["vectors"][0]["action"], "continue")
-        self.assertEqual(data_t4_weak["vectors"][0]["estimate"]["frequencies"], [0, 2, 1, 1])
-        self.assertGreaterEqual(data_t4_weak["vectors"][0]["estimate"]["estimated_unfound_upper"], 1.0)
-
-        # 3) Strong consensus stays strictly monotone for large D (e.g. D=5, D=10, D=20 all caught by 4/4 reviewers -> STOP!)
+    def test_beta_binomial_prevents_f1_zero_collapse_and_fixes_d1_paradox(self):
         mod = _load_ledger_module()
-        for D in (5, 10, 20):
+        # Thin f1=0 patterns MUST still continue (no variance collapse!)
+        for t, freqs in ((3, [0, 0, 1]), (3, [0, 1, 2]), (4, [0, 2, 1, 1]), (4, [0, 1, 2, 0]), (5, [0, 1, 1, 1, 1])):
+            est = mod.jackknife_mh_estimate(freqs, t)
+            self.assertFalse(est["can_stop"], f"should not saturate on thin f1=0 pattern t={t} freqs={freqs}")
+            self.assertGreaterEqual(est["estimated_unfound_upper"], 1.0)
+
+        # D=1 paradox fixed: 5/5 (and 6/6) reviewers all finding the single bug saturates cleanly!
+        for t in (5, 6):
+            est1 = mod.jackknife_mh_estimate([0] * (t - 1) + [1], t)
+            self.assertTrue(est1["can_stop"], f"expected saturation at t={t} all-found D=1")
+            self.assertEqual(est1["estimated_unfound_upper"], 0.0)
+
+        # Monotone for large D consensus
+        for D in (2, 5, 10, 20):
             est = mod.jackknife_mh_estimate([0, 0, 0, D], 4)
-            self.assertTrue(est["can_stop"], f"expected stop at t=4 freqs=[0,0,0,{D}], got {est}")
+            self.assertTrue(est["can_stop"], f"expected saturation at t=4 freqs=[0,0,0,{D}]")
             self.assertEqual(est["estimated_unfound_upper"], 0.0)
 
-        # 4) t=5 strong recapture freqs=[0, 0, 1, 2, 2] -> STOPS cleanly!
-        est5 = mod.jackknife_mh_estimate([0, 0, 1, 2, 2], 5)
-        self.assertTrue(est5["can_stop"])
-        self.assertEqual(est5["estimated_unfound_upper"], 0.0)
-
-    def test_point_3_k3_jackknife_continues_while_uncertain_and_stops_on_5_reviewer_consensus(self):
-        # 3 reviewers: bug rc-hard found only by reviewer 3 (f1=1, f2=1, f3=2) -> MUST CONTINUE!
-        data_cont = eval_json({
-            "reviewer_pool": POOL_5,
-            "vectors": [{"name": "storage", "risk": "risky"}],
-            "equivalence_checks": eq_checks("storage", ["rc-1", "rc-2", "rc-3"]),
-            "reviews": [
-                {"vector": "storage", "provider": POOL_5[0]["provider"], "model": POOL_5[0]["model"], "verified": ["rc-1", "rc-2", "rc-3"], "dropped": 0},
-                {"vector": "storage", "provider": POOL_5[1]["provider"], "model": POOL_5[1]["model"], "verified": ["rc-1", "rc-2"], "dropped": 0},
-                {"vector": "storage", "provider": POOL_5[2]["provider"], "model": POOL_5[2]["model"], "verified": ["rc-1", "rc-2", "rc-3", "rc-hard"], "dropped": 0},
-            ],
-        })
-        v = data_cont["vectors"][0]
-        self.assertEqual(v["action"], "continue")
-        self.assertEqual(v["estimate"]["estimator"], "jackknife_mh")
-        self.assertEqual(v["estimate"]["frequencies"], [1, 1, 2])
-        self.assertLess(v["estimate"]["estimated_unfound"], 1.0)
-        self.assertGreater(v["estimate"]["estimated_unfound_upper"], 1.0)
-        self.assertEqual(v["next_models"][0]["model"], "claude-sonnet-4-6")
-
-        # 5th reviewer independently confirms all bugs -> freqs=[0, 0, 1, 2, 1] -> STOPS cleanly!
-        data_stop = eval_json({
-            "reviewer_pool": POOL_5,
-            "vectors": [{"name": "storage", "risk": "risky"}],
-            "equivalence_checks": eq_checks("storage", ["rc-1", "rc-2", "rc-3", "rc-hard"]),
-            "reviews": [
-                {"vector": "storage", "provider": POOL_5[0]["provider"], "model": POOL_5[0]["model"], "verified": ["rc-1", "rc-2", "rc-3"], "dropped": 0},
-                {"vector": "storage", "provider": POOL_5[1]["provider"], "model": POOL_5[1]["model"], "verified": ["rc-1", "rc-2", "rc-3"], "dropped": 0},
-                {"vector": "storage", "provider": POOL_5[2]["provider"], "model": POOL_5[2]["model"], "verified": ["rc-1", "rc-2", "rc-3", "rc-hard"], "dropped": 0},
-                {"vector": "storage", "provider": POOL_5[3]["provider"], "model": POOL_5[3]["model"], "verified": ["rc-1", "rc-2", "rc-hard"], "dropped": 0},
-                {"vector": "storage", "provider": POOL_5[4]["provider"], "model": POOL_5[4]["model"], "verified": ["rc-1", "rc-3", "rc-hard"], "dropped": 0},
-            ],
-        })
-        v_stop = data_stop["vectors"][0]
-        self.assertEqual(v_stop["action"], "stop")
-        self.assertEqual(v_stop["estimate"]["frequencies"], [0, 0, 1, 2, 1])
-        self.assertEqual(v_stop["estimate"]["estimated_unfound_upper"], 0.0)
-
-    def test_point_4_run_out_pool_blocks_landing_on_risky_vector_with_range_and_plain_decision(self):
+    def test_run_out_pool_blocks_landing_on_risky_vector_with_range_and_plain_decision(self):
         pool_2 = POOL_4[:2]
         data = eval_json({
             "reviewer_pool": pool_2,
@@ -485,48 +476,15 @@ class ReviewLedgerTest(unittest.TestCase):
         self.assertTrue(data["landing_blocked"])
         by_v = {v["name"]: v for v in data["vectors"]}
         self.assertTrue(by_v["concurrency"]["landing_blocked"])
-        self.assertFalse(by_v["formatting"]["landing_blocked"])  # only risky vectors block landing
-        self.assertEqual(len(data["person_decisions"]), 1)
+        self.assertFalse(by_v["formatting"]["landing_blocked"])
         decision = data["person_decisions"][0]
         self.assertEqual(decision["area"], "concurrency")
         self.assertEqual(decision["proven_blocking"], 3)
-        self.assertIsNotNone(decision["estimated_remaining"])
-        self.assertEqual(len(decision["estimated_remaining_range"]), 2)
+        self.assertIn("similar detectability", decision["question"])
         self.assertIn("Approve additional reviewer models", decision["question"])
         self.assertNotIn("POOL EXHAUSTED", decision["question"])
 
-    def test_point_5_planted_bugs_of_varying_difficulty_never_stop_prematurely_and_stop_on_consensus(self):
-        # Planted bugs: easy (rc-easy), medium (rc-med), hard (rc-hard) + 1 minor nit (nit-comment).
-        # Step 1 (k=2): Reviewer 1 finds [rc-easy, rc-med], Reviewer 2 finds [rc-easy] + minor nit -> MUST NOT STOP!
-        step_k2 = eval_json({
-            "worker_model": POOL_5[3],
-            "reviewer_pool": POOL_5,
-            "vectors": [{"name": "batch-and-persistence", "risk": "risky"}],
-            "equivalence_checks": eq_checks("batch-and-persistence", ["rc-easy"]),
-            "reviews": [
-                {"vector": "batch-and-persistence", "provider": POOL_5[0]["provider"], "model": POOL_5[0]["model"], "verified": ["rc-easy", "rc-med"], "dropped": 0},
-                {"vector": "batch-and-persistence", "provider": POOL_5[1]["provider"], "model": POOL_5[1]["model"], "verified": ["rc-easy"], "minor": ["nit-comment"], "dropped": 0},
-            ],
-        })
-        self.assertEqual(step_k2["vectors"][0]["action"], "continue")
-
-        # Step 2 (k=3): Reviewer 3 catches rc-med AND uncovers rc-hard -> rc-hard is a singleton (f1=1) -> MUST NOT STOP!
-        step_k3 = eval_json({
-            "worker_model": POOL_5[3],
-            "reviewer_pool": POOL_5,
-            "vectors": [{"name": "batch-and-persistence", "risk": "risky"}],
-            "equivalence_checks": eq_checks("batch-and-persistence", ["rc-easy", "rc-med"]),
-            "reviews": [
-                {"vector": "batch-and-persistence", "provider": POOL_5[0]["provider"], "model": POOL_5[0]["model"], "verified": ["rc-easy", "rc-med"], "dropped": 0},
-                {"vector": "batch-and-persistence", "provider": POOL_5[1]["provider"], "model": POOL_5[1]["model"], "verified": ["rc-easy"], "minor": ["nit-comment"], "dropped": 0},
-                {"vector": "batch-and-persistence", "provider": POOL_5[2]["provider"], "model": POOL_5[2]["model"], "verified": ["rc-easy", "rc-med", "rc-hard"], "dropped": 0},
-            ],
-        })
-        self.assertEqual(step_k3["vectors"][0]["action"], "continue")
-        self.assertEqual(step_k3["vectors"][0]["estimate"]["estimator"], "jackknife_mh")
-        self.assertEqual(step_k3["vectors"][0]["estimate"]["frequencies"], [1, 1, 1])
-
-        # Step 3 (k=4): Reviewer 4 confirms rc-hard (freqs=[0, 1, 2, 0]) -> still too thin to rule out another hard bug -> CONTINUES!
+    def test_planted_bugs_continue_through_k4_and_saturate_at_k5(self):
         step_k4 = eval_json({
             "worker_model": POOL_5[3],
             "reviewer_pool": POOL_5,
@@ -540,9 +498,7 @@ class ReviewLedgerTest(unittest.TestCase):
             ],
         })
         self.assertEqual(step_k4["vectors"][0]["action"], "continue")
-        self.assertEqual(step_k4["vectors"][0]["estimate"]["frequencies"], [0, 1, 2, 0])
 
-        # Step 4 (k=5): Reviewer 5 confirms all 3 planted bugs and finds no new bugs -> freqs=[0, 0, 1, 2, 0] -> STOPS cleanly!
         step_k5 = eval_json({
             "worker_model": POOL_5[3],
             "reviewer_pool": POOL_5,
@@ -558,79 +514,14 @@ class ReviewLedgerTest(unittest.TestCase):
         })
         v5 = step_k5["vectors"][0]
         self.assertEqual(v5["action"], "stop")
+        self.assertEqual(v5["verdict"], "saturated")
         self.assertEqual(v5["estimate"]["frequencies"], [0, 0, 1, 2, 0])
-        self.assertEqual(v5["verified_root_causes"], ["rc-easy", "rc-hard", "rc-med"])
-        self.assertEqual(v5["minor_findings"], ["nit-comment"])
-
-    def test_monte_carlo_cautious_calibration_controls_false_stops(self):
-        # Deterministic calibration check directly against chapman_estimate & jackknife_mh_estimate:
-        # With 4- and 5-model pools, overall false-stop rate (stopped while >=1 bug remained missed)
-        # stays <= 5.5% under p=0.5 homogeneity AND heterogeneous [0.8, 0.5, 0.2], while N=0 clears 100% at pool=5.
-        mod = _load_ledger_module()
-        memo: dict[tuple[int, tuple[int, ...]], bool] = {}
-
-        def can_stop_k(counts: list[int], k: int) -> bool:
-            D = sum(1 for c in counts if c > 0)
-            if D == 0:
-                _, _, ok = mod._zero_bug_upper_bound(k)
-                return ok
-            if k == 2:
-                return False  # only stops at m >= 20
-            freqs = [0] * k
-            for c in counts:
-                if c > 0:
-                    freqs[c - 1] += 1
-            key = (k, tuple(freqs))
-            if key not in memo:
-                memo[key] = bool(mod.jackknife_mh_estimate(freqs, k)["can_stop"])
-            return memo[key]
-
-        def run_sim(pool: int, probs: list[float], trials: int = 800) -> tuple[float, float]:
-            rng = random.Random(42)
-            done = 0
-            false_stops = 0
-            for _ in range(trials):
-                counts = [0] * len(probs)
-                stopped = False
-                for k in range(1, pool + 1):
-                    for i, p in enumerate(probs):
-                        if rng.random() < p:
-                            counts[i] += 1
-                    if k >= 2 and can_stop_k(counts, k):
-                        stopped = True
-                        break
-                if stopped:
-                    done += 1
-                    if any(c == 0 for c in counts):
-                        false_stops += 1
-            return done / trials, false_stops / trials
-
-        done_zero, err_zero = run_sim(5, [], trials=200)
-        self.assertEqual(done_zero, 1.0)
-        self.assertEqual(err_zero, 0.0)
-
-        for pool, probs in (
-            (4, [0.5]),
-            (4, [0.5, 0.5, 0.5]),
-            (4, [0.5] * 6),
-            (4, [0.8, 0.5, 0.2]),
-            (5, [0.5]),
-            (5, [0.5, 0.5, 0.5]),
-            (5, [0.5] * 6),
-        ):
-            _, false_stop = run_sim(pool, probs, trials=800)
-            self.assertLessEqual(
-                false_stop,
-                0.055,
-                f"false-stop rate {false_stop:.3f} exceeded 5.5% for pool={pool}, probs={probs}",
-            )
 
     def test_repeated_model_and_worker_only_low_risk_enforced_structurally(self):
         pool_sh = [
             {"provider": "anthropic", "model": "sonnet", "effort": "medium", "harness": "claude"},
             {"provider": "anthropic", "model": "haiku", "effort": "medium", "harness": "claude"},
         ]
-        # Worker-only low-risk clean review cannot stop when a non-worker model is available
         w_only = eval_json({
             "worker_model": pool_sh[1],
             "reviewer_pool": pool_sh,
@@ -643,7 +534,6 @@ class ReviewLedgerTest(unittest.TestCase):
         self.assertEqual(w_only["vectors"][0]["reason"], "non_worker_model_required")
         self.assertTrue(any("worker_model_only" in m for m in w_only["vectors"][0]["rule_violations"]))
 
-        # Repeat of same model on one vector (even via another harness) is excluded & flagged
         dup = eval_json({
             "reviewer_pool": POOL_4,
             "vectors": [{"name": "auth", "risk": "risky"}],
@@ -656,7 +546,6 @@ class ReviewLedgerTest(unittest.TestCase):
         })
         self.assertEqual(dup["vectors"][0]["action"], "continue")
         self.assertTrue(any("duplicate_model_on_vector" in m for m in dup["vectors"][0]["rule_violations"]))
-        # Only 2 distinct models -> stays on chapman_hypergeometric_95 (not jackknife_mh!)
         self.assertEqual(dup["vectors"][0]["estimate"]["estimator"], "chapman_hypergeometric_95")
 
     def test_unreachable_models_flag_pool_exhausted_block_risky_landing_and_populate_could_not_test(self):
@@ -681,17 +570,19 @@ class ReviewLedgerTest(unittest.TestCase):
         self.assertEqual(vec["reason"], "remaining_pool_models_unreachable")
         self.assertTrue(vec["landing_blocked"])
         self.assertTrue(data["landing_blocked"])
-        self.assertEqual(len(data["person_decisions"]), 1)
         md = run_ledger(payload, "--markdown").stdout
         self.assertIn("LANDING BLOCKED", md)
         self.assertIn("codex CLI not installed", md)
 
-    def test_boundary_validation_rejects_retired_or_unapproved_inputs_with_exit_two(self):
+    def test_boundary_validation_rejects_retired_or_unapproved_or_bad_calibration_with_exit_two(self):
         for bad in (
             {"roles": {"reviewer": {"provider": "anthropic", "model": "opus"}}, "reviewer_pool": POOL_4, "vectors": [{"name": "a", "risk": "low"}]},
             {"reviewer_pool": POOL_4[:1], "vectors": [{"name": "a", "risk": "low"}], "reviews": [{"vector": "a", "provider": "openai", "model": "unapproved", "verified": []}]},
             {"reviewer_pool": POOL_4, "vectors": [{"name": "a", "risk": "extreme"}]},
             {"reviewer_pool": POOL_4, "vectors": [{"name": "a", "risk": "low"}], "equivalence_checks": [{"vector": "a", "root_cause": "r", "reproductions": ["x"], "fix_verified": "yes"}]},
+            {"reviewer_pool": POOL_4, "vectors": [{"name": "a", "risk": "low"}], "miss_risk_target": 1.5},
+            {"reviewer_pool": POOL_4, "vectors": [{"name": "a", "risk": "low"}], "model_catch_rates": {"anthropic/claude-opus-4-6": {"detected": 6, "planted": 5}}},
+            {"reviewer_pool": POOL_4, "vectors": [{"name": "a", "risk": "low"}], "model_catch_rates": {"anthropic/claude-opus-4-6": {"detected": 0, "planted": 0}}},
         ):
             res = run_ledger(bad)
             self.assertEqual(res.returncode, 2, f"expected exit 2 for {bad}")

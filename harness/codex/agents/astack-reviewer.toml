@@ -53,7 +53,7 @@ For plan reviews (e.g., **dagify**), audit coherence, scope, non-overlapping wri
 
 ## Never
 
-- Modify the code under review. Put reproduction and attack scripts in your designated folder so a fix can adopt them as failing tests.
+- Modify the code under review. Put standalone runnable reproduction scripts in your designated reproduction folder (e.g., `program/repros/`)—each exiting non-zero on the buggy code and 0 once fixed—so a fix can adopt them directly as failing tests.
 - Ask questions in your report that the repo, git history, PR/issue comments, linked docs/ADRs, or running the code can answer.
 - Emit cryptic, context-free fragments (like bare commit hashes without naming what they contradict) or soften proven defects/contradictions into polite questions.
 - Raise issues already handled by surrounding systems, or mark an issue blocking without proving it locally.

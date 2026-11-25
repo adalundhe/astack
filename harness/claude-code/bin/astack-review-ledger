@@ -1,31 +1,46 @@
 #!/usr/bin/env python3
-"""Evaluate vectored review stopping decisions, cautious confidence bounds, and audit artifacts.
+"""Evaluate vectored review saturation, observable-class bug bounds, empirical calibration, and audit artifacts.
 
-Statistical rules:
-  - Only proven BLOCKING bugs (with failing reproductions) enter the stopping estimate.
+Honest statistical framing:
+  - Reviewer statistics CANNOT prove that hard bugs or shared model blind spots are absent:
+    capture-recapture extrapolates only from the class of bugs these models actually find,
+    and bugs nobody finds leave no trace.
+  - Only proven BLOCKING bugs (with failing reproductions) enter the saturation estimate.
     Minor findings (suggestions/nits) are tracked and reported separately.
   - Shared root causes (overlap) must be proven by fix-equivalence (one fix makes both
     reproductions pass) via `equivalence_checks` with `fix_verified: true`. Unverified
     merges are split into distinct findings and flagged under `rule_violations`.
-  - With k = 2 distinct reviewers: Chapman (1951) point estimate + exact hypergeometric
-    95% confidence bounds [lower, upper] (exact lower bound computed for both m >= 1
-    and m = 0; exact finite upper bound computed without arbitrary cap for m >= 1).
-    Stop only when overlap m >= 1 (proven) and exact 95% upper unfound < 1.
-  - With k >= 3 distinct reviewers: Burnham & Overton (1978, Biometrika 65(3):625-633)
-    M_h Jackknife point estimate paired with Chao (1987) log-normal CI AND an exact
-    Beta-Binomial M_h profile-likelihood 95% CI (spanning homogeneous M_0 through
-    Jeffreys Beta(0.5, 0.5) heterogeneity) so f_1 = 0 never collapses variance to zero.
-    Stop only when recaptures >= 1 and max(jackknife_upper, bb_upper) < 1.
-  - Zero-finding risky vectors (D = 0): capture–recapture has no overlap signal when
-    zero bugs are found, so a risky vector never stops after just 2 clean reviews;
-    auto-clearing requires (1 - 0.5)^k < 0.05 (k >= 5 independent clean reviews).
-    Low-risk vectors still stop after 1 clean non-worker review.
-  - When the approved pool runs out before convergence on a risky vector, set
-    `landing_blocked: true` and emit a plain-language decision prompt with remaining-bug
-    point estimate and range (never leaking internal ledger jargon to user-facing replies).
+  - When blocking bugs ARE found (D > 0):
+    - k = 2 distinct reviewers: Chapman (1951) point estimate + exact hypergeometric 95%
+      lower and upper bounds for the observable class (exact lower bound computed for
+      both m >= 1 and m = 0; exact finite upper bound computed without arbitrary cap for
+      m >= 1). Stops (saturated) only when verified overlap m >= 1 and upper < 1.
+    - k >= 3 distinct reviewers: Burnham & Overton (1978, Biometrika 65(3):625-633) M_h
+      Jackknife + Chao (1987) log-normal interval paired with an exact Beta-Binomial M_h
+      profile-likelihood 95% interval (spanning homogeneous M_0 down to Jeffreys
+      Beta(0.5, 0.5) heterogeneity, conc >= 1.0) so f_1 = 0 never collapses variance to 0.
+      Stops (`verdict: "saturated"`) when recaptures >= 1 and max(jackknife_upper, bb_upper) < 1,
+      meaning these models stopped finding new blocking bugs in the class they detect.
+  - When ZERO blocking bugs are found (D = 0):
+    - Low-risk vectors stop after 1 clean non-worker review (`verdict: "clean_low_risk"`).
+    - Risky vectors NEVER assume a picked detection rate (such as 0.5):
+      - If per-model empirical catch rates (measured on `vectored-review-planted-bugs`,
+        via `reviewer_pool[].catch_rate`, `model_catch_rates`, or `--calibration`) are
+        present for all completed reviewers, compute the combined empirical miss risk for
+        benchmark-difficulty bugs using the Jeffreys Beta(1/2, 1/2) posterior mean
+        `prod((planted - detected + 0.5) / (planted + 1))` against configurable
+        `miss_risk_target` (default 0.05), continuing until met or holding landing if
+        the pool runs out short of target (`verdict: "clean_calibrated"`).
+      - If catch rates are uncalibrated, require >= 2 distinct models (including a
+        non-worker model and cross-provider diversity whenever another provider exists in
+        the pool), then finish as `verdict: "clean_uncalibrated"` without blocking
+        landing or claiming 95% statistical proof that hard bugs are absent.
+  - When the approved pool runs out before saturation on a risky vector (or with only 1
+    model, or below calibrated miss-risk target), set `landing_blocked: true` and emit a
+    plain-language decision prompt without leaking internal ledger jargon.
 
 Usage:
-  astack-review-ledger [INPUT.json | -] [--json | --markdown | --lanes]
+  astack-review-ledger [INPUT.json | -] [--calibration FILE] [--json | --markdown | --lanes]
 
 Exit codes:
   0 = evaluated successfully (inspect per-vector action: stop | continue | flag)
@@ -36,6 +51,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from dataclasses import dataclass
 from fractions import Fraction
@@ -47,18 +63,56 @@ VALID_RISKS = ("low", "risky")
 VALID_SEVERITIES = ("blocking", "suggestion", "nit", "minor")
 Z_95_ONE_SIDED = 1.6448536269514722  # Standard normal 95th percentile
 Z_95_TWO_SIDED = 1.959963984540054   # Burnham & Overton (1978) sequential order test & 95% profile-likelihood chi^2_1
-ZERO_BUG_DETECTION_FLOOR = 0.5       # Baseline per-reviewer detectability floor for zero-finding risky vectors
-# Beta-Binomial M_h parameter grid spanning homogeneous M_0 (conc=200) down to strong U-shaped heterogeneity (conc=0.5)
+DEFAULT_MISS_RISK_TARGET = 0.05      # User-configurable target when empirical catch rates are measured
+# Beta-Binomial M_h parameter grid spanning homogeneous M_0 (conc=200) down to Jeffreys Beta(0.5, 0.5) heterogeneity (conc=1.0)
 _BB_GRID_AB: tuple[tuple[float, float], ...] = tuple(
     (mu * conc, (1.0 - mu) * conc)
     for mu in (0.02, 0.05, 0.1, 0.18, 0.28, 0.38, 0.48, 0.58, 0.68, 0.78, 0.86, 0.92, 0.96, 0.985, 0.995, 0.999)
-    for conc in (0.5, 1.0, 2.0, 4.0, 8.0, 20.0, 200.0)
+    for conc in (1.0, 2.0, 4.0, 8.0, 20.0, 200.0)
 )
 _BB_LOG_PROBS_CACHE: dict[int, list[list[float]]] = {}
+
+SATURATED_SCOPE_NOTE = (
+    "These models stopped finding new blocking bugs. The remaining-bug interval covers bugs of "
+    "similar detectability to the ones already found; harder bugs or shared model blind spots "
+    "cannot be ruled out by reviewer statistics alone."
+)
+UNCALIBRATED_CLEAN_SCOPE_NOTE = (
+    "These models found no blocking bugs. Per-model catch rates are not yet calibrated "
+    "(run scripts/eval.py --calibrate to measure detection rates on planted bugs); clean reviews "
+    "mean these models found nothing, not proof that hard bugs or shared blind spots are absent."
+)
 
 
 class ValidationError(ValueError):
     """Typed boundary error for malformed ledger inputs."""
+
+
+@dataclass(frozen=True)
+class CatchRate:
+    """Empirical per-model bug detection measurement (e.g., from vectored-review-planted-bugs)."""
+
+    detected: int
+    planted: int
+    source: str = "vectored-review-planted-bugs"
+
+    @property
+    def observed_rate(self) -> float:
+        return self.detected / self.planted
+
+    @property
+    def jeffreys_miss_prob(self) -> float:
+        # Jeffreys (1946) non-informative Beta(1/2, 1/2) posterior mean for miss probability (1 - p)
+        return (self.planted - self.detected + 0.5) / (self.planted + 1.0)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "detected": self.detected,
+            "planted": self.planted,
+            "observed_rate": round(self.observed_rate, 4),
+            "jeffreys_miss_prob": round(self.jeffreys_miss_prob, 4),
+            "source": self.source,
+        }
 
 
 @dataclass(frozen=True)
@@ -124,6 +178,22 @@ def _non_empty_str(val: Any, field: str) -> str:
     return val.strip()
 
 
+def _parse_catch_rate(raw: Any, field: str) -> CatchRate:
+    if not isinstance(raw, dict):
+        raise ValidationError(f"{field} must be an object with integer detected and planted counts")
+    detected = raw.get("detected")
+    planted = raw.get("planted")
+    if isinstance(detected, bool) or not isinstance(detected, int) or detected < 0:
+        raise ValidationError(f"{field}.detected must be a non-negative integer")
+    if isinstance(planted, bool) or not isinstance(planted, int) or planted < 1:
+        raise ValidationError(f"{field}.planted must be a positive integer")
+    if detected > planted:
+        raise ValidationError(f"{field}.detected ({detected}) cannot exceed planted ({planted})")
+    src_raw = raw.get("source", "vectored-review-planted-bugs")
+    source = src_raw.strip() if isinstance(src_raw, str) and src_raw.strip() else "vectored-review-planted-bugs"
+    return CatchRate(detected=detected, planted=planted, source=source)
+
+
 def _parse_model(raw: Any, field: str) -> ModelSpec:
     if not isinstance(raw, dict):
         raise ValidationError(f"{field} must be an object with provider and model")
@@ -146,8 +216,28 @@ def _parse_model(raw: Any, field: str) -> ModelSpec:
     return ModelSpec(provider=provider, model=model, effort=effort, harness=harness)
 
 
+def _parse_catch_rate_map(raw: Any, field: str) -> dict[tuple[str, str], CatchRate]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValidationError(f"{field} must be an object mapping 'provider/model' to {{detected, planted}}")
+    # Support both {"models": {"p/m": ...}} (calibration.json schema) and flat {"p/m": ...}
+    source_dict = raw["models"] if ("models" in raw and isinstance(raw["models"], dict)) else raw
+    out: dict[tuple[str, str], CatchRate] = {}
+    for k, v in source_dict.items():
+        if not isinstance(k, str) or "/" not in k:
+            raise ValidationError(f"{field} key {k!r} must have 'provider/model' format")
+        prov, mod = k.split("/", 1)
+        prov, mod = prov.strip(), mod.strip()
+        if not prov or not mod:
+            raise ValidationError(f"{field} key {k!r} must have non-empty provider and model")
+        out[(prov, mod)] = _parse_catch_rate(v, f"{field}[{k!r}]")
+    return out
+
+
 def parse_input(
     payload: Any,
+    external_catch_rates: dict[tuple[str, str], CatchRate] | None = None,
 ) -> tuple[
     str,
     ModelSpec | None,
@@ -156,6 +246,8 @@ def parse_input(
     list[ReviewRun],
     list[dict[str, Any]],
     dict[tuple[str, str], EquivalenceCheck],
+    dict[tuple[str, str], CatchRate],
+    float,
 ]:
     if not isinstance(payload, dict):
         raise ValidationError("input must be a JSON object")
@@ -169,6 +261,19 @@ def parse_input(
     worker_raw = payload.get("worker_model")
     worker_model = _parse_model(worker_raw, "worker_model") if worker_raw is not None else None
 
+    target_risk_raw = payload.get("miss_risk_target", DEFAULT_MISS_RISK_TARGET)
+    if isinstance(target_risk_raw, bool) or not isinstance(target_risk_raw, (int, float)):
+        raise ValidationError("miss_risk_target must be a number in (0, 1)")
+    miss_risk_target = float(target_risk_raw)
+    if not (0.0 < miss_risk_target < 1.0):
+        raise ValidationError("miss_risk_target must be strictly between 0 and 1")
+
+    catch_rates: dict[tuple[str, str], CatchRate] = dict(external_catch_rates or {})
+    if "calibration" in payload:
+        catch_rates.update(_parse_catch_rate_map(payload.get("calibration"), "calibration"))
+    if "model_catch_rates" in payload:
+        catch_rates.update(_parse_catch_rate_map(payload.get("model_catch_rates"), "model_catch_rates"))
+
     pool_raw = payload.get("reviewer_pool")
     if not isinstance(pool_raw, list):
         raise ValidationError("reviewer_pool must be a list of {provider, model, effort} objects")
@@ -176,6 +281,8 @@ def parse_input(
     seen_keys: set[tuple[str, str]] = set()
     for i, entry in enumerate(pool_raw):
         spec = _parse_model(entry, f"reviewer_pool[{i}]")
+        if isinstance(entry, dict) and entry.get("catch_rate") is not None:
+            catch_rates[spec.key] = _parse_catch_rate(entry["catch_rate"], f"reviewer_pool[{i}].catch_rate")
         if spec.key not in seen_keys:
             seen_keys.add(spec.key)
             pool.append(spec)
@@ -339,7 +446,7 @@ def parse_input(
             )
         )
 
-    return target, worker_model, pool, vectors, reviews, unreachable, eq_map
+    return target, worker_model, pool, vectors, reviews, unreachable, eq_map, catch_rates, miss_risk_target
 
 
 def _hypergeom_cdf_le(N: int, n1: int, n2: int, m: int) -> float:
@@ -365,7 +472,7 @@ def _hypergeom_sf_ge(N: int, n1: int, n2: int, m: int) -> float:
 
 
 def _hypergeometric_ci_95(n1: int, n2: int, m: int, alpha: float = 0.05) -> tuple[int, int | None]:
-    """Exact 95% lower and upper bounds for population N given Hypergeometric(N, n1, n2) overlap m.
+    """Exact 95% lower and upper bounds for observable-class N given Hypergeometric(N, n1, n2) overlap m.
 
     Uses exact monotone exponential bracketing + binary search (no arbitrary search cap):
       - lower_N: smallest N >= D such that P(M <= m | N, n1, n2) >= alpha (valid for m >= 0).
@@ -412,20 +519,73 @@ def _hypergeometric_ci_95(n1: int, n2: int, m: int, alpha: float = 0.05) -> tupl
     return lower_N, upper_N
 
 
-def _zero_bug_upper_bound(t: int, alpha: float = 0.05, p_floor: float = ZERO_BUG_DETECTION_FLOOR) -> tuple[float, float, bool]:
-    """Return (miss_prob_one_bug, upper_unfound_95, can_stop) when D = 0 across t independent reviewers."""
-    miss_prob = (1.0 - p_floor) ** t
-    # Largest continuous N such that (1 - p_floor)^(t * N) >= alpha
-    upper_unfound = math.log(alpha) / (t * math.log(1.0 - p_floor))
-    can_stop = miss_prob < alpha
-    return miss_prob, upper_unfound, can_stop
+def zero_bug_empirical_estimate(
+    reviewers: list[ModelSpec],
+    catch_rates: dict[tuple[str, str], CatchRate],
+    miss_risk_target: float = DEFAULT_MISS_RISK_TARGET,
+) -> dict[str, Any]:
+    """Evaluate a zero-finding (D = 0) sweep using ONLY measured per-model catch rates (never a picked constant)."""
+    t = len(reviewers)
+    per_model: dict[str, dict[str, Any]] = {}
+    all_calibrated = t > 0
+    combined_miss = 1.0
+    for m in reviewers:
+        cr = catch_rates.get(m.key)
+        mkey = f"{m.provider}/{m.model}"
+        if cr is None:
+            all_calibrated = False
+        else:
+            per_model[mkey] = cr.to_dict()
+            combined_miss *= cr.jeffreys_miss_prob
+
+    if all_calibrated:
+        can_stop = combined_miss < miss_risk_target
+        miss_pct = round(combined_miss * 100.0, 1)
+        scope_note = (
+            f"Zero blocking bugs found across {t} calibrated models. Based on measured catch rates "
+            f"on planted bugs, a benchmark-difficulty bug still has an estimated {miss_pct}% chance "
+            f"of slipping past all {t} models (assuming independence); harder bugs or shared blind spots "
+            f"cannot be ruled out by reviewer statistics alone."
+        )
+        return {
+            "estimator": "empirical_clean_sweep",
+            "reviewers": t,
+            "observed": 0,
+            "calibrated": True,
+            "miss_risk_target": miss_risk_target,
+            "zero_bug_miss_prob": round(combined_miss, 4),
+            "per_reviewer_catch_rates": per_model,
+            "estimated_total": 0.0,
+            "estimated_unfound": 0.0,
+            "estimated_unfound_lower": 0.0,
+            "estimated_unfound_upper": None,
+            "informative": True,
+            "can_stop": can_stop,
+            "scope_note": scope_note,
+        }
+
+    return {
+        "estimator": "uncalibrated_clean_sweep",
+        "reviewers": t,
+        "observed": 0,
+        "calibrated": False,
+        "miss_risk_target": miss_risk_target,
+        "zero_bug_miss_prob": None,
+        "per_reviewer_catch_rates": per_model,
+        "estimated_total": 0.0,
+        "estimated_unfound": 0.0,
+        "estimated_unfound_lower": 0.0,
+        "estimated_unfound_upper": None,
+        "informative": False,
+        "can_stop": False,
+        "scope_note": UNCALIBRATED_CLEAN_SCOPE_NOTE,
+    }
 
 
 def chapman_estimate(n1: int, n2: int, m: int) -> dict[str, Any]:
-    """k = 2 Chapman (1951) point estimate + exact hypergeometric 95% lower and upper bounds."""
+    """k = 2 Chapman (1951) point estimate + exact hypergeometric 95% lower and upper bounds (observable class)."""
     observed = n1 + n2 - m
     if n1 == 0 and n2 == 0:
-        miss_prob, u_upper, can_stop = _zero_bug_upper_bound(2)
         return {
             "estimator": "chapman_hypergeometric_95",
             "reviewers": 2,
@@ -436,10 +596,10 @@ def chapman_estimate(n1: int, n2: int, m: int) -> dict[str, Any]:
             "estimated_total": 0.0,
             "estimated_unfound": 0.0,
             "estimated_unfound_lower": 0.0,
-            "estimated_unfound_upper": round(u_upper, 4),
-            "zero_bug_miss_prob": round(miss_prob, 4),
+            "estimated_unfound_upper": None,
             "informative": False,
-            "can_stop": can_stop,
+            "can_stop": False,
+            "scope_note": UNCALIBRATED_CLEAN_SCOPE_NOTE,
         }
 
     total_frac = Fraction((n1 + 1) * (n2 + 1), m + 1) - 1
@@ -450,7 +610,7 @@ def chapman_estimate(n1: int, n2: int, m: int) -> dict[str, Any]:
     lower_unfound = max(0.0, float(lower_N - observed))
     upper_unfound: float | None = None if upper_N is None else max(0.0, float(upper_N - observed))
 
-    # Stop only when overlap is verified and even the exact 95% upper bound on unfound blocking bugs is < 1
+    # Observable-class saturation: verified overlap m >= 1 and exact 95% upper bound on unfound < 1
     can_stop = informative and (upper_unfound is not None) and (upper_unfound < 1.0)
     return {
         "estimator": "chapman_hypergeometric_95",
@@ -465,6 +625,7 @@ def chapman_estimate(n1: int, n2: int, m: int) -> dict[str, Any]:
         "estimated_unfound_upper": upper_unfound,
         "informative": informative,
         "can_stop": can_stop,
+        "scope_note": SATURATED_SCOPE_NOTE,
     }
 
 
@@ -488,17 +649,14 @@ def _bb_grid_log_probs(t: int) -> list[list[float]]:
 
 
 def _beta_binomial_mh_ci_95(freqs: list[int], t: int) -> tuple[float, float | None]:
-    """Beta-Binomial M_h profile-likelihood 95% CI for unfound bugs f0 = N - D.
+    """Beta-Binomial M_h profile-likelihood 95% interval for observable-class unfound bugs f0 = N - D.
 
     Prevents the f1 = 0 variance collapse of Burnham-Overton jackknife by evaluating the
     exact multinomial profile likelihood over Beta(a, b) heterogeneity models spanning
-    homogeneous M_0 (conc=200) down to strong U-shaped heterogeneity (conc=0.5).
+    homogeneous M_0 (conc=200) down to Jeffreys Beta(0.5, 0.5) heterogeneity (conc=1.0).
     """
     D = sum(freqs)
-    if D == 0:
-        _, u_upper, _ = _zero_bug_upper_bound(t)
-        return 0.0, u_upper
-    if sum(freqs[1:]) == 0:
+    if D == 0 or sum(freqs[1:]) == 0:
         return 0.0, None
 
     lqs_table = _bb_grid_log_probs(t)
@@ -578,7 +736,7 @@ def _jackknife_coeffs(t: int, order: int) -> list[float]:
 
 
 def jackknife_mh_estimate(freq_counts: list[int], t: int) -> dict[str, Any]:
-    """k >= 3 Burnham & Overton (1978) M_h Jackknife + Chao (1987) & Beta-Binomial M_h 95% CI.
+    """k >= 3 Burnham & Overton (1978) M_h Jackknife + Chao (1987) & Beta-Binomial M_h 95% interval (observable class).
 
     freq_counts[j] = f_{j+1}: number of distinct blocking bugs found by exactly (j + 1) reviewers.
     """
@@ -587,7 +745,6 @@ def jackknife_mh_estimate(freq_counts: list[int], t: int) -> dict[str, Any]:
     D = sum(freq_counts)
     recaptured = sum(freq_counts[1:])
     if D == 0:
-        miss_prob, u_upper, can_stop = _zero_bug_upper_bound(t)
         return {
             "estimator": "jackknife_mh",
             "reviewers": t,
@@ -598,11 +755,11 @@ def jackknife_mh_estimate(freq_counts: list[int], t: int) -> dict[str, Any]:
             "estimated_total": 0.0,
             "estimated_unfound": 0.0,
             "estimated_unfound_lower": 0.0,
-            "estimated_unfound_upper": round(u_upper, 4),
-            "zero_bug_miss_prob": round(miss_prob, 4),
+            "estimated_unfound_upper": None,
             "se": 0.0,
-            "informative": can_stop,
-            "can_stop": can_stop,
+            "informative": False,
+            "can_stop": False,
+            "scope_note": UNCALIBRATED_CLEAN_SCOPE_NOTE,
         }
 
     max_order = min(5, t - 1)
@@ -645,7 +802,7 @@ def jackknife_mh_estimate(freq_counts: list[int], t: int) -> dict[str, Any]:
         j_lower = 0.0
         j_upper = max(0.0, u_hat + Z_95_ONE_SIDED * se)
 
-    # Combine with exact Beta-Binomial M_h profile-likelihood 95% CI so f1 = 0 never collapses variance to 0
+    # Combine with exact Beta-Binomial M_h profile-likelihood 95% interval so f1 = 0 never collapses variance to 0
     bb_lower, bb_upper = _beta_binomial_mh_ci_95(freq_counts, t)
     u_lower = max(j_lower, bb_lower)
     if j_upper is None or bb_upper is None:
@@ -653,7 +810,7 @@ def jackknife_mh_estimate(freq_counts: list[int], t: int) -> dict[str, Any]:
     else:
         u_upper = max(j_upper, bb_upper)
 
-    # Informative when at least one bug was independently recaptured by >= 2 reviewers
+    # Observable-class saturation: at least one bug independently recaptured AND cautious upper bound < 1
     informative = recaptured >= 1
     can_stop = informative and (u_upper is not None) and (u_upper < 1.0)
     return {
@@ -670,6 +827,7 @@ def jackknife_mh_estimate(freq_counts: list[int], t: int) -> dict[str, Any]:
         "se": round(se, 4),
         "informative": informative,
         "can_stop": can_stop,
+        "scope_note": SATURATED_SCOPE_NOTE,
     }
 
 
@@ -679,16 +837,32 @@ def _pick_next_models(
     worker_model: ModelSpec | None,
     has_non_worker: bool,
     count: int = 1,
+    used_providers: set[str] | None = None,
 ) -> list[ModelSpec]:
     unused = [m for m in pool if m.key not in used_keys]
     if not unused or count <= 0:
         return []
-    ordered = list(unused)
-    if worker_model is not None and not has_non_worker:
-        non_worker = [m for m in ordered if m.key != worker_model.key]
-        same_worker = [m for m in ordered if m.key == worker_model.key]
-        ordered = non_worker + same_worker
-    return ordered[:count]
+    seen_provs = set(used_providers or set())
+    picked: list[ModelSpec] = []
+    remaining = list(unused)
+    need_non_worker = worker_model is not None and not has_non_worker
+    for _ in range(min(count, len(remaining))):
+        # Priority: (1) non-worker if still needed, (2) unseen provider for independence, (3) pool order
+        best_idx = 0
+        best_score = (-1, -1)
+        for idx, cand in enumerate(remaining):
+            nw = 1 if (not need_non_worker or (worker_model is not None and cand.key != worker_model.key)) else 0
+            new_prov = 1 if cand.provider not in seen_provs else 0
+            score = (nw, new_prov)
+            if score > best_score:
+                best_score = score
+                best_idx = idx
+        chosen = remaining.pop(best_idx)
+        picked.append(chosen)
+        seen_provs.add(chosen.provider)
+        if worker_model is not None and chosen.key != worker_model.key:
+            need_non_worker = False
+    return picked
 
 
 def _fmt_num(x: float | None) -> str:
@@ -701,21 +875,39 @@ def _fmt_num(x: float | None) -> str:
 def _format_plain_range(est: dict[str, Any] | None) -> str:
     if est is None:
         return "unknown (fewer than two independent models completed this area)"
-    if est.get("observed") == 0 and est.get("zero_bug_miss_prob") is not None:
-        miss_pct = round(float(est["zero_bug_miss_prob"]) * 100.0)
-        return f"none found yet (still roughly a {miss_pct}% chance a moderately hard bug was missed)"
+    if est.get("observed") == 0:
+        if est.get("calibrated") and est.get("zero_bug_miss_prob") is not None:
+            miss_pct = round(float(est["zero_bug_miss_prob"]) * 100.0)
+            return (
+                f"none found yet (based on measured catch rates on planted bugs, a benchmark-difficulty "
+                f"bug still has roughly a {miss_pct}% chance of slipping past these models)"
+            )
+        return "none found yet (catch rates uncalibrated; clean reviews alone cannot rule out harder bugs)"
     pt = _fmt_num(est["estimated_unfound"])
     lo = _fmt_num(est["estimated_unfound_lower"])
     hi = est["estimated_unfound_upper"]
     if hi is None:
         if est["estimated_unfound_lower"] > 0:
-            return f"at least {lo} (estimate ~{pt}; upper bound unbounded — no verified overlap yet)"
-        return f"at least ~{pt} (upper bound unbounded — no verified overlap yet)"
-    return f"about {pt} (range {lo}–{_fmt_num(hi)})"
+            return f"at least {lo} more of similar detectability (estimate ~{pt}; upper bound unbounded — no verified overlap yet)"
+        return f"at least ~{pt} more of similar detectability (upper bound unbounded — no verified overlap yet)"
+    return f"about {pt} more of similar detectability (range {lo}–{_fmt_num(hi)})"
 
 
-def evaluate_ledger(payload: Any) -> dict[str, Any]:
-    target, worker_model, pool, vectors, reviews, unreachable_models, eq_map = parse_input(payload)
+def evaluate_ledger(
+    payload: Any,
+    external_catch_rates: dict[tuple[str, str], CatchRate] | None = None,
+) -> dict[str, Any]:
+    (
+        target,
+        worker_model,
+        pool,
+        vectors,
+        reviews,
+        unreachable_models,
+        eq_map,
+        catch_rates,
+        miss_risk_target,
+    ) = parse_input(payload, external_catch_rates=external_catch_rates)
 
     unreachable_keys = {item["spec"].key for item in unreachable_models}
     reachable_pool = [m for m in pool if m.key not in unreachable_keys]
@@ -829,12 +1021,10 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
             )
 
         # Enforce fix-equivalence for any blocking root cause claimed by >= 2 distinct reviewers!
-        # Two findings are only the same root cause if `equivalence_checks` proves one fix makes both reproductions pass.
         rc_claim_counts: dict[str, int] = {}
         for r in distinct_assigned:
             for rc in r.blocking_by_vector.get(vec.name, frozenset()):
                 rc_claim_counts[rc] = rc_claim_counts.get(rc, 0) + 1
-        # External blocking findings also count as a distinct source if matching an assigned reviewer's RC
         for rc in external_blocking_rcs:
             rc_claim_counts[rc] = rc_claim_counts.get(rc, 0) + 1
 
@@ -848,7 +1038,6 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                     if eq is not None and eq.fix_verified and len(eq.reproductions) >= 2:
                         eff.add(rc)
                     else:
-                        # Unverified overlap merge: split into reviewer-scoped distinct ID so wording cannot fake overlap
                         eff.add(f"{rc}#unmerged-{r_idx}")
                         if rc not in flagged_unverified_rcs:
                             flagged_unverified_rcs.add(rc)
@@ -884,18 +1073,22 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
         estimate: dict[str, Any] | None = None
         min_initial = 2 if vec.risk == "risky" else 1
         recommended_next: list[ModelSpec] = []
+        used_providers = {r.model.provider for r in distinct_assigned}
         non_worker_covered = any(worker_model is None or k != worker_model.key for k in used_key_set)
         missing_non_worker = pool_has_non_worker and not non_worker_covered
         landing_blocked = False
+        verdict = "in_progress"
+        scope_note = ""
 
         if len(distinct_assigned) == 0:
             not_assigned.append(vec.name)
             recommended_next = _pick_next_models(
-                reachable_pool, used_key_set, worker_model, has_non_worker=False, count=min_initial
+                reachable_pool, used_key_set, worker_model, has_non_worker=False, count=min_initial, used_providers=used_providers
             )
             if len(reachable_pool) == 0:
                 action = "flag"
                 status = "POOL EXHAUSTED"
+                verdict = "unconverged"
                 reason = (
                     "all_pool_models_unreachable"
                     if len(pool) > 0
@@ -906,6 +1099,7 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
             else:
                 action = "continue"
                 status = "NOT ASSIGNED"
+                verdict = "in_progress"
                 reason = (
                     "risky vector needs at least 2 models to start"
                     if vec.risk == "risky"
@@ -920,22 +1114,26 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                 vec_violations.append(msg)
                 all_rule_violations.append({"vector": vec.name, "message": msg})
                 recommended_next = _pick_next_models(
-                    reachable_pool, used_key_set, worker_model, has_non_worker=False, count=1
+                    reachable_pool, used_key_set, worker_model, has_non_worker=False, count=1, used_providers=used_providers
                 )
                 action = "continue"
                 status = "CONTINUE"
+                verdict = "in_progress"
                 reason = "non_worker_model_required"
             elif vec.risk == "low" and len(all_blocking_under_vector) == 0:
                 action = "stop"
                 status = "STOPPED (clean single review)"
+                verdict = "clean_low_risk"
                 reason = "clean_single_review"
+                scope_note = "Low-risk area cleared by an independent non-worker review with zero blocking bugs."
             else:
                 recommended_next = _pick_next_models(
-                    reachable_pool, used_key_set, worker_model, has_non_worker=has_non_worker, count=1
+                    reachable_pool, used_key_set, worker_model, has_non_worker=has_non_worker, count=1, used_providers=used_providers
                 )
                 if recommended_next:
                     action = "continue"
                     status = "CONTINUE"
+                    verdict = "in_progress"
                     if vec.risk == "risky":
                         reason = "risky_vector_requires_second_model"
                     elif len(effective_sets[0]) == 0 and len(effective_external) > 0:
@@ -945,6 +1143,7 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                 else:
                     action = "flag"
                     status = "POOL EXHAUSTED"
+                    verdict = "unconverged"
                     if any(m.key not in used_key_set and m.key in unreachable_keys for m in pool):
                         reason = "remaining_pool_models_unreachable"
                     elif len(pool) <= 1:
@@ -957,79 +1156,144 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                     )
         else:
             # k >= 2 distinct independent reviewers
-            # Check for unconfirmed blocking bugs from a duplicate/repeat run
             raw_distinct_union = set().union(*(r.blocking_by_vector.get(vec.name, frozenset()) for r in distinct_assigned))
             unconfirmed_repeat_rcs = all_assigned_blocking - raw_distinct_union
+            unused_other_provider = [
+                m for m in reachable_pool if m.key not in used_key_set and m.provider not in used_providers
+            ]
 
-            if len(distinct_assigned) == 2:
-                s1 = effective_sets[0] | effective_external
-                s2 = effective_sets[1]
-                estimate = chapman_estimate(len(s1), len(s2), len(s1 & s2))
-            else:
-                # k >= 3: Burnham & Overton (1978) M_h Jackknife built for heterogeneous reviewer strengths
-                t = len(distinct_assigned)
-                bug_counts: dict[str, int] = {}
-                for eff in effective_sets:
-                    for rc in eff:
-                        bug_counts[rc] = bug_counts.get(rc, 0) + 1
-                # External findings not already captured by assigned reviewers enter as singletons
-                for rc in effective_external:
-                    if rc not in bug_counts:
-                        bug_counts[rc] = 1
-                freqs = [0] * t
-                for cnt in bug_counts.values():
-                    freqs[min(cnt, t) - 1] += 1
-                estimate = jackknife_mh_estimate(freqs, t)
-
-            low_clean_stop = (
-                vec.risk == "low"
-                and len(all_blocking_under_vector) == 0
-                and not missing_non_worker
-                and not unconfirmed_repeat_rcs
-            )
-            if (estimate["can_stop"] or low_clean_stop) and not missing_non_worker and not unconfirmed_repeat_rcs:
-                action = "stop"
-                status = "STOPPED (estimate)" if estimate["can_stop"] else "STOPPED (clean review)"
-                if low_clean_stop and not estimate["can_stop"]:
-                    reason = "clean_low_risk_review"
-                elif estimate["observed"] == 0:
-                    reason = "zero_bug_confidence_reached"
-                else:
-                    reason = "cautious_upper_below_one"
-            else:
-                recommended_next = _pick_next_models(
-                    reachable_pool, used_key_set, worker_model, has_non_worker=has_non_worker, count=1
+            if len(all_blocking_under_vector) == 0:
+                # Zero blocking bugs found (D == 0): NEVER use a picked constant like 0.5!
+                estimate = zero_bug_empirical_estimate(
+                    [r.model for r in distinct_assigned], catch_rates, miss_risk_target=miss_risk_target
                 )
-                if recommended_next:
-                    action = "continue"
-                    status = "CONTINUE"
-                    if missing_non_worker:
-                        reason = "non_worker_model_required"
-                    elif unconfirmed_repeat_rcs:
-                        reason = "unconfirmed_findings_from_repeat_run"
-                    elif estimate["observed"] == 0:
-                        reason = "zero_bugs_need_more_independent_reviews"
-                    elif not estimate["informative"]:
-                        reason = "uninformative_no_verified_overlap"
-                    else:
-                        reason = "cautious_upper_at_least_one"
-                else:
-                    action = "flag"
-                    status = "POOL EXHAUSTED"
-                    if any(m.key not in used_key_set and m.key in unreachable_keys for m in pool):
-                        reason = "remaining_pool_models_unreachable"
-                    else:
-                        reason = "pool_exhausted_with_unmet_stop_condition"
-                    landing_blocked = vec.risk == "risky"
-                    pool_exhausted.append(
-                        {
-                            "vector": vec.name,
-                            "risk": vec.risk,
-                            "reason": reason,
-                            "estimate": estimate,
-                            "landing_blocked": landing_blocked,
-                        }
+                scope_note = estimate["scope_note"]
+                low_clean_stop = vec.risk == "low" and not missing_non_worker and not unconfirmed_repeat_rcs
+                if low_clean_stop:
+                    action = "stop"
+                    status = "STOPPED (clean review)"
+                    verdict = "clean_low_risk"
+                    reason = "clean_low_risk_review"
+                elif missing_non_worker or unconfirmed_repeat_rcs:
+                    recommended_next = _pick_next_models(
+                        reachable_pool, used_key_set, worker_model, has_non_worker=has_non_worker, count=1, used_providers=used_providers
                     )
+                    if recommended_next:
+                        action = "continue"
+                        status = "CONTINUE"
+                        verdict = "in_progress"
+                        reason = "non_worker_model_required" if missing_non_worker else "unconfirmed_findings_from_repeat_run"
+                    else:
+                        action = "flag"
+                        status = "POOL EXHAUSTED"
+                        verdict = "unconverged"
+                        reason = "pool_exhausted_with_unmet_stop_condition"
+                        landing_blocked = vec.risk == "risky"
+                        pool_exhausted.append(
+                            {"vector": vec.name, "risk": vec.risk, "reason": reason, "estimate": estimate, "landing_blocked": landing_blocked}
+                        )
+                elif estimate["calibrated"]:
+                    if estimate["can_stop"]:
+                        action = "stop"
+                        status = "STOPPED (clean sweep — calibrated)"
+                        verdict = "clean_calibrated"
+                        reason = "clean_calibrated_review"
+                    else:
+                        recommended_next = _pick_next_models(
+                            reachable_pool, used_key_set, worker_model, has_non_worker=has_non_worker, count=1, used_providers=used_providers
+                        )
+                        if recommended_next:
+                            action = "continue"
+                            status = "CONTINUE"
+                            verdict = "in_progress"
+                            reason = "clean_review_needs_more_calibrated_coverage"
+                        else:
+                            action = "flag"
+                            status = "POOL EXHAUSTED"
+                            verdict = "unconverged"
+                            reason = (
+                                "remaining_pool_models_unreachable"
+                                if any(m.key not in used_key_set and m.key in unreachable_keys for m in pool)
+                                else "pool_exhausted_below_calibrated_target"
+                            )
+                            landing_blocked = vec.risk == "risky"
+                            pool_exhausted.append(
+                                {"vector": vec.name, "risk": vec.risk, "reason": reason, "estimate": estimate, "landing_blocked": landing_blocked}
+                            )
+                else:
+                    # Uncalibrated clean sweep: ensure cross-provider diversity if pool offers another provider,
+                    # otherwise finish cleanly WITHOUT blocking landing or fabricating a 95% claim.
+                    if len(used_providers) < 2 and unused_other_provider:
+                        recommended_next = [unused_other_provider[0]]
+                        action = "continue"
+                        status = "CONTINUE"
+                        verdict = "in_progress"
+                        reason = "clean_review_needs_provider_diversity"
+                    else:
+                        action = "stop"
+                        status = "STOPPED (clean sweep — uncalibrated)"
+                        verdict = "clean_uncalibrated"
+                        reason = "clean_sweep_uncalibrated"
+            else:
+                # D > 0 blocking bugs found: observable-class capture-recapture saturation
+                if len(distinct_assigned) == 2:
+                    s1 = effective_sets[0] | effective_external
+                    s2 = effective_sets[1]
+                    estimate = chapman_estimate(len(s1), len(s2), len(s1 & s2))
+                else:
+                    t = len(distinct_assigned)
+                    bug_counts: dict[str, int] = {}
+                    for eff in effective_sets:
+                        for rc in eff:
+                            bug_counts[rc] = bug_counts.get(rc, 0) + 1
+                    for rc in effective_external:
+                        if rc not in bug_counts:
+                            bug_counts[rc] = 1
+                    freqs = [0] * t
+                    for cnt in bug_counts.values():
+                        freqs[min(cnt, t) - 1] += 1
+                    estimate = jackknife_mh_estimate(freqs, t)
+                scope_note = estimate["scope_note"]
+
+                if estimate["can_stop"] and not missing_non_worker and not unconfirmed_repeat_rcs:
+                    action = "stop"
+                    status = "STOPPED (saturated)"
+                    verdict = "saturated"
+                    reason = "models_saturated_observable_class"
+                else:
+                    recommended_next = _pick_next_models(
+                        reachable_pool, used_key_set, worker_model, has_non_worker=has_non_worker, count=1, used_providers=used_providers
+                    )
+                    if recommended_next:
+                        action = "continue"
+                        status = "CONTINUE"
+                        verdict = "in_progress"
+                        if missing_non_worker:
+                            reason = "non_worker_model_required"
+                        elif unconfirmed_repeat_rcs:
+                            reason = "unconfirmed_findings_from_repeat_run"
+                        elif not estimate["informative"]:
+                            reason = "uninformative_no_verified_overlap"
+                        else:
+                            reason = "models_still_finding_new_bugs"
+                    else:
+                        action = "flag"
+                        status = "POOL EXHAUSTED"
+                        verdict = "unconverged"
+                        if any(m.key not in used_key_set and m.key in unreachable_keys for m in pool):
+                            reason = "remaining_pool_models_unreachable"
+                        else:
+                            reason = "pool_exhausted_with_unmet_stop_condition"
+                        landing_blocked = vec.risk == "risky"
+                        pool_exhausted.append(
+                            {
+                                "vector": vec.name,
+                                "risk": vec.risk,
+                                "reason": reason,
+                                "estimate": estimate,
+                                "landing_blocked": landing_blocked,
+                            }
+                        )
 
         if landing_blocked:
             range_txt = _format_plain_range(estimate)
@@ -1043,8 +1307,8 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                         estimate["estimated_unfound_upper"],
                     ],
                     "question": (
-                        f"Review of {vec.name} has not converged yet ({len(all_blocking_under_vector)} proven blocking bug(s) found so far; "
-                        f"likely remaining blocking bugs: {range_txt}). "
+                        f"Review of {vec.name} has not saturated yet ({len(all_blocking_under_vector)} proven blocking bug(s) found so far; "
+                        f"estimated remaining blocking bugs: {range_txt}). "
                         f"Approve additional reviewer models to keep checking, or accept the risk and land after fixing the proven bugs?"
                     ),
                 }
@@ -1058,7 +1322,9 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                 "triggers": list(vec.triggers),
                 "action": action,
                 "status": status,
+                "verdict": verdict,
                 "reason": reason,
+                "scope_note": scope_note,
                 "landing_blocked": landing_blocked,
                 "reviewers": reviewer_summaries,
                 "external_findings": external_sources,
@@ -1088,6 +1354,7 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
         "landing_blocked": any(v["landing_blocked"] for v in vector_results),
         "pool_size": len(pool),
         "reachable_pool_size": len(reachable_pool),
+        "calibrated_models": sorted(f"{p}/{m}" for p, m in catch_rates),
         "vectors": vector_results,
         "not_assigned": not_assigned,
         "pool_exhausted": pool_exhausted,
@@ -1105,7 +1372,7 @@ def format_markdown(result: dict[str, Any]) -> str:
     lines = [
         f"## Coverage map (`{result['target']}`)",
         "",
-        "| Vector | Risk | Models (blocking/minor/dropped) | Estimator & remaining (95% range) | Status |",
+        "| Vector | Risk | Models (blocking/minor/dropped) | Saturation / observable-class range | Status |",
         "|---|---|---|---|---|",
     ]
     for v in result["vectors"]:
@@ -1126,13 +1393,18 @@ def format_markdown(result: dict[str, Any]) -> str:
         est = v["estimate"]
         if est is None:
             est_str = "—"
+        elif est["estimator"] == "empirical_clean_sweep":
+            miss_pct = round(float(est["zero_bug_miss_prob"]) * 100.0, 1)
+            est_str = f"Clean sweep (calibrated, eval-difficulty miss risk ~{miss_pct}%)"
+        elif est["estimator"] == "uncalibrated_clean_sweep":
+            est_str = "Clean sweep (uncalibrated — no blocking bugs found)"
         elif est["estimator"] == "chapman_hypergeometric_95":
             info_tag = "" if est["informative"] else " [uninformative]"
             hi_txt = _fmt_num(est["estimated_unfound_upper"])
             est_str = (
                 f"Chapman n1={est['n1']}, n2={est['n2']}, m={est['m']} -> "
                 f"unfound={_fmt_num(est['estimated_unfound'])} "
-                f"(range {_fmt_num(est['estimated_unfound_lower'])}–{hi_txt}){info_tag}"
+                f"(observable range {_fmt_num(est['estimated_unfound_lower'])}–{hi_txt}){info_tag}"
             )
         else:
             info_tag = "" if est["informative"] else " [uninformative]"
@@ -1140,7 +1412,7 @@ def format_markdown(result: dict[str, Any]) -> str:
             est_str = (
                 f"Jackknife M_h(J{est['order']}) freqs={est['frequencies']} -> "
                 f"unfound={_fmt_num(est['estimated_unfound'])} "
-                f"(range {_fmt_num(est['estimated_unfound_lower'])}–{hi_txt}){info_tag}"
+                f"(observable range {_fmt_num(est['estimated_unfound_lower'])}–{hi_txt}){info_tag}"
             )
 
         status_str = v["status"]
@@ -1165,7 +1437,7 @@ def format_markdown(result: dict[str, Any]) -> str:
     lines.append("POOL EXHAUSTED")
     if result["pool_exhausted"]:
         for item in result["pool_exhausted"]:
-            est_note = f" — likely remaining blocking bugs: {_format_plain_range(item['estimate'])}"
+            est_note = f" — estimated remaining blocking bugs: {_format_plain_range(item['estimate'])}"
             block_note = " [HOLD LANDING FOR PERSON]" if item.get("landing_blocked") else ""
             lines.append(f"- {item['vector']} ({item['risk']}): {item['reason']}{est_note}{block_note}")
     else:
@@ -1188,11 +1460,16 @@ def format_markdown(result: dict[str, Any]) -> str:
 
     if result.get("person_decisions"):
         lines.append("")
-        lines.append("PLAIN-LANGUAGE ESCALATION (for user if risky vector did not converge)")
+        lines.append("PLAIN-LANGUAGE ESCALATION (for user if risky vector did not saturate)")
         for item in result["person_decisions"]:
             lines.append(f"- {item['question']}")
 
     return "\n".join(lines) + "\n"
+
+
+def _load_calibration_file(path_str: str) -> dict[tuple[str, str], CatchRate]:
+    raw = json.loads(Path(path_str).expanduser().read_text(encoding="utf-8"))
+    return _parse_catch_rate_map(raw, f"calibration file {path_str}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1201,6 +1478,8 @@ def main(argv: list[str] | None = None) -> int:
         "  {\n"
         '    "target": "<branch or PR>",\n'
         '    "worker_model": {"provider": "...", "model": "...", "effort": "...", "harness": "..."},\n'
+        '    "miss_risk_target": 0.05,\n'
+        '    "model_catch_rates": {"provider/model": {"detected": 4, "planted": 5, "source": "vectored-review-planted-bugs"}},\n'
         '    "reviewer_pool": [{"provider": "...", "model": "...", "effort": "...", "harness": "..."}],\n'
         '    "unreachable_models": [{"provider": "...", "model": "...", "harness": "...", "reason": "..."}],\n'
         '    "vectors": [{"name": "...", "risk": "low|risky", "could_not_test": ["..."]}],\n'
@@ -1214,7 +1493,11 @@ def main(argv: list[str] | None = None) -> int:
         "  }\n"
     )
     parser = argparse.ArgumentParser(
-        description="Evaluate vectored review stopping decisions (k=2 Chapman + exact 95% hypergeometric lower/upper bounds; k>=3 Burnham-Overton M_h Jackknife + Beta-Binomial M_h 95% CI).",
+        description=(
+            "Evaluate vectored review saturation and observable-class bounds "
+            "(k=2 Chapman + exact hypergeometric interval; k>=3 Burnham-Overton + Beta-Binomial M_h interval; "
+            "empirical catch-rate calibration for zero-finding sweeps)."
+        ),
         epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1224,6 +1507,11 @@ def main(argv: list[str] | None = None) -> int:
         default="-",
         help="Path to review ledger JSON file, or '-' for stdin (default: -)",
     )
+    parser.add_argument(
+        "--calibration",
+        default=os.environ.get("ASTACK_CALIBRATION_FILE", ""),
+        help="Optional calibration.json file containing measured per-model catch rates from scripts/eval.py --calibrate",
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--json", action="store_true", dest="as_json", help="Emit structured JSON output")
     mode.add_argument("--markdown", action="store_true", help="Emit internal Markdown coverage map (default)")
@@ -1231,12 +1519,20 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        external_cr: dict[tuple[str, str], CatchRate] = {}
+        if args.calibration:
+            cal_path = Path(args.calibration).expanduser()
+            if cal_path.is_file():
+                external_cr = _load_calibration_file(str(cal_path))
+            elif args.calibration != os.environ.get("ASTACK_CALIBRATION_FILE", ""):
+                raise ValidationError(f"calibration file not found: {cal_path}")
+
         if args.input == "-":
             raw_text = sys.stdin.read()
         else:
-            raw_text = Path(args.input).read_text()
+            raw_text = Path(args.input).read_text(encoding="utf-8")
         payload = json.loads(raw_text)
-        result = evaluate_ledger(payload)
+        result = evaluate_ledger(payload, external_catch_rates=external_cr)
     except (OSError, json.JSONDecodeError, ValidationError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
