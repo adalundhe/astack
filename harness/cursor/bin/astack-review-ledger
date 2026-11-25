@@ -8,12 +8,18 @@ Statistical rules:
     reproductions pass) via `equivalence_checks` with `fix_verified: true`. Unverified
     merges are split into distinct findings and flagged under `rule_violations`.
   - With k = 2 distinct reviewers: Chapman (1951) point estimate + exact hypergeometric
-    one-sided 95% confidence interval [lower, upper]. Stop only when both found 0 blocking
-    bugs, or overlap m >= 1 (proven) and upper unfound < 1.
+    95% confidence bounds [lower, upper] (exact lower bound computed for both m >= 1
+    and m = 0; exact finite upper bound computed without arbitrary cap for m >= 1).
+    Stop only when overlap m >= 1 (proven) and exact 95% upper unfound < 1.
   - With k >= 3 distinct reviewers: Burnham & Overton (1978, Biometrika 65(3):625-633)
-    M_h Jackknife (orders 1..min(5, k-1) with sequential order selection) + Chao (1987)
-    log-normal 95% confidence interval. Stop only when D = 0, or recaptures >= 1 and
-    upper unfound < 1.
+    M_h Jackknife point estimate paired with Chao (1987) log-normal CI AND an exact
+    Beta-Binomial M_h profile-likelihood 95% CI (spanning homogeneous M_0 through
+    Jeffreys Beta(0.5, 0.5) heterogeneity) so f_1 = 0 never collapses variance to zero.
+    Stop only when recaptures >= 1 and max(jackknife_upper, bb_upper) < 1.
+  - Zero-finding risky vectors (D = 0): capture–recapture has no overlap signal when
+    zero bugs are found, so a risky vector never stops after just 2 clean reviews;
+    auto-clearing requires (1 - 0.5)^k < 0.05 (k >= 5 independent clean reviews).
+    Low-risk vectors still stop after 1 clean non-worker review.
   - When the approved pool runs out before convergence on a risky vector, set
     `landing_blocked: true` and emit a plain-language decision prompt with remaining-bug
     point estimate and range (never leaking internal ledger jargon to user-facing replies).
@@ -40,7 +46,15 @@ from typing import Any
 VALID_RISKS = ("low", "risky")
 VALID_SEVERITIES = ("blocking", "suggestion", "nit", "minor")
 Z_95_ONE_SIDED = 1.6448536269514722  # Standard normal 95th percentile
-Z_95_TWO_SIDED = 1.959963984540054   # Burnham & Overton (1978) sequential order test alpha=0.05
+Z_95_TWO_SIDED = 1.959963984540054   # Burnham & Overton (1978) sequential order test & 95% profile-likelihood chi^2_1
+ZERO_BUG_DETECTION_FLOOR = 0.5       # Baseline per-reviewer detectability floor for zero-finding risky vectors
+# Beta-Binomial M_h parameter grid spanning homogeneous M_0 (conc=200) down to strong U-shaped heterogeneity (conc=0.5)
+_BB_GRID_AB: tuple[tuple[float, float], ...] = tuple(
+    (mu * conc, (1.0 - mu) * conc)
+    for mu in (0.02, 0.05, 0.1, 0.18, 0.28, 0.38, 0.48, 0.58, 0.68, 0.78, 0.86, 0.92, 0.96, 0.985, 0.995, 0.999)
+    for conc in (0.5, 1.0, 2.0, 4.0, 8.0, 20.0, 200.0)
+)
+_BB_LOG_PROBS_CACHE: dict[int, list[list[float]]] = {}
 
 
 class ValidationError(ValueError):
@@ -328,49 +342,115 @@ def parse_input(
     return target, worker_model, pool, vectors, reviews, unreachable, eq_map
 
 
+def _hypergeom_cdf_le(N: int, n1: int, n2: int, m: int) -> float:
+    """Exact P(M <= m | N, n1, n2) for M ~ Hypergeometric(N, n1, n2). Strictly increasing in N."""
+    denom = math.comb(N, n2)
+    lo_x = max(0, n1 + n2 - N)
+    hi_x = min(m, n1, n2)
+    if lo_x > hi_x:
+        return 0.0
+    num = sum(math.comb(n1, x) * math.comb(N - n1, n2 - x) for x in range(lo_x, hi_x + 1))
+    return num / denom
+
+
+def _hypergeom_sf_ge(N: int, n1: int, n2: int, m: int) -> float:
+    """Exact P(M >= m | N, n1, n2) for M ~ Hypergeometric(N, n1, n2). Strictly decreasing in N for m >= 1."""
+    denom = math.comb(N, n2)
+    lo_x = max(m, n1 + n2 - N)
+    hi_x = min(n1, n2)
+    if lo_x > hi_x:
+        return 0.0
+    num = sum(math.comb(n1, x) * math.comb(N - n1, n2 - x) for x in range(lo_x, hi_x + 1))
+    return num / denom
+
+
 def _hypergeometric_ci_95(n1: int, n2: int, m: int, alpha: float = 0.05) -> tuple[int, int | None]:
-    """Exact one-sided 95% lower/upper bounds for total population N given Hypergeometric(N, n1, n2) overlap m."""
+    """Exact 95% lower and upper bounds for population N given Hypergeometric(N, n1, n2) overlap m.
+
+    Uses exact monotone exponential bracketing + binary search (no arbitrary search cap):
+      - lower_N: smallest N >= D such that P(M <= m | N, n1, n2) >= alpha (valid for m >= 0).
+      - upper_N: largest  N >= D such that P(M >= m | N, n1, n2) >= alpha (unbounded when m == 0).
+    """
     D = n1 + n2 - m
     if n1 == 0 and n2 == 0:
-        return 0, 0
-    if m == 0:
-        # Zero overlap gives no upper bound on unseen bugs
-        return D, None
+        return 0, None
 
-    # Exact lower bound: smallest N >= D such that P(M <= m | N, n1, n2) >= alpha
-    lower_N = D
-    # Exact upper bound: largest N >= D such that P(M >= m | N, n1, n2) >= alpha
-    # Search with exact integer combinatorics up to a generous safety ceiling.
-    upper_N = D
-    search_cap = max(D + 200, D * 25)
-    for N in range(D, search_cap + 1):
-        denom = math.comb(N, n2)
-        num = 0
-        lo_x = max(m, n1 + n2 - N)
-        hi_x = min(n1, n2)
-        for x in range(lo_x, hi_x + 1):
-            num += math.comb(n1, x) * math.comb(N - n1, n2 - x)
-        if num / denom >= alpha:
-            upper_N = N
-        else:
-            break
+    # Exact lower bound via monotone increasing P(M <= m | N)
+    if _hypergeom_cdf_le(D, n1, n2, m) >= alpha:
+        lower_N = D
     else:
+        lo = D
+        hi = D + 1
+        while _hypergeom_cdf_le(hi, n1, n2, m) < alpha:
+            lo = hi
+            hi = D + (hi - D) * 2
+        while lo + 1 < hi:
+            mid = (lo + hi) // 2
+            if _hypergeom_cdf_le(mid, n1, n2, m) >= alpha:
+                hi = mid
+            else:
+                lo = mid
+        lower_N = hi
+
+    if m == 0:
+        # Zero overlap gives a real exact lower bound above D when n1,n2 are large, but no upper bound
         return lower_N, None
+
+    # Exact upper bound via monotone decreasing P(M >= m | N)
+    lo = D
+    hi = D + 1
+    while _hypergeom_sf_ge(hi, n1, n2, m) >= alpha:
+        lo = hi
+        hi = D + (hi - D) * 2
+    while lo + 1 < hi:
+        mid = (lo + hi) // 2
+        if _hypergeom_sf_ge(mid, n1, n2, m) >= alpha:
+            lo = mid
+        else:
+            hi = mid
+    upper_N = lo
     return lower_N, upper_N
 
 
+def _zero_bug_upper_bound(t: int, alpha: float = 0.05, p_floor: float = ZERO_BUG_DETECTION_FLOOR) -> tuple[float, float, bool]:
+    """Return (miss_prob_one_bug, upper_unfound_95, can_stop) when D = 0 across t independent reviewers."""
+    miss_prob = (1.0 - p_floor) ** t
+    # Largest continuous N such that (1 - p_floor)^(t * N) >= alpha
+    upper_unfound = math.log(alpha) / (t * math.log(1.0 - p_floor))
+    can_stop = miss_prob < alpha
+    return miss_prob, upper_unfound, can_stop
+
+
 def chapman_estimate(n1: int, n2: int, m: int) -> dict[str, Any]:
-    """k = 2 Chapman (1951) point estimate + exact hypergeometric one-sided 95% upper bound."""
-    total_frac = Fraction((n1 + 1) * (n2 + 1), m + 1) - 1
+    """k = 2 Chapman (1951) point estimate + exact hypergeometric 95% lower and upper bounds."""
     observed = n1 + n2 - m
+    if n1 == 0 and n2 == 0:
+        miss_prob, u_upper, can_stop = _zero_bug_upper_bound(2)
+        return {
+            "estimator": "chapman_hypergeometric_95",
+            "reviewers": 2,
+            "n1": 0,
+            "n2": 0,
+            "m": 0,
+            "observed": 0,
+            "estimated_total": 0.0,
+            "estimated_unfound": 0.0,
+            "estimated_unfound_lower": 0.0,
+            "estimated_unfound_upper": round(u_upper, 4),
+            "zero_bug_miss_prob": round(miss_prob, 4),
+            "informative": False,
+            "can_stop": can_stop,
+        }
+
+    total_frac = Fraction((n1 + 1) * (n2 + 1), m + 1) - 1
     unfound_frac = total_frac - observed
-    informative = (m >= 1) or (n1 == 0 and n2 == 0)
+    informative = m >= 1
 
     lower_N, upper_N = _hypergeometric_ci_95(n1, n2, m, alpha=0.05)
     lower_unfound = max(0.0, float(lower_N - observed))
     upper_unfound: float | None = None if upper_N is None else max(0.0, float(upper_N - observed))
 
-    # Stop only when even the cautious (pessimistic 95% upper) bound on unfound blocking bugs is < 1
+    # Stop only when overlap is verified and even the exact 95% upper bound on unfound blocking bugs is < 1
     can_stop = informative and (upper_unfound is not None) and (upper_unfound < 1.0)
     return {
         "estimator": "chapman_hypergeometric_95",
@@ -386,6 +466,85 @@ def chapman_estimate(n1: int, n2: int, m: int) -> dict[str, Any]:
         "informative": informative,
         "can_stop": can_stop,
     }
+
+
+def _bb_grid_log_probs(t: int) -> list[list[float]]:
+    cached = _BB_LOG_PROBS_CACHE.get(t)
+    if cached is not None:
+        return cached
+    log_t_fact = math.lgamma(t + 1)
+    table: list[list[float]] = []
+    for a, b in _BB_GRID_AB:
+        log_B_ab = math.lgamma(a) + math.lgamma(b) - math.lgamma(a + b)
+        lqs = [
+            log_t_fact - math.lgamma(j + 1) - math.lgamma(t - j + 1)
+            + math.lgamma(a + j) + math.lgamma(b + t - j) - math.lgamma(a + b + t)
+            - log_B_ab
+            for j in range(t + 1)
+        ]
+        table.append(lqs)
+    _BB_LOG_PROBS_CACHE[t] = table
+    return table
+
+
+def _beta_binomial_mh_ci_95(freqs: list[int], t: int) -> tuple[float, float | None]:
+    """Beta-Binomial M_h profile-likelihood 95% CI for unfound bugs f0 = N - D.
+
+    Prevents the f1 = 0 variance collapse of Burnham-Overton jackknife by evaluating the
+    exact multinomial profile likelihood over Beta(a, b) heterogeneity models spanning
+    homogeneous M_0 (conc=200) down to strong U-shaped heterogeneity (conc=0.5).
+    """
+    D = sum(freqs)
+    if D == 0:
+        _, u_upper, _ = _zero_bug_upper_bound(t)
+        return 0.0, u_upper
+    if sum(freqs[1:]) == 0:
+        return 0.0, None
+
+    lqs_table = _bb_grid_log_probs(t)
+    sum_lg_fj = sum(math.lgamma(fj + 1) for fj in freqs)
+    nz = [(j + 1, fj) for j, fj in enumerate(freqs) if fj]
+    all_t = freqs[-1] == D
+
+    def prof_ll(N: int) -> float:
+        f0 = N - D
+        base = math.lgamma(N + 1) - math.lgamma(f0 + 1) - sum_lg_fj
+        # When f0 == 0 and every observed bug was caught by all t reviewers, sup_{p->1} log L = 0.0
+        best = 0.0 if (f0 == 0 and all_t) else -1e300
+        for lqs in lqs_table:
+            ll = base + f0 * lqs[0]
+            for idx, fj in nz:
+                ll += fj * lqs[idx]
+            if ll > best:
+                best = ll
+        return best
+
+    best_N, best_ll = D, prof_ll(D)
+    cap = max(D + 200, D * 20)
+    for N in range(D + 1, cap + 1):
+        ll = prof_ll(N)
+        if ll > best_ll:
+            best_ll, best_N = ll, N
+        elif ll < best_ll - 5.0 and N > best_N + 6:
+            break
+
+    thresh = best_ll - (Z_95_TWO_SIDED ** 2) / 2.0
+    lower_N = best_N
+    for N in range(best_N, D - 1, -1):
+        if prof_ll(N) >= thresh:
+            lower_N = N
+        else:
+            break
+
+    upper_N = best_N
+    for N in range(best_N, cap + 1):
+        if prof_ll(N) >= thresh:
+            upper_N = N
+        else:
+            break
+    else:
+        return float(lower_N - D), None
+    return float(lower_N - D), float(upper_N - D)
 
 
 def _jackknife_coeffs(t: int, order: int) -> list[float]:
@@ -419,7 +578,7 @@ def _jackknife_coeffs(t: int, order: int) -> list[float]:
 
 
 def jackknife_mh_estimate(freq_counts: list[int], t: int) -> dict[str, Any]:
-    """k >= 3 Burnham & Overton (1978) M_h Jackknife + Chao (1987) log-normal 95% upper bound.
+    """k >= 3 Burnham & Overton (1978) M_h Jackknife + Chao (1987) & Beta-Binomial M_h 95% CI.
 
     freq_counts[j] = f_{j+1}: number of distinct blocking bugs found by exactly (j + 1) reviewers.
     """
@@ -428,6 +587,7 @@ def jackknife_mh_estimate(freq_counts: list[int], t: int) -> dict[str, Any]:
     D = sum(freq_counts)
     recaptured = sum(freq_counts[1:])
     if D == 0:
+        miss_prob, u_upper, can_stop = _zero_bug_upper_bound(t)
         return {
             "estimator": "jackknife_mh",
             "reviewers": t,
@@ -438,10 +598,11 @@ def jackknife_mh_estimate(freq_counts: list[int], t: int) -> dict[str, Any]:
             "estimated_total": 0.0,
             "estimated_unfound": 0.0,
             "estimated_unfound_lower": 0.0,
-            "estimated_unfound_upper": 0.0,
+            "estimated_unfound_upper": round(u_upper, 4),
+            "zero_bug_miss_prob": round(miss_prob, 4),
             "se": 0.0,
-            "informative": True,
-            "can_stop": True,
+            "informative": can_stop,
+            "can_stop": can_stop,
         }
 
     max_order = min(5, t - 1)
@@ -478,11 +639,19 @@ def jackknife_mh_estimate(freq_counts: list[int], t: int) -> dict[str, Any]:
     if u_hat > 0 and se > 0:
         # Chao (1987, Biometrics 43:783-791) log-normal asymmetric confidence interval for N >= D
         factor = math.exp(Z_95_ONE_SIDED * math.sqrt(math.log(1.0 + (se**2) / (u_hat**2))))
-        u_lower = u_hat / factor
-        u_upper: float | None = u_hat * factor
+        j_lower = u_hat / factor
+        j_upper: float | None = u_hat * factor
     else:
-        u_lower = 0.0
-        u_upper = max(0.0, u_hat + Z_95_ONE_SIDED * se)
+        j_lower = 0.0
+        j_upper = max(0.0, u_hat + Z_95_ONE_SIDED * se)
+
+    # Combine with exact Beta-Binomial M_h profile-likelihood 95% CI so f1 = 0 never collapses variance to 0
+    bb_lower, bb_upper = _beta_binomial_mh_ci_95(freq_counts, t)
+    u_lower = max(j_lower, bb_lower)
+    if j_upper is None or bb_upper is None:
+        u_upper: float | None = None
+    else:
+        u_upper = max(j_upper, bb_upper)
 
     # Informative when at least one bug was independently recaptured by >= 2 reviewers
     informative = recaptured >= 1
@@ -532,10 +701,15 @@ def _fmt_num(x: float | None) -> str:
 def _format_plain_range(est: dict[str, Any] | None) -> str:
     if est is None:
         return "unknown (fewer than two independent models completed this area)"
+    if est.get("observed") == 0 and est.get("zero_bug_miss_prob") is not None:
+        miss_pct = round(float(est["zero_bug_miss_prob"]) * 100.0)
+        return f"none found yet (still roughly a {miss_pct}% chance a moderately hard bug was missed)"
     pt = _fmt_num(est["estimated_unfound"])
     lo = _fmt_num(est["estimated_unfound_lower"])
     hi = est["estimated_unfound_upper"]
     if hi is None:
+        if est["estimated_unfound_lower"] > 0:
+            return f"at least {lo} (estimate ~{pt}; upper bound unbounded — no verified overlap yet)"
         return f"at least ~{pt} (upper bound unbounded — no verified overlap yet)"
     return f"about {pt} (range {lo}–{_fmt_num(hi)})"
 
@@ -807,13 +981,19 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                     freqs[min(cnt, t) - 1] += 1
                 estimate = jackknife_mh_estimate(freqs, t)
 
-            if estimate["can_stop"] and not missing_non_worker and not unconfirmed_repeat_rcs:
+            low_clean_stop = (
+                vec.risk == "low"
+                and len(all_blocking_under_vector) == 0
+                and not missing_non_worker
+                and not unconfirmed_repeat_rcs
+            )
+            if (estimate["can_stop"] or low_clean_stop) and not missing_non_worker and not unconfirmed_repeat_rcs:
                 action = "stop"
-                status = "STOPPED (estimate)"
-                if estimate["observed"] == 0:
-                    reason = "both_found_nothing" if len(distinct_assigned) == 2 else "all_found_nothing"
-                elif estimate["estimated_unfound"] == 0:
-                    reason = "cautious_upper_below_one"
+                status = "STOPPED (estimate)" if estimate["can_stop"] else "STOPPED (clean review)"
+                if low_clean_stop and not estimate["can_stop"]:
+                    reason = "clean_low_risk_review"
+                elif estimate["observed"] == 0:
+                    reason = "zero_bug_confidence_reached"
                 else:
                     reason = "cautious_upper_below_one"
             else:
@@ -827,6 +1007,8 @@ def evaluate_ledger(payload: Any) -> dict[str, Any]:
                         reason = "non_worker_model_required"
                     elif unconfirmed_repeat_rcs:
                         reason = "unconfirmed_findings_from_repeat_run"
+                    elif estimate["observed"] == 0:
+                        reason = "zero_bugs_need_more_independent_reviews"
                     elif not estimate["informative"]:
                         reason = "uninformative_no_verified_overlap"
                     else:
@@ -1032,7 +1214,7 @@ def main(argv: list[str] | None = None) -> int:
         "  }\n"
     )
     parser = argparse.ArgumentParser(
-        description="Evaluate vectored review stopping decisions (k=2 Chapman + exact 95% hypergeometric upper bound; k>=3 Burnham-Overton M_h Jackknife + Chao 95% range).",
+        description="Evaluate vectored review stopping decisions (k=2 Chapman + exact 95% hypergeometric lower/upper bounds; k>=3 Burnham-Overton M_h Jackknife + Beta-Binomial M_h 95% CI).",
         epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
