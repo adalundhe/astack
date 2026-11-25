@@ -32,7 +32,7 @@ In Lead mode, dispatch rungs 1–4 via worker + review rather than editing code 
 4. **Automated test:** add a focused behavioral test (`tests-assert-behaviour`), because a failing test blocks regression.
 5. **Docs, rule, or skill edit (last resort):** use only for judgment calls rungs 1–4 miss, because nothing fails when an agent skips them. Include explicit conditions and an example, and show rule edits to the person first. Always edit a plugin's source repo, never its installed copy.
 
-Aim every guard at the exact mistake, not the whole tool. One bad cache never justifies banning caching.
+Aim every guard at the exact failure, not the whole tool. One bad cache never justifies banning caching. Tests assert objective behavior, never design judgment.
 
 ## 4. Keep pruning
 

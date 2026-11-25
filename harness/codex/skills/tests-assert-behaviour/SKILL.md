@@ -5,13 +5,13 @@ description: "Assert observable behavior with independent oracles, typed errors,
 
 # Tests assert behaviour
 
-Tests verify user-observable correctness. Never assert internal details, machine timing, or tautological self-checks.
+Tests verify objective behavior of functions and systems. Never assert internal details, architectural judgment, machine timing, or tautologies.
 
-**No test is better than a bad test.** A test that passes when behavior breaks—or breaks on safe refactors—wastes time and gives false confidence. Rewrite or delete it instead of keeping it for coverage.
+**No test is better than a bad test.** A test that passes when behavior breaks—or blocks valid design choices—wastes time and gives false confidence. Rewrite or delete it instead of keeping it for coverage.
 
 ## Start with
 
-1. **Assert observable behavior:** verify outputs, visible state, errors, and bounded work. Behavior-preserving refactors must stay green.
+1. **Assert observable behavior, never judgment:** verify outputs, visible state, errors, and bounded work. Behavior-preserving refactors and valid design choices must stay green.
 2. **Use an independent oracle:** never compute expected values with the code under test. Never assert on stub or mock data the test built without running real production logic. Both are tautologies that prove nothing. Use hand-worked constants, an independent reference, round-trip invariants, or verified fixtures.
 3. **Assert typed errors, not prose:** check the exception class, error code, exit status, or HTTP status callers branch on. Avoid matching English wording unless the exact message is a documented user contract.
 4. **Stay independent of hardware and load:** never rely on core count, scheduling luck, or elapsed wall time. Prove complexity bounds by counting work (rows, allocations, syscalls, queries) as input scales.
@@ -29,6 +29,7 @@ Tests verify user-observable correctness. Never assert internal details, machine
 - `assert mock_repo.get() == fixture` — testing self-built stubs;
 - `assert "timeout" in str(err)` — brittle error prose;
 - `assert mock.call_count == 2` — private call-order assertions;
+- `assert "PatternX" not in config` — arbitrary tests policing design judgment;
 - `assert elapsed_ms < 50` or `sleep(0.5)` — timing-dependent assertions;
 - `pytest.mark.flaky(reruns=3)` or `@skip` — masked flakes;
 - shared mutable globals or order-dependent test suites;
