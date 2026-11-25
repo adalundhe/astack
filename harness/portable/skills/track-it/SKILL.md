@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Track it
 
-Create and keep issues up to date in the project's issue tracker.
+Create and keep issues up to date in the project's issue tracker. For watching GitHub Issues, Jira, or Linear queues and automatically ingesting and implementing matched tickets via **go**, use **sprint**.
 
 Only the lead updates the tracker; workers report to the lead and don't edit tickets directly.
 
@@ -19,4 +19,4 @@ Only the lead updates the tracker; workers report to the lead and don't edit tic
 7. **Close with proof:** record what changed, the PR/SHA, and how done-when was verified (**prove-it**). If a task is split or re-planned, note that on the ticket instead of deleting it.
 8. **Limit notifications** to the person (or anyone they explicitly ask to include).
 
-Referenced skills: `rtfm` (`../rtfm/SKILL.md`), `dagify` (`../dagify/SKILL.md`), `safe-to-rerun` (`../safe-to-rerun/SKILL.md`), `event-driven` (`../event-driven/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `go` (`../astack-go/SKILL.md`), `sprint` (`../sprint/SKILL.md`), `rtfm` (`../rtfm/SKILL.md`), `dagify` (`../dagify/SKILL.md`), `safe-to-rerun` (`../safe-to-rerun/SKILL.md`), `event-driven` (`../event-driven/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.

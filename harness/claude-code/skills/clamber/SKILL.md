@@ -41,7 +41,7 @@ Then:
 5. **Commit or revert cleanly.** Commit each kept win on its own with before/after median and $\sigma$ in the commit message so later regressions can be bisected/reverted individually. Revert failed attempts completely.
 6. **Log the attempt** and repeat.
 
-If you have several independent ideas, test them in parallel in separate worktrees (**ab-test**).
+If you have several independent ideas, test them in parallel in separate worktrees (**ab-test**). When performance is part of a broader codebase hardening goal, pair **clamber** freely with **redteam** so kept optimizations clear vectored **review** for correctness, races, and edge cases.
 
 ## Finish
 
@@ -50,6 +50,6 @@ If you have several independent ideas, test them in parallel in separate worktre
 - **Know when to stop:** stop once the target (both baseline and variance stability) is met and the minimum attempt floor is satisfied. Before concluding further gains require trading functionality, run **research-this** and **swarm-hypothesis** to verify no compliant design exists; only then present the best compliant result, what limits it, and the trade-off with numbers to the person (**never-trade-functionality**, **decisions-in-plain-words**). Never relax the goal to declare victory.
 - **Report:** baseline vs. final median and $\sigma$ for every metric, steps kept and reverted, the full log, the current bottleneck, and the best next lead (**prove-it**).
 
-Referenced skills: `tests-assert-behaviour` (`${CLAUDE_SKILL_DIR}/../tests-assert-behaviour/SKILL.md`), `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`), `find-it` (`${CLAUDE_SKILL_DIR}/../find-it/SKILL.md`), `never-trade-functionality` (`${CLAUDE_SKILL_DIR}/../never-trade-functionality/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`), `no-picked-constants` (`${CLAUDE_SKILL_DIR}/../no-picked-constants/SKILL.md`), `research-this` (`${CLAUDE_SKILL_DIR}/../research-this/SKILL.md`), `swarm-hypothesis` (`${CLAUDE_SKILL_DIR}/../swarm-hypothesis/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `tests-assert-behaviour` (`${CLAUDE_SKILL_DIR}/../tests-assert-behaviour/SKILL.md`), `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`), `find-it` (`${CLAUDE_SKILL_DIR}/../find-it/SKILL.md`), `never-trade-functionality` (`${CLAUDE_SKILL_DIR}/../never-trade-functionality/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`), `redteam` (`${CLAUDE_SKILL_DIR}/../redteam/SKILL.md`), `review` (`${CLAUDE_SKILL_DIR}/../review/SKILL.md`), `no-picked-constants` (`${CLAUDE_SKILL_DIR}/../no-picked-constants/SKILL.md`), `research-this` (`${CLAUDE_SKILL_DIR}/../research-this/SKILL.md`), `swarm-hypothesis` (`${CLAUDE_SKILL_DIR}/../swarm-hypothesis/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's Hillclimb playbook (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

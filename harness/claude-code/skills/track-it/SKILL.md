@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Track it
 
-Create and keep issues up to date in the project's issue tracker.
+Create and keep issues up to date in the project's issue tracker. For watching GitHub Issues, Jira, or Linear queues and automatically ingesting and implementing matched tickets via **go**, use **sprint**.
 
 Only the lead updates the tracker; workers report to the lead and don't edit tickets directly.
 
@@ -19,4 +19,4 @@ Only the lead updates the tracker; workers report to the lead and don't edit tic
 7. **Close with proof:** record what changed, the PR/SHA, and how done-when was verified (**prove-it**). If a task is split or re-planned, note that on the ticket instead of deleting it.
 8. **Limit notifications** to the person (or anyone they explicitly ask to include).
 
-Referenced skills: `rtfm` (`${CLAUDE_SKILL_DIR}/../rtfm/SKILL.md`), `dagify` (`${CLAUDE_SKILL_DIR}/../dagify/SKILL.md`), `safe-to-rerun` (`${CLAUDE_SKILL_DIR}/../safe-to-rerun/SKILL.md`), `event-driven` (`${CLAUDE_SKILL_DIR}/../event-driven/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `go` (`${CLAUDE_SKILL_DIR}/../go/SKILL.md`), `sprint` (`${CLAUDE_SKILL_DIR}/../sprint/SKILL.md`), `rtfm` (`${CLAUDE_SKILL_DIR}/../rtfm/SKILL.md`), `dagify` (`${CLAUDE_SKILL_DIR}/../dagify/SKILL.md`), `safe-to-rerun` (`${CLAUDE_SKILL_DIR}/../safe-to-rerun/SKILL.md`), `event-driven` (`${CLAUDE_SKILL_DIR}/../event-driven/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.

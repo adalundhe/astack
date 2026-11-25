@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Verify a worker's claimed merge in one step.
 
-Usage: astack-verify-merge SHA [--target origin/main] [--repo DIR] [--check CMD]
+Usage: astack-verify-merge SHA [--target origin/main] [--base SHA] [--repo DIR] [--check CMD] [--strict-gates]
 
-Fetches the target, confirms SHA is on it, and lists what the commit changed.
-With --check, runs CMD in a clean worktree of the target's tip.
+Fetches the target, confirms SHA is on it, lists what the commit changed, and audits the diff
+for gate-loosening signals (strictly BASE..SHA when --base is given, or every parent of a merge
+commit otherwise). With --check, runs CMD in a clean worktree of the target's tip. With
+--strict-gates, exits 1 if any gate-loosening signal is found.
 The first line is the verdict. Exit 0: verified. 1: not verified. 2: could not check.
 """
 import argparse

@@ -22,5 +22,6 @@ Turn a reviewed `/dagify` task graph into an automated workflow with explicit, d
 7. **Keep configuration explicit** (**no-hidden-config**): concurrency limit (measured, not guessed), per-role `provider`, `model`, and `effort` from `~/.config/astack/settings.json` (`setup`), and execution environment.
 8. **Make execution observable:** log every transition with task and reason, and expose one status command showing all tasks.
 9. **Test the workflow itself** (**prove-it**): validate the DAG upfront (`execution_order()`, missing-dependency and cycle rejection); run it on the graph (or a small test graph); kill or pause it mid-run and confirm it resumes from checkpoint; fail a task and verify dependents stay blocked/skipped while independent branches continue; confirm a review blocker halts downstream tasks. Test transitions directly (**tests-assert-behaviour**).
+10. **Close completed or failed runs with **lookback**:** once an automated DAG workflow ends—whether cleanly or on failure—run **lookback** over its run log, checkpoints, retries, review blocks, and failures to capture focused `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md` lessons and harden recurring failure modes via **make-it-stick**.
 
 Only genuine human decisions pause a branch to wait (**decisions-in-plain-words**); everything else runs to completion or reports failure.

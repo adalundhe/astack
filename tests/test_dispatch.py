@@ -44,6 +44,7 @@ class DispatchTest(unittest.TestCase):
             **os.environ,
             "PATH": f"{path_dir or self.stub_bin}{os.pathsep}/usr/bin{os.pathsep}/bin",
             "ASTACK_DISPATCH_STRICT_PATH": "1",
+            "ASTACK_DISPATCH_STATE_DIR": str(self.dir / "dispatch-state"),
         }
         return subprocess.run(
             [sys.executable, "-B", str(BIN / "astack-dispatch"), *args],
@@ -329,6 +330,133 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(to.returncode, 1)
         to_data = json.loads(to.stdout)
         self.assertTrue(to_data["timed_out"])
+
+    def test_spawn_status_wait_kill_batch_and_stop_hook_track_cross_harness_agents_as_tools(self):
+        _make_stub(
+            self.stub_bin,
+            "codex",
+            'out=""\nprev=""\nfor a in "$@"; do\n  if [ "$prev" = "-o" ]; then out="$a"; fi\n  prev="$a"\ndone\n'
+            'sleep 0.4\n'
+            'msg="VERDICT: CLEAR (codex)\n"\n'
+            'if [ -n "$out" ]; then printf "%s" "$msg" > "$out"; else printf "%s" "$msg"; fi\n',
+        )
+        _make_stub(self.stub_bin, "pi", 'sleep 0.4\necho "VERDICT: CLEAR (pi)"\n')
+        _make_stub(self.stub_bin, "devin", "sleep 30\n")
+
+        state_dir = self.dir / "xharness-state"
+        go_state_dir = self.dir / "go-sessions"
+        out_cx = self.dir / "reports" / "codex.md"
+        out_pi = self.dir / "reports" / "pi.md"
+
+        # 1. Spawn two cross-harness agents asynchronously (agents-as-tools handles)
+        sp1 = self.run_dispatch(
+            "spawn", "--harness", "codex", "--provider", "openai", "--model", "gpt-5.4",
+            "--role", "reviewer", "--vector", "auth", "--cwd", str(self.work),
+            "--prompt", "Audit auth", "--out", str(out_cx), "--session", "sess-mixed",
+            "--state-dir", str(state_dir), "--json",
+        )
+        self.assertEqual(sp1.returncode, 0, sp1.stderr)
+        h1 = json.loads(sp1.stdout)
+        self.assertEqual(h1["state"], "running")
+
+        sp2 = self.run_dispatch(
+            "spawn", "--harness", "pi", "--provider", "anthropic", "--model", "claude-sonnet-4-6",
+            "--role", "reviewer", "--vector", "seams", "--cwd", str(self.work),
+            "--prompt", "Audit seams", "--out", str(out_pi), "--session", "sess-mixed",
+            "--state-dir", str(state_dir), "--json",
+        )
+        self.assertEqual(sp2.returncode, 0, sp2.stderr)
+        h2 = json.loads(sp2.stdout)
+
+        # 2. status --active-only sees both live cross-harness agents immediately
+        st_live = self.run_dispatch("status", "--state-dir", str(state_dir), "--session", "sess-mixed", "--active-only", "--json")
+        self.assertEqual(st_live.returncode, 0, st_live.stderr)
+        st_data = json.loads(st_live.stdout)
+        self.assertEqual(st_data["active_count"], 2)
+
+        # 3. astack-status surfaces live cross-harness agents alongside LANES.md
+        lanes = self.dir / "LANES.md"
+        lanes.write_text("<!-- astack lane log -->\n# prog\n\n## Log\n\n")
+        env_st = {**os.environ, "ASTACK_DISPATCH_STATE_DIR": str(state_dir)}
+        as_res = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-status"), str(lanes)],
+            capture_output=True, text=True, env=env_st,
+        )
+        self.assertEqual(as_res.returncode, 0, as_res.stderr)
+        self.assertIn("Running cross-harness agents (astack-dispatch)", as_res.stdout)
+        self.assertIn(h1["run_id"], as_res.stdout)
+
+        # 4. Stop hook blocks premature turn end while cross-harness runs are live (and enforces loop safety)
+        subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-go-mode"), "on", "--session", "sess-mixed", "--state-dir", str(go_state_dir)],
+            check=True, capture_output=True, text=True,
+        )
+        stop_env = {**os.environ, "ASTACK_DISPATCH_STATE_DIR": str(state_dir)}
+        stop1 = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-go-mode"), "--hook", "--harness", "claude-code", "--event", "Stop", "--state-dir", str(go_state_dir)],
+            input=json.dumps({"session_id": "sess-mixed", "stop_hook_active": False}),
+            capture_output=True, text=True, env=stop_env,
+        )
+        self.assertEqual(stop1.returncode, 0, stop1.stderr)
+        stop1_json = json.loads(stop1.stdout)
+        self.assertEqual(stop1_json["decision"], "block")
+        self.assertIn("astack-dispatch wait", stop1_json["reason"])
+        self.assertIn(h1["run_id"], stop1_json["reason"])
+
+        # Loop safety: if host retries Stop immediately for the exact same active set with stop_hook_active=True, fail open!
+        stop_loop = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-go-mode"), "--hook", "--harness", "claude-code", "--event", "Stop", "--state-dir", str(go_state_dir)],
+            input=json.dumps({"session_id": "sess-mixed", "stop_hook_active": True}),
+            capture_output=True, text=True, env=stop_env,
+        )
+        self.assertEqual(stop_loop.returncode, 0, stop_loop.stderr)
+        self.assertEqual(stop_loop.stdout.strip(), "")
+
+        # 5. wait --all joins both cross-harness agents and returns their outputs
+        wt = self.run_dispatch(
+            "wait", "--state-dir", str(state_dir), "--run-id", h1["run_id"], "--run-id", h2["run_id"],
+            "--all", "--poll-interval", "0.05", "--timeout", "10", "--json",
+        )
+        self.assertEqual(wt.returncode, 0, wt.stdout + wt.stderr)
+        wt_data = json.loads(wt.stdout)
+        self.assertTrue(wt_data["completed"])
+        self.assertTrue(wt_data["all_succeeded"])
+        outputs = {r["run_id"]: r["output"] for r in wt_data["runs"]}
+        self.assertIn("CLEAR (codex)", outputs[h1["run_id"]])
+        self.assertIn("CLEAR (pi)", outputs[h2["run_id"]])
+
+        # Once all cross-harness runs are finished, Stop hook allows normal exit!
+        stop_clear = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-go-mode"), "--hook", "--harness", "claude-code", "--event", "Stop", "--state-dir", str(go_state_dir)],
+            input=json.dumps({"session_id": "sess-mixed", "stop_hook_active": False}),
+            capture_output=True, text=True, env=stop_env,
+        )
+        self.assertEqual(stop_clear.returncode, 0, stop_clear.stderr)
+        self.assertEqual(stop_clear.stdout.strip(), "")
+
+        # 6. kill cleanly stops a long-running external agent
+        sp_long = self.run_dispatch(
+            "spawn", "--harness", "devin", "--provider", "devin", "--model", "default",
+            "--role", "worker", "--cwd", str(self.work), "--prompt", "Long task",
+            "--state-dir", str(state_dir), "--json",
+        )
+        self.assertEqual(sp_long.returncode, 0, sp_long.stderr)
+        h_long = json.loads(sp_long.stdout)
+        kl = self.run_dispatch("kill", "--state-dir", str(state_dir), "--run-id", h_long["run_id"], "--json")
+        self.assertEqual(kl.returncode, 0, kl.stderr)
+        self.assertEqual(json.loads(kl.stdout)["state"], "killed")
+
+        # 7. batch launches a parallel cross-harness wave behind one blocking barrier
+        jobs_file = self.dir / "wave.json"
+        jobs_file.write_text(json.dumps([
+            {"harness": "codex", "provider": "openai", "model": "gpt-5.4", "role": "reviewer", "vector": "v1", "cwd": str(self.work), "prompt": "Check v1", "out": str(self.dir / "b1.md")},
+            {"harness": "pi", "provider": "anthropic", "model": "claude-sonnet-4-6", "role": "reviewer", "vector": "v2", "cwd": str(self.work), "prompt": "Check v2", "out": str(self.dir / "b2.md")},
+        ]))
+        bt = self.run_dispatch("batch", "--jobs-file", str(jobs_file), "--state-dir", str(state_dir), "--poll-interval", "0.05", "--json")
+        self.assertEqual(bt.returncode, 0, bt.stdout + bt.stderr)
+        bt_data = json.loads(bt.stdout)
+        self.assertTrue(bt_data["all_succeeded"])
+        self.assertEqual(len(bt_data["runs"]), 2)
 
     def test_run_applies_role_timeouts_from_settings_for_worker_reviewer_and_researcher(self):
         for cli in ("codex", "agy", "pi"):

@@ -41,7 +41,7 @@ Then:
 5. **Commit or revert cleanly.** Commit each kept win on its own with before/after median and $\sigma$ in the commit message so later regressions can be bisected/reverted individually. Revert failed attempts completely.
 6. **Log the attempt** and repeat.
 
-If you have several independent ideas, test them in parallel in separate worktrees (**ab-test**).
+If you have several independent ideas, test them in parallel in separate worktrees (**ab-test**). When performance is part of a broader codebase hardening goal, pair **clamber** freely with **redteam** so kept optimizations clear vectored **review** for correctness, races, and edge cases.
 
 ## Finish
 

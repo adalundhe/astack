@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Track it
 
-Create and keep issues up to date in the project's issue tracker.
+Create and keep issues up to date in the project's issue tracker. For watching GitHub Issues, Jira, or Linear queues and automatically ingesting and implementing matched tickets via **go**, use **sprint**.
 
 Only the lead updates the tracker; workers report to the lead and don't edit tickets directly.
 

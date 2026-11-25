@@ -485,6 +485,7 @@ class ToolsTest(Scratch):
             "astack-verify-merge", "astack-check-gates", "astack-review-ledger",
             "astack-statechart", "astack-stamp",
             "astack-watch-pr", "astack-watch-github", "astack-watch-gitlab", "astack-watch-bitbucket",
+            "astack-watch-tickets",
             "astack-release", "astack-go-mode",
         ):
             launcher = bin_dir / name
@@ -637,6 +638,161 @@ class ToolsTest(Scratch):
         path_res = run("astack-tools", "path", "--venv", str(venv))
         self.assertEqual(path_res.returncode, 0)
         self.assertTrue(path_res.stdout.strip().endswith("/python"))
+
+    def test_init_home_and_lessons_commands_enforce_cross_platform_paths_permissions_and_filtering(self):
+        fake_home = self.dir / "userhome"
+        fake_home.mkdir()
+        env = {**os.environ, "HOME": str(fake_home)}
+        env.pop("ASTACK_HOME", None)
+
+        def run_tools(*args, extra_env=None):
+            e = {**env, **(extra_env or {})}
+            return subprocess.run([sys.executable, "-B", str(BIN / "astack-tools"), *args], capture_output=True, text=True, env=e)
+
+        # doctor reports missing ~/.astack before init-home without creating it
+        doc_before = run_tools("doctor", "--venv", str(self.dir / "no-venv"), "--json")
+        self.assertEqual(doc_before.returncode, 1)
+        doc_data = json.loads(doc_before.stdout)
+        self.assertEqual(doc_data["astack_home"]["path"], str(fake_home / ".astack"))
+        self.assertFalse(doc_data["astack_home"]["exists"])
+
+        # dry-run does not create ~/.astack
+        dry = run_tools("init-home", "--dry-run", "--json")
+        self.assertEqual(dry.returncode, 0, dry.stderr)
+        self.assertFalse((fake_home / ".astack").exists())
+
+        # init-home creates $HOME/.astack with owner-only 0o700 permissions on POSIX and is idempotent
+        init_res = run_tools("init-home", "--json")
+        self.assertEqual(init_res.returncode, 0, init_res.stderr)
+        init_data = json.loads(init_res.stdout)
+        self.assertTrue(init_data["created"])
+        self.assertTrue(init_data["writable"])
+        astack_home = fake_home / ".astack"
+        self.assertTrue(astack_home.is_dir())
+        if os.name != "nt":
+            self.assertEqual(astack_home.stat().st_mode & 0o777, 0o700)
+
+        init_again = run_tools("init-home", "--json")
+        self.assertEqual(init_again.returncode, 0, init_again.stderr)
+        self.assertFalse(json.loads(init_again.stdout)["created"])
+
+        # init-home fails cleanly when target path is a regular file
+        blocker = self.dir / "not-a-dir"
+        blocker.write_text("file\n", encoding="utf-8")
+        bad_home = run_tools("init-home", extra_env={"ASTACK_HOME": str(blocker)})
+        self.assertEqual(bad_home.returncode, 1)
+        self.assertIn("not a directory", bad_home.stderr)
+
+        # lessons path --ensure creates ~/.astack/<project>/lessons/<lesson>/LESSON.md with 0o700 dirs
+        p1 = run_tools("lessons", "path", "api-gateway", "tls-handshake-timeout", "--ensure")
+        self.assertEqual(p1.returncode, 0, p1.stderr)
+        lesson1 = Path(p1.stdout.strip())
+        self.assertEqual(lesson1, astack_home / "api-gateway" / "lessons" / "tls-handshake-timeout" / "LESSON.md")
+        self.assertTrue(lesson1.parent.is_dir())
+        if os.name != "nt":
+            self.assertEqual(lesson1.parent.stat().st_mode & 0o777, 0o700)
+
+        p2 = run_tools("lessons", "path", "edge-iac", "waf-rule-order", "--ensure")
+        self.assertEqual(p2.returncode, 0, p2.stderr)
+        lesson2 = Path(p2.stdout.strip())
+
+        p3 = run_tools("lessons", "path", "api-gateway", "old-retry-loop", "--ensure")
+        self.assertEqual(p3.returncode, 0, p3.stderr)
+        lesson3 = Path(p3.stdout.strip())
+
+        lesson1.write_text(
+            "---\n"
+            "lesson: tls-handshake-timeout\n"
+            "project: api-gateway\n"
+            "related_projects: [edge-iac, auth-service]\n"
+            "keywords: [tls, timeout, mtls]\n"
+            "status: active\n"
+            "created: 2026-11-25T10:00Z\n"
+            "updated: 2026-11-25T12:00Z\n"
+            "---\n\n"
+            "# TLS Handshake Timeout Under Burst Load\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        lesson2.write_text(
+            "---\n"
+            "lesson: waf-rule-order\n"
+            "project: edge-iac\n"
+            "related_projects:\n"
+            "  - api-gateway\n"
+            "keywords:\n"
+            "  - waf\n"
+            "  - terraform\n"
+            "status: active\n"
+            "created: 2026-11-24T08:00Z\n"
+            "updated: 2026-11-24T09:00Z\n"
+            "---\n\n"
+            "# WAF Rule Priority Must Preceding Rate Limits\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        lesson3.write_text(
+            "---\n"
+            "lesson: old-retry-loop\n"
+            "project: api-gateway\n"
+            "related_projects: []\n"
+            "keywords: [retry]\n"
+            "status: superseded\n"
+            "created: 2026-11-01T08:00Z\n"
+            "updated: 2026-11-20T09:00Z\n"
+            "---\n\n"
+            "# Retired Retry Loop\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+
+        # lessons list parses frontmatter, supports --related for cross-repo discovery, --keyword, and --status
+        all_list = run_tools("lessons", "list", "--json")
+        self.assertEqual(all_list.returncode, 0, all_list.stderr)
+        all_items = json.loads(all_list.stdout)["lessons"]
+        self.assertEqual(len(all_items), 3)
+
+        rel_auth = run_tools("lessons", "list", "--related", "auth-service", "--json")
+        self.assertEqual(rel_auth.returncode, 0, rel_auth.stderr)
+        rel_items = json.loads(rel_auth.stdout)["lessons"]
+        self.assertEqual([(i["project"], i["lesson"]) for i in rel_items], [("api-gateway", "tls-handshake-timeout")])
+        self.assertEqual(rel_items[0]["related_projects"], ["edge-iac", "auth-service"])
+        self.assertEqual(rel_items[0]["keywords"], ["tls", "timeout", "mtls"])
+        self.assertEqual(rel_items[0]["updated"], "2026-11-25T12:00Z")
+
+        rel_gw = run_tools("lessons", "list", "--related", "api-gateway", "--status", "active", "--json")
+        self.assertEqual(rel_gw.returncode, 0, rel_gw.stderr)
+        self.assertEqual(
+            [(i["project"], i["lesson"]) for i in json.loads(rel_gw.stdout)["lessons"]],
+            [("api-gateway", "tls-handshake-timeout"), ("edge-iac", "waf-rule-order")],
+        )
+
+        kw_res = run_tools("lessons", "list", "--keyword", "terraform", "--json")
+        self.assertEqual(kw_res.returncode, 0, kw_res.stderr)
+        self.assertEqual([i["lesson"] for i in json.loads(kw_res.stdout)["lessons"]], ["waf-rule-order"])
+
+        # Cross-platform slug validation rejects traversal, uppercase, separators, Windows reserved device names, and overlong slugs
+        for bad_args in (
+            ("lessons", "path", "../escape", "x"),
+            ("lessons", "path", "proj", "a/b"),
+            ("lessons", "path", "UpperCase", "ok"),
+            ("lessons", "path", "con", "ok"),
+            ("lessons", "path", "proj", "nul"),
+            ("lessons", "path", "proj", "com1.log"),
+            ("lessons", "path", "proj", "lpt9"),
+            ("lessons", "path", "a" * 101, "ok"),
+        ):
+            bad = run_tools(*bad_args)
+            self.assertEqual(bad.returncode, 2, f"expected slug rejection for {bad_args}: {bad.stdout} {bad.stderr}")
+
+        # Symlink escape outside ~/.astack is refused
+        if os.name != "nt":
+            outside = self.dir / "outside"
+            outside.mkdir()
+            (astack_home / "escape-proj").symlink_to(outside)
+            esc = run_tools("lessons", "path", "escape-proj", "bad", "--ensure")
+            self.assertEqual(esc.returncode, 1)
+            self.assertIn("outside astack home", esc.stderr)
 
 
 class CheckGatesTest(Scratch):

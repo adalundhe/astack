@@ -8,6 +8,8 @@ The repository comes from --repo, else the log's `Repository:` line, else the cu
 --line prints one summary line, for a status bar.
 """
 import argparse
+import ctypes
+import json
 import os
 import re
 import subprocess
@@ -136,6 +138,64 @@ def last_commit(repo, branch, now):
     return f"{branch}: no commits found"
 
 
+def _dispatch_state_dir():
+    if override := os.environ.get("ASTACK_DISPATCH_STATE_DIR"):
+        return Path(override).expanduser()
+    if xdg := os.environ.get("XDG_STATE_HOME"):
+        return Path(xdg).expanduser() / "astack" / "dispatches"
+    if os.name == "nt":
+        local_app = os.environ.get("LOCALAPPDATA")
+        base = Path(local_app) if local_app else Path.home() / "AppData" / "Local"
+        return base / "astack" / "dispatches"
+    return Path.home() / ".local" / "state" / "astack" / "dispatches"
+
+
+def _pid_alive(pid):
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            k32 = ctypes.windll.kernel32
+            handle = k32.OpenProcess(0x1000, False, pid)
+            if not handle:
+                return False
+            try:
+                code = ctypes.c_ulong()
+                return bool(k32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259
+            finally:
+                k32.CloseHandle(handle)
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def active_dispatches():
+    sdir = _dispatch_state_dir()
+    if not sdir.is_dir():
+        return []
+    live = []
+    for entry in sorted(sdir.iterdir(), key=lambda p: p.name):
+        if not entry.name.endswith(".json") or entry.name.endswith(".job.json") or entry.name.startswith("."):
+            continue
+        try:
+            rec = json.loads(entry.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(rec, dict) or rec.get("state") != "running":
+            continue
+        if _pid_alive(rec.get("pid")) or _pid_alive(rec.get("supervisor_pid")):
+            live.append(rec)
+    return live
+
+
 def main():
     parser = argparse.ArgumentParser(description="Show an astack program's running workers, reviewers, and researchers.")
     parser.add_argument("path", nargs="?")
@@ -154,22 +214,24 @@ def main():
     running_workers = {n: a for n, a in running.items() if a["role"] == "worker"}
     running_reviewers = {n: a for n, a in running.items() if a["role"] == "reviewer"}
     running_researchers = {n: a for n, a in running.items() if a["role"] == "researcher"}
+    xharness = active_dispatches()
     program = log.parent.name
 
     if args.line:
         ends = sorted(at for a in running.values() if (at := maybe_time(a.get("ends"))))
         late = sum(1 for at in ends if at < now)
         upcoming = [at for at in ends if at >= now]
-        if running_reviewers or running_researchers:
+        if running_reviewers or running_researchers or xharness:
             breakdown = ", ".join(
                 part for part in (
                     f"{len(running_workers)}w" if running_workers else "",
                     f"{len(running_reviewers)}r" if running_reviewers else "",
                     f"{len(running_researchers)}res" if running_researchers else "",
+                    f"{len(xharness)}xh" if xharness else "",
                 )
                 if part
             )
-            summary = [f"astack {program}: {len(running)} running ({breakdown})"]
+            summary = [f"astack {program}: {len(running) + len(xharness)} running ({breakdown})"]
         else:
             summary = [f"astack {program}: {len(running)} running"]
         if upcoming:
@@ -187,7 +249,7 @@ def main():
     if unstamped:
         print(f"\n{unstamped} log line(s) have no UTC stamp, so they are not counted: run `astack-stamp {log}`, "
               f"and append lines with `astack-stamp --add {log} \"<line>\"`.")
-    if not running:
+    if not running and not xharness:
         print("\nNo active agents (workers, reviewers, or researchers).")
     if running_workers:
         print("\nRunning workers")
@@ -211,6 +273,13 @@ def main():
             print(f"    {clock(res, now)}")
             if res.get("question"):
                 print(f"    question: {res['question']}")
+    if xharness:
+        print("\nRunning cross-harness agents (astack-dispatch)")
+        for d in xharness:
+            vec = f", vector {d['vector']}" if d.get("vector") else ""
+            print(f"  {d['run_id']} ({d.get('harness')} {d.get('provider')}/{d.get('model')}, role {d.get('role')}{vec}, pid {d.get('pid') or d.get('supervisor_pid')})")
+            if d.get("out_file"):
+                print(f"    out: {d['out_file']}")
     if lanes:
         print("\nLanes")
         for lane, state in sorted(lanes.items()):

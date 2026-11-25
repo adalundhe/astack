@@ -3,6 +3,9 @@
 
 Usage:
   astack-tools doctor [--venv DIR] [--json]
+  astack-tools init-home [--dry-run] [--json]
+  astack-tools lessons path PROJECT [LESSON] [--ensure]
+  astack-tools lessons list [--project PROJECT] [--related PROJECT] [--keyword TERM] [--status active|tentative|superseded|all] [--json]
   astack-tools install [--profile core|standard|all] [--modules LIST] [--from-github] [--python SPEC] [--venv DIR] [--dry-run]
   astack-tools link-bin [--bin-dir DIR] [--copy] [--dry-run]
   astack-tools install-agents --harness HARNESS [--settings PATH] [--target DIR] [--dry-run]
@@ -28,8 +31,10 @@ import platform
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 CORE_PACKAGES = ("taskex", "orchestral", "werkflow")
@@ -108,6 +113,353 @@ def default_bin_dir() -> Path:
     if xdg_bin := os.environ.get("XDG_BIN_HOME"):
         return Path(xdg_bin).expanduser()
     return Path.home() / ".local" / "bin"
+
+
+_LESSON_SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$")
+_WINDOWS_RESERVED_NAMES = frozenset({
+    "con", "prn", "aux", "nul",
+    *(f"com{i}" for i in range(1, 10)),
+    *(f"lpt{i}" for i in range(1, 10)),
+})
+MAX_LESSON_SLUG_LEN = 100
+
+
+def astack_home_dir() -> Path:
+    if env_home := os.environ.get("ASTACK_HOME"):
+        return Path(env_home).expanduser()
+    return Path.home() / ".astack"
+
+
+def _validate_lesson_slug(value: str, label: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        raise ValueError(f"{label} must not be empty")
+    if len(raw) > MAX_LESSON_SLUG_LEN:
+        raise ValueError(f"{label} {raw!r} exceeds {MAX_LESSON_SLUG_LEN} characters (keep paths Windows MAX_PATH-safe)")
+    if "/" in raw or "\\" in raw or ".." in raw or not _LESSON_SLUG_RE.fullmatch(raw):
+        raise ValueError(
+            f"invalid {label} {raw!r}: use lowercase ASCII letters, digits, '.', '_' or '-' "
+            "(starting and ending with a letter or digit, no '..' or path separators)"
+        )
+    stem = raw.split(".", 1)[0]
+    if stem in _WINDOWS_RESERVED_NAMES:
+        raise ValueError(f"invalid {label} {raw!r}: reserved device name on Windows")
+    return raw
+
+
+def _harden_posix_dir(path: Path) -> str | None:
+    """Apply owner-only 0o700 permissions on POSIX filesystems that support chmod; tolerate WSL/FAT/NFS."""
+    if os.name == "nt":
+        return None
+    try:
+        st = path.stat()
+    except OSError as exc:
+        return f"could not stat {path}: {exc}"
+    geteuid = getattr(os, "geteuid", None)
+    if geteuid is not None and st.st_uid != geteuid():
+        return f"{path} is owned by uid {st.st_uid}, not current uid {geteuid()}"
+    if stat.S_IMODE(st.st_mode) != 0o700:
+        try:
+            os.chmod(path, 0o700)
+        except OSError as exc:
+            return f"could not chmod 0700 on {path} (filesystem may ignore POSIX modes): {exc}"
+    return None
+
+
+def _probe_writable(directory: Path) -> tuple[bool, str | None]:
+    probe = directory / f".astack-probe-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    try:
+        with open(probe, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("")
+    except OSError as exc:
+        return False, str(exc)
+    finally:
+        try:
+            probe.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return True, None
+
+
+def _ensure_private_dir(path: Path, root: Path | None = None) -> tuple[bool, str | None]:
+    """Create a user-private directory safely across Windows, macOS, and Linux."""
+    if path.exists() and not path.is_dir():
+        raise OSError(f"{path} exists and is not a directory")
+    if path.is_symlink() and not path.exists():
+        raise OSError(f"{path} is a broken symlink")
+    created = not path.exists()
+    if os.name == "nt":
+        path.mkdir(parents=True, exist_ok=True)
+    else:
+        path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if root is not None:
+        resolved_root = root.resolve()
+        resolved_path = path.resolve()
+        if not resolved_path.is_relative_to(resolved_root):
+            raise OSError(f"refusing path outside astack home ({resolved_root}): {resolved_path}")
+    warning = _harden_posix_dir(path)
+    return created, warning
+
+
+def inspect_astack_home(home_dir: Path | None = None) -> dict:
+    target = (home_dir or astack_home_dir()).expanduser()
+    exists = target.exists()
+    is_dir = target.is_dir()
+    mode: str | None = None
+    if is_dir:
+        if os.name == "nt":
+            mode = "windows-user-profile"
+        else:
+            try:
+                mode = oct(stat.S_IMODE(target.stat().st_mode))
+            except OSError:
+                mode = None
+    return {
+        "path": str(target),
+        "exists": exists,
+        "is_dir": is_dir,
+        "mode": mode,
+    }
+
+
+def cmd_init_home(args) -> int:
+    target = astack_home_dir()
+    if args.dry_run:
+        info = {
+            "astack_home": str(target),
+            "exists": target.is_dir(),
+            "dry_run": True,
+            "platform": sys.platform,
+        }
+        if args.as_json:
+            print(json.dumps(info, indent=2))
+        else:
+            action = "exists" if target.is_dir() else "would create"
+            print(f"dry-run: {action} {target}")
+        return 0
+    try:
+        created, warning = _ensure_private_dir(target)
+    except OSError as exc:
+        print(f"error: failed to initialize {target}: {exc}", file=sys.stderr)
+        return 1
+    writable, write_err = _probe_writable(target)
+    if not writable:
+        hint = (
+            f"Fix directory permissions on {target} (check NTFS ACLs / folder ownership)."
+            if os.name == "nt"
+            else f"Fix ownership/permissions on {target} (e.g., `chown -R $(id -un) {shlex.quote(str(target))} && chmod 700 {shlex.quote(str(target))}`)."
+        )
+        print(f"error: {target} is not writable ({write_err}). {hint}", file=sys.stderr)
+        return 1
+    status = inspect_astack_home(target)
+    result = {
+        "astack_home": status["path"],
+        "created": created,
+        "writable": True,
+        "mode": status["mode"],
+        "warning": warning,
+        "platform": sys.platform,
+    }
+    if args.as_json:
+        print(json.dumps(result, indent=2))
+    else:
+        verb = "created" if created else "ready"
+        mode_note = f" ({status['mode']})" if status["mode"] else ""
+        print(f"astack home {verb}: {status['path']}{mode_note}")
+        if warning:
+            print(f"warning: {warning}", file=sys.stderr)
+    return 0
+
+
+def cmd_lessons_path(args) -> int:
+    try:
+        project = _validate_lesson_slug(args.project, "project_name")
+        lesson = _validate_lesson_slug(args.lesson, "lesson_name") if args.lesson else None
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    root = astack_home_dir()
+    project_dir = root / project
+    lessons_dir = project_dir / "lessons"
+    target_dir = (lessons_dir / lesson) if lesson else lessons_dir
+    output_path = (target_dir / "LESSON.md") if lesson else lessons_dir
+    if root.exists():
+        resolved_root = root.resolve()
+        for existing in (project_dir, lessons_dir, target_dir):
+            if existing.exists() and not existing.resolve().is_relative_to(resolved_root):
+                print(f"error: refusing path outside astack home ({resolved_root}): {existing.resolve()}", file=sys.stderr)
+                return 1
+    if args.ensure:
+        try:
+            _ensure_private_dir(root)
+            dirs_to_ensure = (project_dir, lessons_dir, target_dir) if lesson else (project_dir, lessons_dir)
+            for directory in dirs_to_ensure:
+                _ensure_private_dir(directory, root=root)
+        except OSError as exc:
+            print(f"error: failed to create lesson directory {target_dir}: {exc}", file=sys.stderr)
+            return 1
+        writable, write_err = _probe_writable(target_dir)
+        if not writable:
+            print(f"error: {target_dir} is not writable ({write_err})", file=sys.stderr)
+            return 1
+    print(output_path)
+    return 0
+
+
+def _parse_lesson_front_matter(text: str) -> dict[str, object]:
+    """Parse flat YAML frontmatter (scalars + inline or block string lists) with stdlib only."""
+    match = re.match(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", text, re.S)
+    if not match:
+        return {}
+    fields: dict[str, object] = {}
+    current_list_key: str | None = None
+    for raw_line in match.group(1).splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if current_list_key and re.match(r"^\s*-\s+", raw_line):
+            item = _unquote_yaml(re.sub(r"^\s*-\s+", "", raw_line).strip())
+            if item:
+                cast_list = fields.setdefault(current_list_key, [])
+                if isinstance(cast_list, list):
+                    cast_list.append(item)
+            continue
+        current_list_key = None
+        if ":" not in raw_line:
+            continue
+        key, _, val = raw_line.partition(":")
+        key = key.strip()
+        val = val.strip()
+        if not key:
+            continue
+        if val == "":
+            fields[key] = []
+            current_list_key = key
+        elif val.startswith("[") and val.endswith("]"):
+            inner = val[1:-1].strip()
+            fields[key] = [_unquote_yaml(part.strip()) for part in inner.split(",") if part.strip()] if inner else []
+        else:
+            fields[key] = _unquote_yaml(val)
+    return fields
+
+
+def _as_str_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if isinstance(value, str) and value.strip():
+        return [v.strip() for v in value.split(",") if v.strip()]
+    return []
+
+
+def cmd_lessons_list(args) -> int:
+    root = astack_home_dir()
+    filter_project: str | None = None
+    if args.project:
+        try:
+            filter_project = _validate_lesson_slug(args.project, "project_name")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    filter_related: str | None = None
+    if args.related:
+        try:
+            filter_related = _validate_lesson_slug(args.related, "project_name")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    filter_keywords = [
+        part.strip().lower()
+        for raw in (args.keyword or [])
+        for part in raw.split(",")
+        if part.strip()
+    ]
+    filter_status = (args.status or "").strip().lower() or None
+
+    entries: list[dict[str, object]] = []
+    if root.is_dir():
+        resolved_root = root.resolve()
+        project_dirs = [root / filter_project] if filter_project else sorted(
+            (p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")),
+            key=lambda p: p.name,
+        )
+        for pdir in project_dirs:
+            ldir = pdir / "lessons"
+            if not ldir.is_dir():
+                continue
+            try:
+                if not ldir.resolve().is_relative_to(resolved_root):
+                    continue
+            except OSError:
+                continue
+            for item in sorted((x for x in ldir.iterdir() if x.is_dir() and not x.name.startswith(".")), key=lambda x: x.name):
+                doc = item / "LESSON.md"
+                try:
+                    if not doc.is_file() or not doc.resolve().is_relative_to(resolved_root):
+                        continue
+                except OSError:
+                    continue
+                raw_text = ""
+                try:
+                    raw_text = doc.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    pass
+                fm = _parse_lesson_front_matter(raw_text)
+                body = re.sub(r"\A---\r?\n.*?\r?\n---(?:\r?\n|\Z)", "", raw_text, count=1, flags=re.S)
+                title = ""
+                for line in body.splitlines():
+                    stripped = line.strip()
+                    if stripped:
+                        title = stripped.lstrip("#").strip()
+                        break
+                related_projects = _as_str_list(fm.get("related_projects"))
+                keywords = _as_str_list(fm.get("keywords"))
+                status = str(fm.get("status") or "").strip().lower() or "active"
+                created = str(fm.get("created") or "").strip()
+                updated = str(fm.get("updated") or "").strip()
+                if filter_status and filter_status != "all" and status != filter_status:
+                    continue
+                if filter_related and pdir.name != filter_related and filter_related not in [r.lower() for r in related_projects]:
+                    continue
+                if filter_keywords:
+                    haystack = " ".join([
+                        pdir.name, item.name, title,
+                        *keywords, *related_projects,
+                    ]).lower()
+                    if not all(kw in haystack for kw in filter_keywords):
+                        continue
+                entries.append({
+                    "project": pdir.name,
+                    "lesson": item.name,
+                    "path": str(doc),
+                    "title": title,
+                    "status": status,
+                    "keywords": keywords,
+                    "related_projects": related_projects,
+                    "created": created,
+                    "updated": updated,
+                })
+    if args.as_json:
+        print(json.dumps({"astack_home": str(root), "lessons": entries}, indent=2))
+        return 0
+    if not entries:
+        scope = f" for project {filter_project}" if filter_project else ""
+        print(f"No lessons found{scope} under {root}")
+        return 0
+    for item in entries:
+        meta_parts = [f"[{item['status']}]"]
+        if item["updated"]:
+            meta_parts.append(str(item["updated"]))
+        elif item["created"]:
+            meta_parts.append(str(item["created"]))
+        extras = []
+        if item["keywords"]:
+            extras.append("keywords=" + ",".join(item["keywords"]))
+        if item["related_projects"]:
+            extras.append("related=" + ",".join(item["related_projects"]))
+        title_part = f" — {item['title']}" if item["title"] else ""
+        extra_part = f" ({'; '.join(extras)})" if extras else ""
+        print(f"{item['project']}/{item['lesson']} {' '.join(meta_parts)}{title_part}{extra_part}: {item['path']}")
+    return 0
 
 
 def venv_bin_dir(venv: Path) -> Path:
@@ -430,11 +782,13 @@ def inspect_venv(venv: Path) -> dict:
     on_path = shutil.which("astack-tools")
     harnesses = detect_harnesses()
     claude_settings = inspect_claude_settings()
+    home_info = inspect_astack_home()
     py_exists = _is_file_safe(py)
     wf_exists = _is_file_safe(wf_cli)
     info = {
         "platform": sys.platform,
         "arch": normalized_arch(),
+        "astack_home": home_info,
         "astack_tools_on_path": on_path,
         "harnesses": harnesses,
         "claude_settings": claude_settings,
@@ -503,6 +857,13 @@ def cmd_doctor(args) -> int:
 
     print(f"astack-tools venv: {info['venv']} ({'ready' if info['venv_exists'] else 'missing'})")
     print(f"  platform: {info['platform']} ({info['arch']})")
+    home_info = info["astack_home"]
+    home_state = (
+        f"ready ({home_info['mode']})"
+        if home_info["is_dir"]
+        else ("NOT A DIR" if home_info["exists"] else "missing (run `astack-tools init-home`)")
+    )
+    print(f"  astack home: {home_info['path']} ({home_state})")
     print(f"  on PATH: {info['astack_tools_on_path'] or 'no (run `astack-tools link-bin` to link into ~/.local/bin)'}")
     if info["python_version"]:
         print(f"  venv python: {info['python']} ({info['python_version']})")
@@ -1144,9 +1505,26 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Manage and run astack's Python automation stack.")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_doc = sub.add_parser("doctor", aliases=["status"], help="check uv, Python >=3.11, PATH, and installed automation tools")
+    p_doc = sub.add_parser("doctor", aliases=["status"], help="check uv, Python >=3.11, PATH, ~/.astack, and installed automation tools")
     p_doc.add_argument("--venv", type=Path, default=default_venv())
     p_doc.add_argument("--json", action="store_true", dest="as_json")
+
+    p_home = sub.add_parser("init-home", help="create and verify ~/.astack ($HOME/.astack or %%USERPROFILE%%\\.astack) with user-private permissions")
+    p_home.add_argument("--dry-run", action="store_true", help="print status without modifying files")
+    p_home.add_argument("--json", action="store_true", dest="as_json")
+
+    p_lessons = sub.add_parser("lessons", help="resolve or list per-project lessons under ~/.astack/<project>/lessons/<lesson>/LESSON.md")
+    lessons_sub = p_lessons.add_subparsers(dest="lessons_command", required=True)
+    p_lessons_path = lessons_sub.add_parser("path", help="print (and optionally create) a project lessons dir or LESSON.md path")
+    p_lessons_path.add_argument("project", metavar="PROJECT")
+    p_lessons_path.add_argument("lesson", metavar="LESSON", nargs="?")
+    p_lessons_path.add_argument("--ensure", action="store_true", help="create directories with user-private permissions and verify writability")
+    p_lessons_list = lessons_sub.add_parser("list", help="list and filter saved lessons under ~/.astack/*/lessons/*/LESSON.md")
+    p_lessons_list.add_argument("--project", help="filter to one project slug")
+    p_lessons_list.add_argument("--related", help="match lessons belonging to or referencing this project slug in related_projects")
+    p_lessons_list.add_argument("--keyword", action="append", help="filter by keyword/term (repeatable or comma-separated)")
+    p_lessons_list.add_argument("--status", choices=("active", "tentative", "superseded", "all"), help="filter by frontmatter status")
+    p_lessons_list.add_argument("--json", action="store_true", dest="as_json")
 
     p_inst = sub.add_parser("install", help="provision Python >=3.11 via uv, create/update the venv, and install packages")
     p_inst.add_argument("--venv", type=Path, default=default_venv())
@@ -1202,6 +1580,10 @@ def main(argv=None) -> int:
     args = parser.parse_args(args_list)
     if args.command in ("doctor", "status"):
         return cmd_doctor(args)
+    if args.command == "init-home":
+        return cmd_init_home(args)
+    if args.command == "lessons":
+        return cmd_lessons_path(args) if args.lessons_command == "path" else cmd_lessons_list(args)
     if args.command == "install":
         return cmd_install(args)
     if args.command == "link-bin":

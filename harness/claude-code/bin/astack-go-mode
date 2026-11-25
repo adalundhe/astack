@@ -12,7 +12,9 @@ Reads hook JSON from stdin and emits harness-native JSON on stdout:
     /astack:go, /astack-go, $astack-go, /astack:lead, /astack-lead, or $astack-lead, or when
     the main session loads the go/astack-go skill (skipping worker/reviewer/researcher subagents).
   - Re-injects a concise Lead + Go mode reminder on every subsequent user prompt and after
-    context compaction/resume so completing a task never drops out of Go mode.
+    context compaction/resume on Claude Code, Codex, and Antigravity; on Cursor, tracks
+    per-session Go mode on beforeSubmitPrompt (returning {"continue": true}) and injects
+    additional_context on sessionStart.
   - Exits cleanly only on an explicit exit command (/astack:exit, "exit go mode") or /clear.
 
 Stdlib-only (Python >=3.9). Fails open with valid JSON on unexpected I/O errors so hooks never
@@ -21,6 +23,7 @@ break a host session.
 from __future__ import annotations
 
 import argparse
+import ctypes
 from datetime import datetime, timezone
 from enum import Enum
 import hashlib
@@ -30,7 +33,7 @@ from pathlib import Path
 import re
 import sys
 import time
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 
 SCHEMA_VERSION = 1
@@ -294,6 +297,68 @@ def format_output(harness: str, event_name: str, message: Optional[str]) -> Dict
     return {}
 
 
+def default_dispatch_state_dir() -> Path:
+    if override := os.environ.get("ASTACK_DISPATCH_STATE_DIR"):
+        return Path(override).expanduser()
+    if xdg := os.environ.get("XDG_STATE_HOME"):
+        return Path(xdg).expanduser() / "astack" / "dispatches"
+    if os.name == "nt":
+        local_app = os.environ.get("LOCALAPPDATA")
+        base = Path(local_app) if local_app else Path.home() / "AppData" / "Local"
+        return base / "astack" / "dispatches"
+    return Path.home() / ".local" / "state" / "astack" / "dispatches"
+
+
+def _pid_alive(pid: Any) -> bool:
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            handle = k32.OpenProcess(0x1000, False, pid)
+            if not handle:
+                return False
+            try:
+                code = ctypes.c_ulong()
+                return bool(k32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259
+            finally:
+                k32.CloseHandle(handle)
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
+def find_live_dispatches(session_id: str, dispatch_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """Return live astack-dispatch runs belonging to this session (or unbound runs)."""
+    sdir = dispatch_dir or default_dispatch_state_dir()
+    if not sdir.is_dir():
+        return []
+    live: List[Dict[str, Any]] = []
+    for entry in sorted(sdir.iterdir(), key=lambda p: p.name):
+        if not entry.name.endswith(".json") or entry.name.endswith(".job.json") or entry.name.startswith("."):
+            continue
+        try:
+            rec = json.loads(entry.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(rec, dict) or rec.get("state") != "running":
+            continue
+        rec_session = str(rec.get("session_id") or "").strip()
+        if rec_session and session_id and rec_session != session_id:
+            continue
+        if _pid_alive(rec.get("pid")) or _pid_alive(rec.get("supervisor_pid")):
+            live.append(rec)
+    return live
+
+
 def handle_hook(
     event: Dict[str, Any],
     *,
@@ -319,7 +384,42 @@ def handle_hook(
     p_hash = _prompt_hash(prompt) if prompt else ""
     step_count = event.get("initialNumSteps") if isinstance(event.get("initialNumSteps"), int) else None
 
-    # 1. SessionStart (Claude Code, Codex, Cursor)
+    # 1. Stop guard (Claude Code / Codex): prevent Lead from halting while delegated cross-harness agents are live
+    if event_name == "Stop":
+        if current_state != GoModeState.ACTIVE.value:
+            return {}
+        live = find_live_dispatches(session_id)
+        if not live:
+            if record and record.get("last_stop_blocked_runs"):
+                record["last_stop_blocked_runs"] = []
+                record["updated_at"] = now
+                save_session(state_dir, session_id, record)
+            return {}
+        active_ids = sorted(str(r["run_id"]) for r in live)
+        prev_blocked = list((record or {}).get("last_stop_blocked_runs") or [])
+        if event.get("stop_hook_active") and active_ids == prev_blocked:
+            # Loop safety: never trap a session if the host already continued once for this exact active set
+            return {}
+        updated = dict(record or {})
+        updated["last_stop_blocked_runs"] = active_ids
+        updated["updated_at"] = now
+        save_session(state_dir, session_id, updated)
+        summary = ", ".join(
+            f"{r['run_id']} ({r.get('harness')} {r.get('provider')}/{r.get('model')} role={r.get('role')})"
+            for r in live
+        )
+        wait_flags = " ".join(f"--run-id {rid}" for rid in active_ids)
+        return {
+            "decision": "block",
+            "reason": (
+                f"Cross-harness astack-dispatch agent(s) are still running: {summary}. "
+                f"Follow the agents-as-tools pattern: do NOT halt or end your turn while delegated external agents are live. "
+                f"Run `astack-dispatch wait {wait_flags} --json` (or `astack-dispatch status`) to wait for them, "
+                f"harvest every report, and continue the workflow."
+            ),
+        }
+
+    # 2. SessionStart (Claude Code, Codex, Cursor)
     if event_name in ("SessionStart", "sessionStart"):
         source = str(event.get("source") or "").strip().lower()
         if source == "clear":

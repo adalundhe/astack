@@ -10,7 +10,7 @@ Coordinate changes spanning multiple repositories or multi-stage merge/deploy se
 
 ## 1. Map repositories, ownership, and handoff artifacts
 
-1. **Discover all touched repos and access paths** with read-only `astack:researcher` subagents (**rtfm**, **analyze-environment**): record every repo's local path/remote, target branch, CI/review rules, target platform contexts (`TOOLS.md`), and how each upstream step hands immutable artifacts downstream (PR merge SHA, git tag, IaC outputs/IDs, chart/package version, image digest, or edge deploy version).
+1. **Discover all touched repos and access paths** with read-only `astack:researcher` subagents (**lookup**, **rtfm**, **analyze-environment**): consult saved `~/.astack/*/lessons/*/LESSON.md` memories first (`related_projects` & `keywords`) to uncover any related repos and past train lessons, then record every repo's local path/remote, target branch, CI/review rules, target platform contexts (`TOOLS.md`), and how each upstream step hands immutable artifacts downstream (PR merge SHA, git tag, IaC outputs/IDs, chart/package version, image digest, or edge deploy version).
 2. **Save the durable release train in the program folder** using `astack-release` (`PATH` or `${CLAUDE_SKILL_DIR}/../../bin/astack-release`): store the validated multi-repo DAG in `<program>/release.json` (plus auto-rendered `<program>/RELEASE.md` with its Mermaid `flowchart LR` sequence diagram, step table, verified cross-repo outputs, and reverse-order rollback plan). Every step declares `kind` (`pr` | `tag` | `deploy` | `verify` | `manual`), `phase` (`expand` | `switch` | `contract` | `general`), `repo`, `env`, `depends_on`, `requires_outputs` (`<upstream_step>.<key>`), `plan_cmd`, `verify_cmd`, and `rollback_cmd`.
 
 ## 2. Plan one ordered cross-repo graph
@@ -37,3 +37,5 @@ Render `<program>/RELEASE.md` with `astack-release render` (and include its Merm
 - exact read-only verification command confirming health between each step (`astack-release verify --run`);
 - exact reverse-topological rollback procedure at every intermediate stage (`astack-release rollback-plan`);
 - explicit follow-up contract/retirement phase once legacy traffic is proven at zero.
+
+Once the multi-repo release train finishes (or rolls back), run **lookback** across `release.json`, PR syncs, deploy/verification outputs, and any rollbacks to save focused `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md` lessons (listing all touched repos in `related_projects`), paired with **make-it-stick** for systemic guards on future trains.

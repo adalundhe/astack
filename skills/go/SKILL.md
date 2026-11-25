@@ -1,6 +1,6 @@
 ---
 name: go
-description: "Single entry point for astack—ALWAYS load this skill before doing any code review, PR review, PR comment drafting, bug or error investigation, refactor, implementation, plan, test, benchmark, research, or catch-up task; routes on demand by path to all 82 hidden engineering workflows and coding-rule skills so only one skill sits in context."
+description: "Single entry point for astack—ALWAYS load this skill before doing any code review, PR review, PR comment drafting, bug or error investigation, refactor, implementation, plan, test, benchmark, research, or catch-up task; routes on demand by path to all 87 hidden engineering workflows and coding-rule skills so only one skill sits in context."
 ---
 
 # Go mode
@@ -13,16 +13,16 @@ Hidden skills are omitted from the catalog to save context (a `Skill` tool call 
 
 1. **Assume Lead & read settings:** load `~/.config/astack/settings.json` (or `$XDG_CONFIG_HOME/astack/settings.json`) for timers (`60/30/30/5/5` min defaults), `roles`, `reviewer_pool` (session model if unset), `autonomy` (`supervised` vs `unattended` `allow`/`deny`), and `automation.mode`. Run `astack-tools skills list --role lead` once per session/compaction and load `${CLAUDE_SKILL_DIR}/../lead/SKILL.md` plus triggered skills before acting; report unreachable models rather than substituting.
 2. **Route immediately as Lead:** on every prompt, read matching playbooks before touching code—never revert to solo ad-hoc coding/debugging. On any reported issue, error, crash, or regression, default to **bugbash** immediately (don't solo-debug with **find-it**/**rtfm** when subagents exist; fall back directly to **find-it** -> **fix-it** only for a single-agent host or trivial typo). Verify merge claims via **lead** (`astack-check-gates` / `astack-verify-merge` + **review**).
-3. **Core habits:** **work -> robust -> fast** on the real system; inspect context/tools first (**rtfm**, **analyze-environment**; read-only/dry-run probes always allowed); under `unattended`, execute `autonomy.allow` actions without asking (**decisions-in-plain-words**); state contradictions plainly (**wat**), never list internal harness state in `"Open Items"`, and run **bap** immediately when the person repeats a reminder or correction.
+3. **Core habits:** **work -> robust -> fast** on the real system; inspect context, memories, and tools first (**rtfm**, **lookup**, **analyze-environment**; read-only/dry-run probes always allowed); under `unattended`, execute `autonomy.allow` actions without asking (**decisions-in-plain-words**); state contradictions plainly (**wat**), never list internal harness state in `"Open Items"`, run **bap** immediately when the person repeats a reminder or correction, and close completed DAG workflows, component trees, and review sessions with **lookback** into `~/.astack/<project>/lessons/<lesson>/LESSON.md`.
 
 ## Subagents
 
-**You are the Lead:** you own orchestration, skill routing, verification, and the final reply. Always dispatch astack's dedicated subagents (never generic ones), enforce role timers and `check_in_minutes` check-ins (UTC `Started / Wind down at / End by` in briefs; `--settings`/`--timeout` on `astack-dispatch run`), and prefer fresh subagents over stale resumes.
+**You are the Lead:** you own orchestration, skill routing, verification, and the final reply. Always dispatch astack's dedicated subagents (never generic ones), enforce role timers and `check_in_minutes` check-ins (UTC `Started / Wind down at / End by` in briefs; `--settings`/`--timeout` on `astack-dispatch`), and prefer fresh subagents over stale resumes. Treat external-harness CLIs (`codex`, `claude`, `agy`, `cursor`, `devin`, `pi`, `gemini`) as **delegated tools ("agents as tools")** via `astack-dispatch spawn` / `batch` / `status` / `wait` / `kill` (never shell `&`): never halt when native agents finish while cross-harness runs remain active.
 
 - **Workers (`astack:worker`):** Isolated **slates** volumes or git worktrees. Spawn `subagent_type: "astack:worker"` in the background with a brief naming `Deliverable`, `Done when`, `Writable paths`, checks, `${CLAUDE_SKILL_DIR}/..`, and `roles.worker` from settings (or `astack-dispatch run --role worker` cross-harness). Never substitute `general-purpose`.
 - **Reviewers (`astack:reviewer`):** Read-only audits/gates—never write fixes; route fixes to workers. Read **review** for vectored dispatch and `reviewer_pool`, then spawn `subagent_type: "astack:reviewer"` in the background with the scope/diff, vector, stated intent, repro folder, `${CLAUDE_SKILL_DIR}/..`, and assigned `reviewer_pool` entry (or `astack-dispatch run` cross-harness; report unreachable models rather than substituting). Never substitute `general-purpose`.
 - **Researchers (`astack:researcher`):** Read-only discovery (**analyze-environment**), walks (**how-it-works**, **blast-radius**, **rearchitect**), and primary-source research (**research-this**, **rtfm**), using `roles.researcher` (or `astack-dispatch run --role researcher`).
-- **Nested Lead (`astack:lead`, optional):** Only for independent sub-programs or headless PR remediation (`astack-watch-pr --dispatch`); otherwise **you** act as Lead directly (**dagify**, **treeify**, **cross-repo**, **triage**, **bugbash**, **lead**).
+- **Nested Lead (`astack:lead`, optional):** Only for independent sub-programs or headless PR remediation (`astack-watch-pr --dispatch`); otherwise **you** act as Lead directly (**dagify**, **treeify**, **cross-repo**, **triage**, **bugbash**, **redteam**, **sprint**, **lead**).
 
 ## Workflow playbooks
 
@@ -36,6 +36,7 @@ Read matching skill file(s) before starting:
   - Automated/recurring workflows: `${CLAUDE_SKILL_DIR}/../workflow-this/SKILL.md`
   - Parallel worker lanes: `${CLAUDE_SKILL_DIR}/../lead/SKILL.md`
   - Issue-tracker sync: `${CLAUDE_SKILL_DIR}/../track-it/SKILL.md`
+  - Watch GitHub/Jira/Linear tickets & drive via `go` (`astack-watch-tickets`): `${CLAUDE_SKILL_DIR}/../sprint/SKILL.md`
   - Isolated VFS workspaces (`slates`, fallback worktrees): `${CLAUDE_SKILL_DIR}/../slates/SKILL.md`
 - **Status & catch-up:**
   - Active workers/lanes: `${CLAUDE_SKILL_DIR}/../status/SKILL.md`
@@ -44,6 +45,7 @@ Read matching skill file(s) before starting:
   - Restate goal/scope/done-when: `${CLAUDE_SKILL_DIR}/../run-it-back/SKILL.md`
   - Peer challenge on hypotheses/fixes/designs: `${CLAUDE_SKILL_DIR}/../challenge/SKILL.md`
   - Inspect repo/PR/history/docs first: `${CLAUDE_SKILL_DIR}/../rtfm/SKILL.md`
+  - Consult saved `~/.astack` `LESSON.md` memories, cross-repo discovery & best paths: `${CLAUDE_SKILL_DIR}/../lookup/SKILL.md`
   - Discover CLIs, APIs, MCPs, contexts (`TOOLS.md`): `${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`
   - Codebase walkthrough (`file:line`): `${CLAUDE_SKILL_DIR}/../how-it-works/SKILL.md`
   - Mermaid state/failure diagrams: `${CLAUDE_SKILL_DIR}/../show-the-states/SKILL.md`
@@ -61,6 +63,7 @@ Read matching skill file(s) before starting:
   - Parallel competing architectures: `${CLAUDE_SKILL_DIR}/../swarm-hypothesis/SKILL.md`
 - **Test, debug, verify:**
   - Default lead bug workflow (reviewer swarm + worker fix + proof): `${CLAUDE_SKILL_DIR}/../bugbash/SKILL.md`
+  - Proactive red-team review -> fix -> re-review loop (pairs with `clamber`): `${CLAUDE_SKILL_DIR}/../redteam/SKILL.md`
   - Live infra/systems incident triage: `${CLAUDE_SKILL_DIR}/../triage/SKILL.md`
   - Network/DNS/edge/firewall/flow-log/TLS/packet tracing: `${CLAUDE_SKILL_DIR}/../net-trace/SKILL.md`
   - Real-data repro, shrink, root cause (reviewers/single-agent): `${CLAUDE_SKILL_DIR}/../find-it/SKILL.md`
@@ -79,6 +82,7 @@ Read matching skill file(s) before starting:
   - Evidence-backed pushback: `${CLAUDE_SKILL_DIR}/../worrywart/SKILL.md`
   - Resolve all review findings/threads: `${CLAUDE_SKILL_DIR}/../address-feedback/SKILL.md`
   - Good-citizen PR watcher & DAG holds: `${CLAUDE_SKILL_DIR}/../watch-pr/SKILL.md`
+  - Rebase/squash commits & combine fragmented PRs: `${CLAUDE_SKILL_DIR}/../squish/SKILL.md`
   - Fix unrelated broken CI/tests separately: `${CLAUDE_SKILL_DIR}/../leave-it-better/SKILL.md`
 - **Communicate, automate, wrap up:**
   - Autonomy & plain escalations: `${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`
@@ -93,6 +97,7 @@ Read matching skill file(s) before starting:
   - Pause runs cleanly: `${CLAUDE_SKILL_DIR}/../suspend/SKILL.md`
   - Resume/recover runs: `${CLAUDE_SKILL_DIR}/../resume/SKILL.md`
   - Post-review/debug cleanup: `${CLAUDE_SKILL_DIR}/../cleanup/SKILL.md`
+  - Deep forensic review of past chats/tickets/deploys into `~/.astack/<project>/lessons/<lesson>/LESSON.md`: `${CLAUDE_SKILL_DIR}/../lookback/SKILL.md`
   - Session lessons & structural guards: `${CLAUDE_SKILL_DIR}/../make-it-stick/SKILL.md`
 
 ## Principles and coding-rules index
@@ -167,6 +172,8 @@ Every skill has an owner: **required** = load in full before first edit; **when 
 | `/astack:least-privilege` | when it applies | when it applies | when it applies | when it applies |
 | `/astack:leave-feedback` | when it applies | – | when it applies | – |
 | `/astack:leave-it-better` | when it applies | when it applies | – | – |
+| `/astack:lookback` | when it applies | when it applies | – | when it applies |
+| `/astack:lookup` | when it applies | when it applies | when it applies | when it applies |
 | `/astack:make-it-stick` | when it applies | – | – | – |
 | `/astack:minimize-state-stores` | when it applies | when it applies | when it applies | – |
 | `/astack:modularize` | when it applies | when it applies | – | – |
@@ -184,6 +191,7 @@ Every skill has an owner: **required** = load in full before first edit; **when 
 | `/astack:play-with-me` | when it applies | when it applies | – | – |
 | `/astack:prove-it` | when it applies | when it applies | required | when it applies |
 | `/astack:rearchitect` | when it applies | – | – | when it applies |
+| `/astack:redteam` | when it applies | – | – | – |
 | `/astack:research-this` | when it applies | when it applies | when it applies | required |
 | `/astack:resume` | when it applies | when it applies | – | – |
 | `/astack:review` | when it applies | – | when it applies | – |
@@ -196,6 +204,8 @@ Every skill has an owner: **required** = load in full before first edit; **when 
 | `/astack:show-the-states` | when it applies | when it applies | when it applies | when it applies |
 | `/astack:simplify-me` | when it applies | when it applies | when it applies | – |
 | `/astack:slates` | when it applies | when it applies | when it applies | – |
+| `/astack:sprint` | when it applies | – | – | – |
+| `/astack:squish` | when it applies | – | – | – |
 | `/astack:status` | required | – | – | – |
 | `/astack:suspend` | when it applies | when it applies | – | – |
 | `/astack:swarm-hypothesis` | when it applies | when it applies | – | when it applies |

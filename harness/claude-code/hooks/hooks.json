@@ -44,6 +44,17 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/astack-go-hook --harness claude-code --event Stop",
+            "args": []
+          }
+        ]
+      }
     ]
   }
 }

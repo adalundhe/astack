@@ -28,7 +28,7 @@ Never write an ad-hoc `sleep`/polling loop, and never run two watchers on the sa
 
 ## Steps
 
-1. **Open the PR/MR** only after vectored **review** clears (zero proven blocking bugs, every suggestion/nit fixed, answered, or refuted via **worrywart**, secrets/PII swept via **no-leaked-secrets**, and post-review **cleanup** done). Write a clear description: problem, what changed, how it was tested, how to verify it, any relevant Mermaid state/transition/architecture diagrams produced during research, planning, or implementation (**show-the-states**, also updated in matching repo docs/runbooks via **technical-writing**), and—for bug fixes—a concise summary and attached runnable proof/evidence from post-fix **prove-it** review.
+1. **Open the PR/MR** only after vectored **review** clears (zero proven blocking bugs, every suggestion/nit fixed, answered, or refuted via **worrywart**, secrets/PII swept via **no-leaked-secrets**, post-review **cleanup** done, and fragmented multi-lane commits/PRs consolidated via **squish** when appropriate). Write a clear description: problem, what changed, how it was tested, how to verify it, any relevant Mermaid state/transition/architecture diagrams produced during research, planning, or implementation (**show-the-states**, also updated in matching repo docs/runbooks via **technical-writing**), and—for bug fixes—a concise summary and attached runnable proof/evidence from post-fix **prove-it** review.
 2. **Start the background watcher with durable handoff markers (**event-driven**):**
    - For a quick inspection (single PR or stacked PRs with `--stack`):
      ```bash

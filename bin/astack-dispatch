@@ -8,24 +8,38 @@ Usage:
   astack-dispatch harnesses [--json]
   astack-dispatch check-pool [--settings PATH | --pool-json JSON] [--host HARNESS] [--json]
   astack-dispatch run --provider PROVIDER --model MODEL [--effort EFFORT] [--harness HARNESS]
-                      [--cwd DIR] [--prompt TEXT | --prompt-file PATH] [--system-prompt-file PATH]
-                      [--role reviewer|worker] [--vector NAME] [--settings PATH]
-                      [--out PATH] [--receipt PATH] [--timeout SEC] [--dry-run] [--json]
+                      [--cwd DIR] [--repro-dir DIR] [--prompt TEXT | --prompt-file PATH]
+                      [--system-prompt-file PATH] [--role lead|worker|reviewer|researcher]
+                      [--vector NAME] [--settings PATH] [--out PATH] [--receipt PATH]
+                      [--run-id ID] [--session ID] [--state-dir DIR]
+                      [--timeout SEC] [--dry-run] [--json]
+  astack-dispatch spawn [same flags as run] [--log PATH] [--json]
+  astack-dispatch batch --jobs-file PATH [--settings PATH] [--session ID] [--state-dir DIR]
+                        [--timeout SEC] [--json]
+  astack-dispatch status [--state-dir DIR] [--session ID] [--run-id ID ...] [--active-only] [--json]
+  astack-dispatch wait [--state-dir DIR] [--session ID] [--run-id ID ...] [--all | --any]
+                       [--timeout SEC] [--poll-interval SEC] [--json]
+  astack-dispatch kill --run-id ID [--state-dir DIR] [--json]
 
 Exit codes:
-  0 = success (or all pool entries reachable for check-pool)
-  1 = target invocation failed (or one or more pool entries unreachable for check-pool)
-  2 = invalid input, unapproved model, or unavailable harness/CLI
+  0   = success (or all pool entries reachable for check-pool / all waited runs exited 0)
+  1   = target invocation failed (or one or more pool entries unreachable / waited runs failed)
+  2   = invalid input, unapproved model, or unavailable harness/CLI
+  124 = wait --timeout expired while cross-harness run(s) are still running
 """
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import os
+import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -714,204 +728,443 @@ def _paths_overlap(a: Path, b: Path) -> bool:
         return False
 
 
-def cmd_run(args) -> int:
+TERMINAL_RUN_STATES = frozenset({"finished", "failed", "timed_out", "killed"})
+STALE_DISPATCH_SECONDS = 7 * 24 * 3600
+
+
+def default_dispatch_state_dir() -> Path:
+    if override := os.environ.get("ASTACK_DISPATCH_STATE_DIR"):
+        return Path(override).expanduser()
+    if xdg := os.environ.get("XDG_STATE_HOME"):
+        return Path(xdg).expanduser() / "astack" / "dispatches"
+    if os.name == "nt":
+        local_app = os.environ.get("LOCALAPPDATA")
+        base = Path(local_app) if local_app else Path.home() / "AppData" / "Local"
+        return base / "astack" / "dispatches"
+    return Path.home() / ".local" / "state" / "astack" / "dispatches"
+
+
+def _utc_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _make_run_id(role: str, harness: str, model: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", f"{role}-{harness}-{model}".lower()).strip("-")[:48] or "run"
+    return f"{slug}-{uuid.uuid4().hex[:8]}"
+
+
+def _validate_run_id(run_id: str) -> str:
+    cleaned = (run_id or "").strip()
+    if not cleaned or not re.fullmatch(r"[A-Za-z0-9._-]{1,96}", cleaned) or ".." in cleaned:
+        raise DispatchError(f"invalid --run-id {run_id!r}: use letters, digits, '.', '_', or '-' (no '..')")
+    return cleaned
+
+
+def _pid_is_alive(pid: Any) -> bool:
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            handle = kernel32.OpenProcess(0x1000, False, pid)
+            if not handle:
+                return False
+            try:
+                exit_code = ctypes.c_ulong()
+                if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                    return False
+                return exit_code.value == 259  # STILL_ACTIVE
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return False
     try:
-        provider = _non_empty_str(args.provider, "--provider")
-        model = _non_empty_str(args.model, "--model")
-    except DispatchError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
 
-    effort = (args.effort or "").strip()
-    harness = (args.harness or "").strip().lower()
+
+def _kill_pid(pid: Any) -> None:
+    if not isinstance(pid, int) or pid <= 0 or not _pid_is_alive(pid):
+        return
+    if os.name == "nt":
+        try:
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return
+    deadline = time.monotonic() + 1.5
+    while time.monotonic() < deadline:
+        if not _pid_is_alive(pid):
+            return
+        time.sleep(0.05)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any], *, private: bool = False, fail_open: bool = False) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:6]}.tmp")
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(json.dumps(payload, indent=2) + "\n")
+        if private and os.name != "nt":
+            try:
+                os.chmod(tmp, 0o600)
+            except OSError:
+                pass
+        os.replace(tmp, path)
+    except OSError:
+        if not fail_open:
+            raise
+
+
+def _prune_old_runs(state_dir: Path) -> None:
+    try:
+        cutoff = time.time() - STALE_DISPATCH_SECONDS
+        for entry in state_dir.iterdir():
+            if not entry.name.endswith(".json") or entry.name.endswith(".job.json") or entry.name.startswith("."):
+                continue
+            try:
+                if entry.stat().st_mtime >= cutoff:
+                    continue
+                rec = json.loads(entry.read_text(encoding="utf-8"))
+                if isinstance(rec, dict) and rec.get("state") in TERMINAL_RUN_STATES:
+                    entry.unlink(missing_ok=True)
+            except (OSError, ValueError):
+                pass
+    except OSError:
+        pass
+
+
+def _state_file_for(state_dir: Path, run_id: str) -> Path:
+    return state_dir / f"{run_id}.json"
+
+
+def _load_and_reconcile_run(state_file: Path) -> dict[str, Any] | None:
+    try:
+        data = json.loads(state_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or not data.get("run_id"):
+        return None
+    if data.get("state") == "running":
+        child_alive = _pid_is_alive(data.get("pid"))
+        sup_alive = _pid_is_alive(data.get("supervisor_pid"))
+        if not child_alive and not sup_alive:
+            # Re-read once in case the supervisor finished writing right between our read and PID check
+            try:
+                reread = json.loads(state_file.read_text(encoding="utf-8"))
+                if isinstance(reread, dict) and reread.get("state") in TERMINAL_RUN_STATES:
+                    return reread
+            except (OSError, ValueError):
+                pass
+            data["state"] = "failed"
+            data["finished_at"] = _utc_iso()
+            data["note"] = "process exited without writing final state"
+            _write_json_atomic(state_file, data, fail_open=True)
+    return data
+
+
+def list_runs(
+    state_dir: Path,
+    *,
+    run_ids: list[str] | None = None,
+    session_id: str = "",
+    active_only: bool = False,
+) -> list[dict[str, Any]]:
+    if not state_dir.is_dir():
+        return []
+    wanted = set(run_ids) if run_ids else None
+    runs: list[dict[str, Any]] = []
+    for entry in sorted(state_dir.iterdir(), key=lambda p: p.name):
+        if not entry.name.endswith(".json") or entry.name.endswith(".job.json") or entry.name.startswith("."):
+            continue
+        rec = _load_and_reconcile_run(entry)
+        if rec is None:
+            continue
+        if wanted is not None and rec.get("run_id") not in wanted:
+            continue
+        if session_id and str(rec.get("session_id") or "") != session_id:
+            continue
+        if active_only and rec.get("state") != "running":
+            continue
+        runs.append(rec)
+    runs.sort(key=lambda r: (str(r.get("started_at") or ""), str(r.get("run_id") or "")))
+    return runs
+
+
+def _prepare_invocation(
+    *,
+    provider: str,
+    model: str,
+    effort: str = "",
+    harness: str = "",
+    role: str = "reviewer",
+    vector: str = "",
+    cwd_raw: str | None = None,
+    repro_dir_raw: str | None = None,
+    prompt_text: str | None = None,
+    prompt_file: str | None = None,
+    system_prompt_file: str | None = None,
+    settings_raw: str | None = None,
+    out_raw: str | None = None,
+    receipt_raw: str | None = None,
+    log_raw: str | None = None,
+    timeout_s: float | None = None,
+    run_id_raw: str | None = None,
+    session_id: str = "",
+    dry_run: bool = False,
+    allow_stdin: bool = True,
+) -> dict[str, Any]:
+    prov = _non_empty_str(provider, "--provider")
+    mod = _non_empty_str(model, "--model")
+    eff = (effort or "").strip()
+    harn = (harness or "").strip().lower()
     custom_command: list[str] | None = None
-    timeout_s: float | None = args.timeout
+    resolved_timeout = timeout_s
 
-    if args.settings:
-        settings_path = Path(args.settings).expanduser()
-        try:
-            settings_data = _load_settings_dict(settings_path)
-            if args.role == "reviewer":
-                pool = load_pool(settings_path, None)
-                approved = _find_approved_entry(pool, provider, model, harness)
-                if not effort and approved.get("effort"):
-                    effort = approved["effort"]
-                if not harness and approved.get("harness"):
-                    harness = approved["harness"]
-                if approved.get("command"):
-                    custom_command = approved["command"]
-            else:
-                roles = settings_data.get("roles")
-                if isinstance(roles, dict) and isinstance(roles.get(args.role), dict):
-                    role_cfg = roles[args.role]
-                    if (
-                        str(role_cfg.get("provider", "")).lower() == provider.lower()
-                        and str(role_cfg.get("model", "")) == model
-                    ):
-                        if not effort and isinstance(role_cfg.get("effort"), str):
-                            effort = role_cfg["effort"].strip()
-                        if not harness and isinstance(role_cfg.get("harness"), str):
-                            harness = role_cfg["harness"].strip().lower()
-                        if isinstance(role_cfg.get("command"), list):
-                            custom_command = list(role_cfg["command"])
-            if timeout_s is None:
-                timeout_s = _resolve_role_timeout_seconds(settings_data, args.role)
-        except DispatchError as exc:
-            print(f"error: {exc}", file=sys.stderr)
-            return 2
+    if settings_raw:
+        settings_path = Path(settings_raw).expanduser()
+        settings_data = _load_settings_dict(settings_path)
+        if role == "reviewer":
+            pool = load_pool(settings_path, None)
+            approved = _find_approved_entry(pool, prov, mod, harn)
+            if not eff and approved.get("effort"):
+                eff = approved["effort"]
+            if not harn and approved.get("harness"):
+                harn = approved["harness"]
+            if approved.get("command"):
+                custom_command = approved["command"]
+        else:
+            roles = settings_data.get("roles")
+            if isinstance(roles, dict) and isinstance(roles.get(role), dict):
+                role_cfg = roles[role]
+                if (
+                    str(role_cfg.get("provider", "")).lower() == prov.lower()
+                    and str(role_cfg.get("model", "")) == mod
+                ):
+                    if not eff and isinstance(role_cfg.get("effort"), str):
+                        eff = role_cfg["effort"].strip()
+                    if not harn and isinstance(role_cfg.get("harness"), str):
+                        harn = role_cfg["harness"].strip().lower()
+                    if isinstance(role_cfg.get("command"), list):
+                        custom_command = list(role_cfg["command"])
+        if resolved_timeout is None:
+            resolved_timeout = _resolve_role_timeout_seconds(settings_data, role)
 
-    if args.prompt_file:
+    if prompt_file:
         try:
-            prompt_text = Path(args.prompt_file).expanduser().read_text(encoding="utf-8")
+            prompt = Path(prompt_file).expanduser().read_text(encoding="utf-8")
         except OSError as exc:
-            print(f"error: cannot read --prompt-file: {exc}", file=sys.stderr)
-            return 2
-    elif args.prompt is not None:
-        prompt_text = args.prompt
-    elif not sys.stdin.isatty():
-        prompt_text = sys.stdin.read()
+            raise DispatchError(f"cannot read --prompt-file: {exc}") from exc
+    elif prompt_text is not None:
+        prompt = prompt_text
+    elif allow_stdin and not sys.stdin.isatty():
+        prompt = sys.stdin.read()
     else:
-        print("error: provide --prompt, --prompt-file, or stdin", file=sys.stderr)
-        return 2
+        raise DispatchError("provide --prompt, --prompt-file, or stdin")
 
-    if not prompt_text.strip():
-        print("error: prompt is empty", file=sys.stderr)
-        return 2
+    if not prompt.strip():
+        raise DispatchError("prompt is empty")
 
-    cwd = Path(args.cwd).expanduser().resolve() if args.cwd else Path.cwd()
+    cwd = Path(cwd_raw).expanduser().resolve() if cwd_raw else Path.cwd()
     if not cwd.is_dir():
-        print(f"error: --cwd is not a directory: {cwd}", file=sys.stderr)
-        return 2
+        raise DispatchError(f"--cwd is not a directory: {cwd}")
 
     sys_prompt_path: Path | None = None
-    if args.system_prompt_file:
-        sys_prompt_path = Path(args.system_prompt_file).expanduser().resolve()
+    if system_prompt_file:
+        sys_prompt_path = Path(system_prompt_file).expanduser().resolve()
         if not sys_prompt_path.is_file():
-            print(f"error: --system-prompt-file not found: {sys_prompt_path}", file=sys.stderr)
-            return 2
+            raise DispatchError(f"--system-prompt-file not found: {sys_prompt_path}")
     else:
-        sys_prompt_path = _bundled_agent_prompt_file(args.role)
+        sys_prompt_path = _bundled_agent_prompt_file(role)
     skills_dir = _bundled_skills_dir()
 
     detected = detect_harnesses()
-    entry: dict[str, Any] = {"provider": provider, "model": model}
-    if effort:
-        entry["effort"] = effort
-    if harness:
-        entry["harness"] = harness
+    entry: dict[str, Any] = {"provider": prov, "model": mod}
+    if eff:
+        entry["effort"] = eff
+    if harn:
+        entry["harness"] = harn
     if custom_command:
         entry["command"] = custom_command
 
-    try:
-        normalized = normalize_pool_entry(entry, "dispatch")
-    except DispatchError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
-
+    normalized = normalize_pool_entry(entry, "dispatch")
     route = resolve_entry_route(normalized, detected, host="")
     if not route["reachable"] or not route["binary"]:
-        print(f"error: {route['note']}", file=sys.stderr)
-        return 2
+        raise DispatchError(route["note"])
 
     resolved_harness = route["resolved_harness"]
     binary = route["binary"]
-    out_path = Path(args.out).expanduser().resolve() if args.out else None
-    if out_path is not None and not args.dry_run:
+    out_path = Path(out_raw).expanduser().resolve() if out_raw else None
+    if out_path is not None and not dry_run:
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
     repro_dir: Path | None = None
-    if args.repro_dir:
-        repro_dir = Path(args.repro_dir).expanduser().resolve()
-        # Reject overlapping trees in EITHER direction so a reviewer sandbox never makes --cwd writable!
+    if repro_dir_raw:
+        repro_dir = Path(repro_dir_raw).expanduser().resolve()
         if _paths_overlap(repro_dir, cwd):
-            print(
-                f"error: --repro-dir ({repro_dir}) must be strictly disjoint from --cwd ({cwd}) so the repo under review stays read-only",
-                file=sys.stderr,
+            raise DispatchError(
+                f"--repro-dir ({repro_dir}) must be strictly disjoint from --cwd ({cwd}) so the repo under review stays read-only"
             )
-            return 2
-        if not args.dry_run:
+        if not dry_run:
             repro_dir.mkdir(parents=True, exist_ok=True)
-    elif args.role == "reviewer" and resolved_harness == "codex" and out_path is not None:
-        # Auto-derive a writable reproduction directory ONLY when --out's parent is strictly disjoint from --cwd
+    elif role == "reviewer" and resolved_harness == "codex" and out_path is not None:
         candidate_dir = out_path.parent.resolve()
         if not _paths_overlap(candidate_dir, cwd):
             repro_dir = candidate_dir
 
-    try:
-        argv, stdin_text = build_command(
-            resolved_harness,
-            binary,
-            provider=provider,
-            model=model,
-            effort=effort,
-            cwd=cwd,
-            prompt_text=prompt_text,
-            role=args.role,
-            system_prompt_file=sys_prompt_path,
-            skills_dir=skills_dir,
-            custom_command=custom_command,
-            out_file=out_path if resolved_harness == "codex" else None,
-            repro_dir=repro_dir,
-        )
-    except DispatchError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 2
+    argv, stdin_text = build_command(
+        resolved_harness,
+        binary,
+        provider=prov,
+        model=mod,
+        effort=eff,
+        cwd=cwd,
+        prompt_text=prompt,
+        role=role,
+        system_prompt_file=sys_prompt_path,
+        skills_dir=skills_dir,
+        custom_command=custom_command,
+        out_file=out_path if resolved_harness == "codex" else None,
+        repro_dir=repro_dir,
+    )
 
-    if args.dry_run:
-        preview = {
-            "harness": resolved_harness,
-            "provider": provider,
-            "model": model,
-            "effort": effort or None,
-            "role": args.role,
-            "vector": args.vector or None,
-            "cwd": str(cwd),
-            "repro_dir": str(repro_dir) if repro_dir else None,
-            "binary": binary,
-            "argv": argv,
-            "uses_stdin": stdin_text is not None,
-            "timeout_s": timeout_s,
-            "system_prompt_file": str(sys_prompt_path) if sys_prompt_path else None,
-            "skills_dir": str(skills_dir) if skills_dir else None,
-        }
-        if args.as_json:
-            print(json.dumps(preview, indent=2))
-        else:
-            print(" ".join(argv))
-        return 0
+    run_id = _validate_run_id(run_id_raw) if run_id_raw else _make_run_id(role, resolved_harness, mod)
+    receipt_path = (
+        Path(receipt_raw).expanduser().resolve()
+        if receipt_raw
+        else (out_path.with_suffix(out_path.suffix + ".receipt.json") if out_path is not None else None)
+    )
+    log_path = Path(log_raw).expanduser().resolve() if log_raw else None
+    effective_session = (session_id or os.environ.get("ASTACK_SESSION_ID") or os.environ.get("CLAUDE_SESSION_ID") or "").strip()
+
+    return {
+        "run_id": run_id,
+        "session_id": effective_session,
+        "harness": resolved_harness,
+        "provider": prov,
+        "model": mod,
+        "effort": eff or None,
+        "role": role,
+        "vector": vector or None,
+        "cwd": str(cwd),
+        "repro_dir": str(repro_dir) if repro_dir else None,
+        "binary": binary,
+        "argv": argv,
+        "stdin_text": stdin_text,
+        "timeout_s": resolved_timeout,
+        "out_file": str(out_path) if out_path else None,
+        "receipt_file": str(receipt_path) if receipt_path else None,
+        "log_file": str(log_path) if log_path else None,
+        "system_prompt_file": str(sys_prompt_path) if sys_prompt_path else None,
+        "skills_dir": str(skills_dir) if skills_dir else None,
+    }
+
+
+def _execute_prepared(job: dict[str, Any], state_dir: Path | None) -> tuple[dict[str, Any], str, str]:
+    run_id = job["run_id"]
+    resolved_harness = job["harness"]
+    cwd = Path(job["cwd"])
+    repro_dir = Path(job["repro_dir"]) if job.get("repro_dir") else None
+    out_path = Path(job["out_file"]) if job.get("out_file") else None
+    log_path = Path(job["log_file"]) if job.get("log_file") else None
+    receipt_path = Path(job["receipt_file"]) if job.get("receipt_file") else None
+    timeout_s = job.get("timeout_s")
+    state_file = _state_file_for(state_dir, run_id) if state_dir is not None else None
 
     started = time.monotonic()
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    timestamp = _utc_iso()
     proc_env = dict(os.environ)
-    if resolved_harness == "codex" and args.role == "reviewer" and repro_dir is not None:
-        # Since /tmp and host $TMPDIR are excluded from Codex's writable roots, point TMPDIR into a hidden
-        # directory inside repro_dir so reproduction scripts calling tempfile still work cleanly.
+    if resolved_harness == "codex" and job["role"] == "reviewer" and repro_dir is not None:
         repro_tmp = repro_dir / ".tmp"
         repro_tmp.mkdir(parents=True, exist_ok=True)
         proc_env["TMPDIR"] = str(repro_tmp)
+
+    def _save_state(state_name: str, *, pid: int | None = None, exit_code: int | None = None,
+                    timed_out: bool = False, duration_s: float | None = None, finished_at: str | None = None) -> None:
+        if state_file is None:
+            return
+        record = {
+            "run_id": run_id,
+            "session_id": job.get("session_id") or "",
+            "state": state_name,
+            "harness": resolved_harness,
+            "provider": job["provider"],
+            "model": job["model"],
+            "effort": job.get("effort"),
+            "role": job["role"],
+            "vector": job.get("vector"),
+            "cwd": job["cwd"],
+            "repro_dir": job.get("repro_dir"),
+            "out_file": job.get("out_file"),
+            "log_file": job.get("log_file"),
+            "receipt_file": job.get("receipt_file"),
+            "pid": pid,
+            "supervisor_pid": os.getpid(),
+            "started_at": timestamp,
+            "timeout_s": timeout_s,
+            "finished_at": finished_at,
+            "exit_code": exit_code,
+            "timed_out": timed_out,
+            "duration_s": duration_s,
+        }
+        _write_json_atomic(state_file, record, fail_open=True)
+
+    proc = subprocess.Popen(
+        job["argv"],
+        stdin=subprocess.PIPE if job.get("stdin_text") is not None else subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=cwd,
+        env=proc_env,
+        text=True,
+    )
+    _save_state("running", pid=proc.pid)
+
     try:
-        proc = subprocess.run(
-            argv,
-            input=stdin_text,
-            cwd=cwd,
-            env=proc_env,
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-        )
+        stdout, stderr = proc.communicate(input=job.get("stdin_text"), timeout=timeout_s)
         timed_out = False
         exit_code = proc.returncode
-        stdout = proc.stdout
-        stderr = proc.stderr
-    except subprocess.TimeoutExpired as exc:
+    except subprocess.TimeoutExpired:
+        _kill_pid(proc.pid)
+        try:
+            stdout, stderr = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            stdout, stderr = "", ""
         timed_out = True
         exit_code = 124
-        stdout = exc.stdout if isinstance(exc.stdout, str) else (exc.stdout.decode("utf-8", "replace") if exc.stdout else "")
-        stderr = (exc.stderr if isinstance(exc.stderr, str) else (exc.stderr.decode("utf-8", "replace") if exc.stderr else "")) + f"\ntimed out after {timeout_s}s"
+        stderr = (stderr or "") + f"\ntimed out after {timeout_s}s"
 
     duration_s = round(time.monotonic() - started, 3)
+    finished_at = _utc_iso()
 
-    # Codex writes clean last message to -o out_path; otherwise write stdout to out_path.
+    if log_path is not None:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(log_path, "w", encoding="utf-8", newline="\n") as fh:
+            if stdout:
+                fh.write(stdout)
+                if not stdout.endswith("\n"):
+                    fh.write("\n")
+            if stderr:
+                fh.write("\n--- stderr ---\n")
+                fh.write(stderr)
+
     output_text = stdout
     if out_path is not None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -920,40 +1173,101 @@ def cmd_run(args) -> int:
         else:
             out_path.write_text(stdout, encoding="utf-8")
 
+    final_state = "timed_out" if timed_out else ("finished" if exit_code == 0 else "failed")
     receipt = {
+        "run_id": run_id,
         "timestamp": timestamp,
+        "finished_at": finished_at,
+        "state": final_state,
         "harness": resolved_harness,
-        "provider": provider,
-        "model": model,
-        "effort": effort or None,
-        "role": args.role,
-        "vector": args.vector or None,
-        "cwd": str(cwd),
-        "repro_dir": str(repro_dir) if repro_dir else None,
-        "binary": binary,
-        "argv": argv,
+        "provider": job["provider"],
+        "model": job["model"],
+        "effort": job.get("effort"),
+        "role": job["role"],
+        "vector": job.get("vector"),
+        "cwd": job["cwd"],
+        "repro_dir": job.get("repro_dir"),
+        "binary": job["binary"],
+        "argv": job["argv"],
         "exit_code": exit_code,
         "timed_out": timed_out,
         "timeout_s": timeout_s,
         "duration_s": duration_s,
         "stdout_len": len(output_text),
         "out_file": str(out_path) if out_path else None,
+        "log_file": str(log_path) if log_path else None,
     }
 
     receipt_paths: list[Path] = []
-    if args.receipt:
-        receipt_paths.append(Path(args.receipt).expanduser().resolve())
-    elif out_path is not None:
-        receipt_paths.append(out_path.with_suffix(out_path.suffix + ".receipt.json"))
+    if receipt_path is not None:
+        receipt_paths.append(receipt_path)
     if env_receipt_dir := os.environ.get("ASTACK_DISPATCH_RECEIPT_DIR"):
-        import re
         rdir = Path(env_receipt_dir).expanduser().resolve()
-        slug = re.sub(r"[^a-z0-9]+", "-", f"{resolved_harness}-{provider}-{model}".lower()).strip("-") or "dispatch"
+        slug = re.sub(r"[^a-z0-9]+", "-", f"{resolved_harness}-{job['provider']}-{job['model']}".lower()).strip("-") or "dispatch"
         ts_safe = timestamp.replace(":", "")
         receipt_paths.append(rdir / f"{ts_safe}-{slug}-{os.getpid()}.receipt.json")
     for rpath in receipt_paths:
-        rpath.parent.mkdir(parents=True, exist_ok=True)
-        rpath.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+        _write_json_atomic(rpath, receipt)
+
+    # Preserve "killed" if terminated externally via `astack-dispatch kill`
+    if state_file is not None and state_file.is_file():
+        try:
+            cur = json.loads(state_file.read_text(encoding="utf-8"))
+            if isinstance(cur, dict) and cur.get("state") == "killed":
+                final_state = "killed"
+        except (OSError, ValueError):
+            pass
+    _save_state(
+        final_state,
+        pid=proc.pid,
+        exit_code=exit_code,
+        timed_out=timed_out,
+        duration_s=duration_s,
+        finished_at=finished_at,
+    )
+    if state_dir is not None:
+        _prune_old_runs(state_dir)
+    return receipt, output_text, stderr
+
+
+def cmd_run(args) -> int:
+    try:
+        job = _prepare_invocation(
+            provider=args.provider,
+            model=args.model,
+            effort=args.effort,
+            harness=args.harness,
+            role=args.role,
+            vector=args.vector,
+            cwd_raw=args.cwd,
+            repro_dir_raw=args.repro_dir,
+            prompt_text=args.prompt,
+            prompt_file=args.prompt_file,
+            system_prompt_file=args.system_prompt_file,
+            settings_raw=args.settings,
+            out_raw=args.out,
+            receipt_raw=args.receipt,
+            log_raw=getattr(args, "log", None),
+            timeout_s=args.timeout,
+            run_id_raw=getattr(args, "run_id", None),
+            session_id=getattr(args, "session", "") or "",
+            dry_run=args.dry_run,
+        )
+    except DispatchError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.dry_run:
+        preview = {k: v for k, v in job.items() if k != "stdin_text"}
+        preview["uses_stdin"] = job.get("stdin_text") is not None
+        if args.as_json:
+            print(json.dumps(preview, indent=2))
+        else:
+            print(" ".join(job["argv"]))
+        return 0
+
+    state_dir = Path(args.state_dir).expanduser() if getattr(args, "state_dir", None) else default_dispatch_state_dir()
+    receipt, output_text, stderr = _execute_prepared(job, state_dir)
 
     if args.as_json:
         print(json.dumps({**receipt, "output": output_text, "stderr": stderr}, indent=2))
@@ -962,14 +1276,399 @@ def cmd_run(args) -> int:
             sys.stdout.write(output_text)
             if not output_text.endswith("\n"):
                 sys.stdout.write("\n")
-        if stderr and exit_code != 0:
+        if stderr and receipt["exit_code"] != 0:
             sys.stderr.write(stderr)
-    return 0 if exit_code == 0 else 1
+    return 0 if receipt["exit_code"] == 0 else 1
+
+
+def _spawn_prepared(job: dict[str, Any], state_dir: Path) -> dict[str, Any]:
+    state_dir.mkdir(parents=True, exist_ok=True)
+    run_id = job["run_id"]
+    if not job.get("out_file"):
+        job["out_file"] = str((state_dir / f"{run_id}.out.md").resolve())
+    if not job.get("receipt_file"):
+        out_p = Path(job["out_file"])
+        job["receipt_file"] = str(out_p.with_suffix(out_p.suffix + ".receipt.json"))
+    if not job.get("log_file"):
+        job["log_file"] = str((state_dir / f"{run_id}.log").resolve())
+
+    job_file = state_dir / f"{run_id}.job.json"
+    state_file = _state_file_for(state_dir, run_id)
+    _write_json_atomic(job_file, job, private=True)
+
+    initial_record = {
+        "run_id": run_id,
+        "session_id": job.get("session_id") or "",
+        "state": "running",
+        "harness": job["harness"],
+        "provider": job["provider"],
+        "model": job["model"],
+        "effort": job.get("effort"),
+        "role": job["role"],
+        "vector": job.get("vector"),
+        "cwd": job["cwd"],
+        "repro_dir": job.get("repro_dir"),
+        "out_file": job["out_file"],
+        "log_file": job["log_file"],
+        "receipt_file": job["receipt_file"],
+        "pid": None,
+        "supervisor_pid": None,
+        "started_at": _utc_iso(),
+        "timeout_s": job.get("timeout_s"),
+    }
+    _write_json_atomic(state_file, initial_record)
+
+    sup_argv = [
+        sys.executable, "-B", str(Path(__file__).resolve()),
+        "_supervise", "--state-dir", str(state_dir), "--run-id", run_id,
+    ]
+    popen_kwargs: dict[str, Any] = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if os.name == "nt":
+        popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    else:
+        popen_kwargs["start_new_session"] = True
+    sup = subprocess.Popen(sup_argv, **popen_kwargs)
+
+    # Record supervisor_pid only if _supervise hasn't already written a newer terminal state
+    try:
+        cur = json.loads(state_file.read_text(encoding="utf-8"))
+        if isinstance(cur, dict) and cur.get("state") == "running" and not cur.get("supervisor_pid"):
+            cur["supervisor_pid"] = sup.pid
+            _write_json_atomic(state_file, cur)
+    except (OSError, ValueError):
+        pass
+
+    return {
+        "run_id": run_id,
+        "session_id": job.get("session_id") or "",
+        "state": "running",
+        "supervisor_pid": sup.pid,
+        "harness": job["harness"],
+        "provider": job["provider"],
+        "model": job["model"],
+        "effort": job.get("effort"),
+        "role": job["role"],
+        "vector": job.get("vector"),
+        "out_file": job["out_file"],
+        "log_file": job["log_file"],
+        "receipt_file": job["receipt_file"],
+        "state_file": str(state_file),
+    }
+
+
+def cmd_spawn(args) -> int:
+    state_dir = Path(args.state_dir).expanduser().resolve() if args.state_dir else default_dispatch_state_dir().resolve()
+    try:
+        job = _prepare_invocation(
+            provider=args.provider,
+            model=args.model,
+            effort=args.effort,
+            harness=args.harness,
+            role=args.role,
+            vector=args.vector,
+            cwd_raw=args.cwd,
+            repro_dir_raw=args.repro_dir,
+            prompt_text=args.prompt,
+            prompt_file=args.prompt_file,
+            system_prompt_file=args.system_prompt_file,
+            settings_raw=args.settings,
+            out_raw=args.out,
+            receipt_raw=args.receipt,
+            log_raw=args.log,
+            timeout_s=args.timeout,
+            run_id_raw=args.run_id,
+            session_id=args.session or "",
+            dry_run=args.dry_run,
+        )
+    except DispatchError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.dry_run:
+        preview = {k: v for k, v in job.items() if k != "stdin_text"}
+        preview["uses_stdin"] = job.get("stdin_text") is not None
+        preview["state_dir"] = str(state_dir)
+        if args.as_json:
+            print(json.dumps(preview, indent=2))
+        else:
+            print(f"dry-run spawn {job['run_id']}: {' '.join(job['argv'])}")
+        return 0
+
+    handle = _spawn_prepared(job, state_dir)
+    if args.as_json:
+        print(json.dumps(handle, indent=2))
+    else:
+        print(
+            f"spawned {handle['run_id']} ({handle['harness']} {handle['provider']}/{handle['model']} role={handle['role']}) "
+            f"supervisor_pid={handle['supervisor_pid']} out={handle['out_file']}"
+        )
+    return 0
+
+
+def cmd_supervise(args) -> int:
+    state_dir = Path(args.state_dir).expanduser().resolve()
+    run_id = _validate_run_id(args.run_id)
+    job_file = state_dir / f"{run_id}.job.json"
+    try:
+        job = json.loads(job_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"error: cannot load job file {job_file}: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        job_file.unlink(missing_ok=True)
+    receipt, _, _ = _execute_prepared(job, state_dir)
+    return 0 if receipt["exit_code"] == 0 else 1
+
+
+def cmd_status(args) -> int:
+    state_dir = Path(args.state_dir).expanduser().resolve() if args.state_dir else default_dispatch_state_dir().resolve()
+    runs = list_runs(
+        state_dir,
+        run_ids=args.run_id or None,
+        session_id=args.session or "",
+        active_only=bool(args.active_only),
+    )
+    active = [r for r in runs if r.get("state") == "running"]
+    payload = {
+        "state_dir": str(state_dir),
+        "active_count": len(active),
+        "total_count": len(runs),
+        "runs": runs,
+    }
+    if args.as_json:
+        print(json.dumps(payload, indent=2))
+        return 0
+    if not runs:
+        print(f"No cross-harness dispatch runs found in {state_dir}")
+        return 0
+    for r in runs:
+        vec = f" vector={r['vector']}" if r.get("vector") else ""
+        pid_note = f" pid={r['pid']}" if r.get("pid") else ""
+        print(
+            f"[{r.get('state'):9s}] {r['run_id']} | {r.get('harness')} {r.get('provider')}/{r.get('model')} "
+            f"role={r.get('role')}{vec}{pid_note} | out={r.get('out_file') or '-'}"
+        )
+    return 0
+
+
+def _wait_for_runs(
+    state_dir: Path,
+    *,
+    run_ids: list[str] | None,
+    session_id: str = "",
+    wait_any: bool = False,
+    timeout_s: float | None = None,
+    poll_interval: float = 0.5,
+) -> tuple[bool, list[dict[str, Any]]]:
+    """Wait until all (or any) tracked runs reach terminal state. Returns (completed, runs)."""
+    interval = max(0.05, float(poll_interval))
+    deadline = (time.monotonic() + float(timeout_s)) if (timeout_s is not None and timeout_s > 0) else None
+    target_ids = list(run_ids) if run_ids else [
+        r["run_id"] for r in list_runs(state_dir, session_id=session_id, active_only=True)
+    ]
+    if not target_ids:
+        return True, []
+
+    while True:
+        current = list_runs(state_dir, run_ids=target_ids)
+        by_id = {r["run_id"]: r for r in current}
+        ordered = [by_id[rid] for rid in target_ids if rid in by_id]
+        terminal = [r for r in ordered if r.get("state") in TERMINAL_RUN_STATES]
+        if wait_any and terminal:
+            return True, ordered
+        if len(terminal) == len(target_ids):
+            return True, ordered
+        if deadline is not None and time.monotonic() >= deadline:
+            return False, ordered
+        time.sleep(interval)
+
+
+def _attach_output_preview(runs: list[dict[str, Any]], max_chars: int = 8000) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    for r in runs:
+        item = dict(r)
+        out_f = r.get("out_file")
+        if out_f and Path(out_f).is_file():
+            try:
+                text = Path(out_f).read_text(encoding="utf-8", errors="replace")
+                item["output"] = text if len(text) <= max_chars else text[:max_chars] + "\n...[truncated; read out_file]"
+            except OSError:
+                pass
+        enriched.append(item)
+    return enriched
+
+
+def cmd_wait(args) -> int:
+    state_dir = Path(args.state_dir).expanduser().resolve() if args.state_dir else default_dispatch_state_dir().resolve()
+    completed, runs = _wait_for_runs(
+        state_dir,
+        run_ids=args.run_id or None,
+        session_id=args.session or "",
+        wait_any=bool(args.any_mode),
+        timeout_s=args.timeout,
+        poll_interval=args.poll_interval,
+    )
+    enriched = _attach_output_preview(runs)
+    all_ok = completed and all(r.get("state") == "finished" and r.get("exit_code") == 0 for r in runs)
+    payload = {
+        "completed": completed,
+        "all_succeeded": all_ok,
+        "state_dir": str(state_dir),
+        "runs": enriched,
+    }
+    if args.as_json:
+        print(json.dumps(payload, indent=2))
+    else:
+        if not runs:
+            print("No active cross-harness runs to wait on.")
+        for r in runs:
+            print(
+                f"[{r.get('state'):9s}] {r['run_id']} ({r.get('harness')} {r.get('provider')}/{r.get('model')}) "
+                f"exit={r.get('exit_code')} out={r.get('out_file') or '-'}"
+            )
+    if not completed:
+        return 124
+    return 0 if all_ok else 1
+
+
+def cmd_kill(args) -> int:
+    state_dir = Path(args.state_dir).expanduser().resolve() if args.state_dir else default_dispatch_state_dir().resolve()
+    try:
+        run_id = _validate_run_id(args.run_id)
+    except DispatchError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    state_file = _state_file_for(state_dir, run_id)
+    rec = _load_and_reconcile_run(state_file)
+    if rec is None:
+        print(f"error: run {run_id!r} not found in {state_dir}", file=sys.stderr)
+        return 2
+    rec["state"] = "killed"
+    rec["finished_at"] = _utc_iso()
+    _write_json_atomic(state_file, rec)
+    _kill_pid(rec.get("pid"))
+    _kill_pid(rec.get("supervisor_pid"))
+    if args.as_json:
+        print(json.dumps(rec, indent=2))
+    else:
+        print(f"killed {run_id}")
+    return 0
+
+
+def cmd_batch(args) -> int:
+    state_dir = Path(args.state_dir).expanduser().resolve() if args.state_dir else default_dispatch_state_dir().resolve()
+    try:
+        raw = json.loads(Path(args.jobs_file).expanduser().read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"error: failed to read --jobs-file: {exc}", file=sys.stderr)
+        return 2
+    job_specs = raw.get("jobs") if isinstance(raw, dict) else raw
+    if not isinstance(job_specs, list) or not job_specs:
+        print("error: --jobs-file must contain a non-empty JSON list of job objects", file=sys.stderr)
+        return 2
+
+    prepared_jobs: list[dict[str, Any]] = []
+    try:
+        for idx, spec in enumerate(job_specs):
+            if not isinstance(spec, dict):
+                raise DispatchError(f"jobs[{idx}] must be a JSON object")
+            prepared_jobs.append(_prepare_invocation(
+                provider=str(spec.get("provider") or ""),
+                model=str(spec.get("model") or ""),
+                effort=str(spec.get("effort") or ""),
+                harness=str(spec.get("harness") or ""),
+                role=str(spec.get("role") or "reviewer"),
+                vector=str(spec.get("vector") or ""),
+                cwd_raw=spec.get("cwd"),
+                repro_dir_raw=spec.get("repro_dir"),
+                prompt_text=spec.get("prompt"),
+                prompt_file=spec.get("prompt_file"),
+                system_prompt_file=spec.get("system_prompt_file"),
+                settings_raw=spec.get("settings") or args.settings,
+                out_raw=spec.get("out"),
+                receipt_raw=spec.get("receipt"),
+                log_raw=spec.get("log"),
+                timeout_s=spec.get("timeout"),
+                run_id_raw=spec.get("run_id"),
+                session_id=str(spec.get("session") or args.session or ""),
+                dry_run=bool(args.dry_run),
+                allow_stdin=False,
+            ))
+    except DispatchError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.dry_run:
+        previews = [{k: v for k, v in j.items() if k != "stdin_text"} for j in prepared_jobs]
+        if args.as_json:
+            print(json.dumps({"dry_run": True, "state_dir": str(state_dir), "jobs": previews}, indent=2))
+        else:
+            for p in previews:
+                print(f"dry-run batch {p['run_id']}: {' '.join(p['argv'])}")
+        return 0
+
+    handles = [_spawn_prepared(job, state_dir) for job in prepared_jobs]
+    run_ids = [h["run_id"] for h in handles]
+    completed, runs = _wait_for_runs(
+        state_dir,
+        run_ids=run_ids,
+        wait_any=False,
+        timeout_s=args.timeout,
+        poll_interval=args.poll_interval,
+    )
+    enriched = _attach_output_preview(runs)
+    all_ok = completed and all(r.get("state") == "finished" and r.get("exit_code") == 0 for r in runs)
+    payload = {
+        "completed": completed,
+        "all_succeeded": all_ok,
+        "state_dir": str(state_dir),
+        "runs": enriched,
+    }
+    if args.as_json:
+        print(json.dumps(payload, indent=2))
+    else:
+        for r in runs:
+            print(
+                f"[{r.get('state'):9s}] {r['run_id']} ({r.get('harness')} {r.get('provider')}/{r.get('model')}) "
+                f"exit={r.get('exit_code')} out={r.get('out_file') or '-'}"
+            )
+    if not completed:
+        return 124
+    return 0 if all_ok else 1
+
+
+def _add_dispatch_target_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--provider", required=True, help="model provider (e.g. anthropic, openai, google, cursor, devin)")
+    p.add_argument("--model", required=True, help="model identifier")
+    p.add_argument("--effort", default="", help="reasoning effort (e.g. low, medium, high)")
+    p.add_argument("--harness", default="", help="target harness CLI (claude|codex|agy|cursor|devin|pi|gemini|custom)")
+    p.add_argument("--role", choices=("lead", "worker", "reviewer", "researcher"), default="reviewer")
+    p.add_argument("--vector", default="", help="assigned review vector (recorded in receipt)")
+    p.add_argument("--cwd", help="working directory / isolated worktree path")
+    p.add_argument("--repro-dir", help="writable folder OUTSIDE --cwd where reviewers save standalone reproductions (keeps --cwd read-only on Codex)")
+    p.add_argument("--prompt", help="inline prompt text")
+    p.add_argument("--prompt-file", help="file containing prompt text")
+    p.add_argument("--system-prompt-file", help="agent instructions file (e.g. agents/astack-reviewer.md)")
+    p.add_argument("--settings", help="settings.json path to enforce reviewer_pool approval")
+    p.add_argument("--out", help="write reviewer/worker response to this file")
+    p.add_argument("--receipt", help="write structured JSON dispatch receipt to this file")
+    p.add_argument("--log", help="write combined stdout/stderr log to this file")
+    p.add_argument("--run-id", help="explicit run ID for cross-harness registry tracking")
+    p.add_argument("--session", default="", help="host session ID owning this cross-harness run")
+    p.add_argument("--state-dir", help="override cross-harness run registry directory")
+    p.add_argument("--timeout", type=float, help="optional timeout in seconds")
+    p.add_argument("--dry-run", action="store_true", help="print resolved command without executing")
+    p.add_argument("--json", action="store_true", dest="as_json")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Cross-harness agent dispatcher and reviewer_pool reachability checker."
+        description="Cross-harness agent dispatcher, supervised registry, wave barrier, and reviewer_pool checker."
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -982,24 +1681,48 @@ def main(argv: list[str] | None = None) -> int:
     p_check.add_argument("--host", help="current host harness name (claude|codex|agy|cursor|devin|pi)")
     p_check.add_argument("--json", action="store_true", dest="as_json")
 
-    p_run = sub.add_parser("run", help="run one blind reviewer or worker via an approved harness CLI")
-    p_run.add_argument("--provider", required=True, help="model provider (e.g. anthropic, openai, google, cursor, devin)")
-    p_run.add_argument("--model", required=True, help="model identifier")
-    p_run.add_argument("--effort", default="", help="reasoning effort (e.g. low, medium, high)")
-    p_run.add_argument("--harness", default="", help="target harness CLI (claude|codex|agy|cursor|devin|pi|gemini|custom)")
-    p_run.add_argument("--role", choices=("lead", "worker", "reviewer", "researcher"), default="reviewer")
-    p_run.add_argument("--vector", default="", help="assigned review vector (recorded in receipt)")
-    p_run.add_argument("--cwd", help="working directory / isolated worktree path")
-    p_run.add_argument("--repro-dir", help="writable folder OUTSIDE --cwd where reviewers save standalone reproductions (keeps --cwd read-only on Codex)")
-    p_run.add_argument("--prompt", help="inline prompt text")
-    p_run.add_argument("--prompt-file", help="file containing prompt text")
-    p_run.add_argument("--system-prompt-file", help="agent instructions file (e.g. agents/astack-reviewer.md)")
-    p_run.add_argument("--settings", help="settings.json path to enforce reviewer_pool approval")
-    p_run.add_argument("--out", help="write reviewer/worker response to this file")
-    p_run.add_argument("--receipt", help="write structured JSON dispatch receipt to this file")
-    p_run.add_argument("--timeout", type=float, help="optional timeout in seconds")
-    p_run.add_argument("--dry-run", action="store_true", help="print resolved command without executing")
-    p_run.add_argument("--json", action="store_true", dest="as_json")
+    p_run = sub.add_parser("run", help="run one blind reviewer, worker, or researcher synchronously via an approved harness CLI")
+    _add_dispatch_target_args(p_run)
+
+    p_spawn = sub.add_parser("spawn", help="launch one supervised cross-harness agent asynchronously and return a tracked run_id handle")
+    _add_dispatch_target_args(p_spawn)
+
+    p_batch = sub.add_parser("batch", help="launch a parallel wave of cross-harness agents from a JSON jobs file and wait for all to complete")
+    p_batch.add_argument("--jobs-file", required=True, help="JSON file containing a list of job objects (or {\"jobs\": [...]})")
+    p_batch.add_argument("--settings", help="default settings.json path for pool approval and role timeouts")
+    p_batch.add_argument("--session", default="", help="host session ID owning this wave")
+    p_batch.add_argument("--state-dir", help="override cross-harness run registry directory")
+    p_batch.add_argument("--timeout", type=float, help="optional overall wait timeout in seconds")
+    p_batch.add_argument("--poll-interval", type=float, default=0.5, help="status poll interval in seconds (default: 0.5)")
+    p_batch.add_argument("--dry-run", action="store_true", help="validate and print commands without launching")
+    p_batch.add_argument("--json", action="store_true", dest="as_json")
+
+    p_status = sub.add_parser("status", help="list tracked cross-harness agent runs and verify live PIDs")
+    p_status.add_argument("--state-dir", help="override cross-harness run registry directory")
+    p_status.add_argument("--session", default="", help="filter to one host session ID")
+    p_status.add_argument("--run-id", action="append", default=[], help="filter to specific run_id(s)")
+    p_status.add_argument("--active-only", action="store_true", help="show only currently running agents")
+    p_status.add_argument("--json", action="store_true", dest="as_json")
+
+    p_wait = sub.add_parser("wait", help="block until tracked cross-harness agent(s) finish and return their structured results")
+    p_wait.add_argument("--state-dir", help="override cross-harness run registry directory")
+    p_wait.add_argument("--session", default="", help="wait on active runs belonging to this host session ID")
+    p_wait.add_argument("--run-id", action="append", default=[], help="specific run_id(s) to wait for (repeatable)")
+    mode_grp = p_wait.add_mutually_exclusive_group()
+    mode_grp.add_argument("--all", dest="any_mode", action="store_false", help="wait until every target run finishes (default)")
+    mode_grp.add_argument("--any", dest="any_mode", action="store_true", help="return as soon as any target run finishes")
+    p_wait.add_argument("--timeout", type=float, help="max seconds to wait before returning exit 124")
+    p_wait.add_argument("--poll-interval", type=float, default=0.5, help="poll interval in seconds (default: 0.5)")
+    p_wait.add_argument("--json", action="store_true", dest="as_json")
+
+    p_kill = sub.add_parser("kill", help="terminate a running cross-harness agent by run_id")
+    p_kill.add_argument("--run-id", required=True, help="run_id to terminate")
+    p_kill.add_argument("--state-dir", help="override cross-harness run registry directory")
+    p_kill.add_argument("--json", action="store_true", dest="as_json")
+
+    p_sup = sub.add_parser("_supervise", help=argparse.SUPPRESS)
+    p_sup.add_argument("--state-dir", required=True)
+    p_sup.add_argument("--run-id", required=True)
 
     args = parser.parse_args(argv)
     if args.command == "harnesses":
@@ -1008,6 +1731,18 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_check_pool(args)
     if args.command == "run":
         return cmd_run(args)
+    if args.command == "spawn":
+        return cmd_spawn(args)
+    if args.command == "batch":
+        return cmd_batch(args)
+    if args.command == "status":
+        return cmd_status(args)
+    if args.command == "wait":
+        return cmd_wait(args)
+    if args.command == "kill":
+        return cmd_kill(args)
+    if args.command == "_supervise":
+        return cmd_supervise(args)
     return 2
 
 

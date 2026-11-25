@@ -108,7 +108,7 @@ class BuildTest(unittest.TestCase):
             )
             self.assertEqual(val.returncode, 0, f"agy validate failed for {target}:\n{val.stdout}\n{val.stderr}")
             data = json.loads(val.stdout)
-            self.assertGreaterEqual(data["components"]["skills"], 83)
+            self.assertGreaterEqual(data["components"]["skills"], 88)
             self.assertEqual(data["components"]["agents"], 4)
             self.assertEqual(data["components"]["hooks"], 2)
 
@@ -408,6 +408,7 @@ class BuildTest(unittest.TestCase):
                 "astack-stamp", "astack-stamp-hook", "astack-statechart", "astack-status",
                 "astack-tools", "astack-verify-merge",
                 "astack-watch-pr", "astack-watch-github", "astack-watch-gitlab", "astack-watch-bitbucket",
+                "astack-watch-tickets",
                 "astack-release", "astack-go-mode", "astack-go-hook",
             ):
                 self.assertTrue((HARNESS / tool / "bin" / script).stat().st_mode & 0o111, f"{tool}/{script}")
@@ -542,6 +543,8 @@ class BuildTest(unittest.TestCase):
             "skills/treeify/SKILL.md",
             "skills/cross-repo/SKILL.md",
             "skills/bugbash/SKILL.md",
+            "skills/redteam/SKILL.md",
+            "skills/squish/SKILL.md",
             "skills/lead/SKILL.md",
             "skills/review/SKILL.md",
             "skills/ab-test/SKILL.md",
@@ -572,6 +575,7 @@ class BuildTest(unittest.TestCase):
         # Verify time-limit watch/swap across swarm flows, deterministic/data-backed prove-it, and whole-environment find-it
         for swarm_path in (
             "skills/bugbash/SKILL.md",
+            "skills/redteam/SKILL.md",
             "skills/ab-test/SKILL.md",
             "skills/swarm-hypothesis/SKILL.md",
             "skills/modularize/SKILL.md",
@@ -709,7 +713,127 @@ class BuildTest(unittest.TestCase):
         bap_src = (ROOT / "skills/bap/SKILL.md").read_text()
         self.assertIn("Audit why it slipped", bap_src)
         self.assertIn("**make-it-stick**", bap_src)
+        self.assertIn("**lookup**", bap_src)
+        self.assertIn("**lookback**", bap_src)
         self.assertIn("run **bap** immediately", go_src)
+
+        rtfm_src = (ROOT / "skills/rtfm/SKILL.md").read_text()
+        self.assertIn("**lookup**", rtfm_src)
+        self.assertIn("**lookback**", rtfm_src)
+        lookback_src = (ROOT / "skills/lookback/SKILL.md").read_text()
+        self.assertIn("~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md", lookback_src)
+        self.assertIn("multiple focused lessons", lookback_src)
+        self.assertIn("YYYY-MM-DDTHH:MMZ", lookback_src)
+        for section in (
+            "## Overview",
+            "## Skills and tools used",
+            "## Details",
+            "## Successes",
+            "## Issues",
+            "## Best path & guards",
+            "## References",
+        ):
+            self.assertIn(section, lookback_src, f"lookback missing section {section}")
+        for fm_key in ("lesson:", "project:", "related_projects:", "keywords:", "status:", "created:", "updated:"):
+            self.assertIn(fm_key, lookback_src, f"lookback missing frontmatter key {fm_key}")
+        self.assertIn("Audit existing lessons", lookback_src)
+        self.assertIn("delete the stale lesson folder", lookback_src)
+        self.assertIn("Windows", lookback_src)
+        self.assertIn("%USERPROFILE%", lookback_src)
+
+        lookup_src = (ROOT / "skills/lookup/SKILL.md").read_text()
+        self.assertIn("~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md", lookup_src)
+        self.assertIn("cross-repo or cross-project", lookup_src)
+        self.assertIn("determine which other repos or projects might be relevant", lookup_src)
+        self.assertIn("related_projects", lookup_src)
+        self.assertIn("**lookback**", lookup_src)
+
+        self.assertIn("init-home", setup_src)
+        self.assertIn("$HOME/.astack", setup_src)
+        self.assertIn("%USERPROFILE%", setup_src)
+
+        # Closing lookback wired into every DAG, tree, multi-repo, bugbash, and review workflow
+        for closing_path in (
+            "skills/dagify/SKILL.md",
+            "skills/treeify/SKILL.md",
+            "skills/workflow-this/SKILL.md",
+            "skills/cross-repo/SKILL.md",
+            "skills/review/SKILL.md",
+            "skills/bugbash/SKILL.md",
+            "skills/redteam/SKILL.md",
+            "skills/sprint/SKILL.md",
+            "skills/lead/SKILL.md",
+            "agents/lead.md",
+        ):
+            ctext = (ROOT / closing_path).read_text()
+            self.assertIn("**lookback**", ctext, f"{closing_path} missing closing **lookback**")
+            self.assertIn("~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md", ctext, f"{closing_path} missing ~/.astack lesson path")
+        self.assertIn("**lookup**", (ROOT / "skills/cross-repo/SKILL.md").read_text())
+
+        sprint_src = (ROOT / "skills/sprint/SKILL.md").read_text()
+        self.assertIn("astack-watch-tickets", sprint_src)
+        self.assertIn("GitHub Issues", sprint_src)
+        self.assertIn("Jira", sprint_src)
+        self.assertIn("Linear", sprint_src)
+        self.assertIn("<<<UNTRUSTED_*>>>", sprint_src)
+        self.assertIn("merge_pr", sprint_src)
+        self.assertIn("**watch-pr**", sprint_src)
+        self.assertIn("**track-it**", sprint_src)
+        self.assertIn("**sprint**", (ROOT / "skills/track-it/SKILL.md").read_text())
+
+        squish_src = (ROOT / "skills/squish/SKILL.md").read_text()
+        self.assertIn("authorship-check", squish_src)
+        self.assertIn("patch-id-check", squish_src)
+        self.assertIn("astack-check-gates", squish_src)
+        self.assertIn("force-with-lease", squish_src)
+        self.assertIn("close_or_delete_others_pr", squish_src)
+        self.assertIn("**safe-to-deploy**", squish_src)
+        for squish_caller in (
+            "skills/dagify/SKILL.md",
+            "skills/treeify/SKILL.md",
+            "skills/lead/SKILL.md",
+            "skills/redteam/SKILL.md",
+            "skills/sprint/SKILL.md",
+            "skills/watch-pr/SKILL.md",
+            "agents/lead.md",
+        ):
+            self.assertIn("**squish**", (ROOT / squish_caller).read_text(), f"{squish_caller} missing **squish** reference")
+
+        # Cross-harness agents-as-tools tracking & non-halting wave barrier across skills and Stop hooks
+        for xh_path in (
+            "skills/bugbash/SKILL.md",
+            "skills/review/SKILL.md",
+            "skills/redteam/SKILL.md",
+            "skills/lead/SKILL.md",
+            "skills/go/SKILL.md",
+            "agents/lead.md",
+        ):
+            xhtext = (ROOT / xh_path).read_text()
+            self.assertIn("agents as tools", xhtext, f"{xh_path} missing agents-as-tools cross-harness rule")
+            self.assertIn("astack-dispatch", xhtext, f"{xh_path} missing astack-dispatch")
+        self.assertIn('"Stop"', (HARNESS / "claude-code/hooks/hooks.json").read_text())
+        self.assertIn('"Stop"', (HARNESS / "codex/hooks/hooks.json").read_text())
+
+        redteam_src = (ROOT / "skills/redteam/SKILL.md").read_text()
+        self.assertIn("**review**", redteam_src)
+        self.assertIn("**dagify**", redteam_src)
+        self.assertIn("**treeify**", redteam_src)
+        self.assertIn("**clamber**", redteam_src)
+        self.assertIn("**lookup**", redteam_src)
+        self.assertIn("never writing or applying fixes themselves", redteam_src)
+        self.assertIn("no remaining proven issues", redteam_src)
+        self.assertIn("break, disrupt, and limit-test", redteam_src)
+        self.assertIn("hosted dev/staging", redteam_src)
+        self.assertIn("never production", redteam_src)
+        self.assertIn("**redteam**", (ROOT / "skills/clamber/SKILL.md").read_text())
+        self.assertIn("**redteam**", bugbash)
+
+        # Guard against ever reverting to in-repo or ~/.config/astack/lessons storage
+        for skill_md in (ROOT / "skills").glob("*/SKILL.md"):
+            stext = skill_md.read_text()
+            self.assertNotIn("~/.config/astack/lessons/", stext, f"{skill_md} still references old ~/.config/astack/lessons/ path")
+            if skill_md.parent.name not in ("lookback", "lookup"):
+                self.assertNotIn("<repo>/lessons/", stext, f"{skill_md} still references forbidden <repo>/lessons/ path")
 
         self.assertTrue((ROOT / "evals/find-it-and-fix-it-bug/verify.py").is_file())
         self.assertTrue((ROOT / "evals/bugbash-investigates-and-proves-fix/verify.py").is_file())
