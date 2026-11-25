@@ -1275,7 +1275,12 @@ def main(argv: list[str] | None = None) -> int:
         choices=("none", "with-without"),
         help="run a no-plugin baseline arm alongside the with-plugin arm to measure real delta",
     )
-    parser.add_argument("--runs", type=int, default=1, help="number of runs per case (default: 1)")
+    parser.add_argument(
+        "--runs",
+        type=int,
+        default=1,
+        help="number of trials per case/arm (default: 1; use 3+ for variance-checked ablation)",
+    )
     parser.add_argument("--timeout", type=float, default=600.0, help="per-case timeout in seconds")
     parser.add_argument("--dry-run", action="store_true", help="print resolved commands without executing")
     parser.add_argument("--json", action="store_true", dest="as_json")
@@ -1361,6 +1366,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.as_json:
         print(json.dumps(reports, indent=2))
+    elif not args.dry_run and args.ablation == "with-without" and args.runs < 2:
+        print("note: --runs 1 ran a single trial per arm; pass --runs 3+ for variance-checked ablation")
     if args.dry_run:
         return 0
     with_reports = [r for r in reports if r.get("arm") == "with"]

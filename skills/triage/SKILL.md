@@ -12,7 +12,7 @@ Hand confirmed code or IaC bugs to **bugbash** once isolated. Discover active pr
 
 ## 1. Lock context and preserve volatile evidence first
 
-1. **Verify target environment (**analyze-environment**):** confirm exact account, project, region, cluster/namespace, and IaC workspace in `TOOLS.md` first. Never mutate production without explicit approval (**decisions-in-plain-words**).
+1. **Verify target environment (`analyze-environment`):** confirm exact account, project, region, cluster/namespace, and IaC workspace in `TOOLS.md` first. Never mutate production without explicit approval (**decisions-in-plain-words**).
 2. **Capture volatile state first:** grab crash evidence before any restart or drain, because restarts erase it. Collect current and previous logs, platform events, thread dumps, open FDs/sockets, conntrack/DNS/metrics snapshots, and error traces. Save artifacts as `<file>_DEBUG_<shorthash>.<type>` with zero secrets (**no-leaked-secrets**).
 3. **Pin down symptom and blast radius:** record what fails, which tenants, regions, PoPs, or services are hit, exact UTC onset, and error rate or latency.
 
@@ -28,7 +28,7 @@ Inspect recent changes near onset with safe read-only probes:
 
 Lead may dispatch parallel read-only `astack:researcher` or `astack:reviewer` probes across suspect layers under `lead` clocks; Workers and Researchers probe sequentially:
 
-- **Edge, CDN, WAF, DNS, TLS, & network (**net-trace**):** WAF/bot/rate-limit/SSL mode, LB health, DNS/DNSSEC, cert chain/SNI/mTLS, firewall rules, flow logs, packet captures, NAT/conntrack limits.
+- **Edge, CDN, WAF, DNS, TLS, & network (`net-trace`):** WAF/bot/rate-limit/SSL mode, LB health, DNS/DNSSEC, cert chain/SNI/mTLS, firewall rules, flow logs, packet captures, NAT/conntrack limits.
 - **Compute & orchestrator:** OOMs, evictions, cold starts, CPU/disk/inode/IOPS limits, CNI networking, stuck sync hooks.
 - **Process & runtime:** thread, goroutine, or pool exhaustion, FD limits, GC pauses, deadlocks, and retry storms (`fail-safely`).
 - **Data, identity, & control planes:** DB locks, slow queries, WAL/vacuum bloat, queue/DLQ lag, cache stampedes, IAM/RBAC denials (`least-privilege`), quota cliffs.
@@ -37,15 +37,15 @@ Cite the exact command and observed output for every claim (`ran` vs. `read`). N
 
 ## 4. Separate safe mitigation from permanent fix
 
-1. **Propose reversible mitigation first (**decisions-in-plain-words**):** if service is degraded, recommend the safest reversible step (rollback, traffic drain, failover, WAF bypass, scale up, or flag off). Include blast radius, health check, and rollback path while honoring `autonomy`.
+1. **Propose reversible mitigation first (`decisions-in-plain-words`):** if service is degraded, recommend the safest reversible step (rollback, traffic drain, failover, WAF bypass, scale up, or flag off). Include blast radius, health check, and rollback path while honoring `autonomy`.
 2. **Hand off root causes cleanly:**
    - Code, migration, or IaC defect -> **bugbash** with the triage dossier (`safe-to-deploy`, `safe-iac`).
    - Missing telemetry or runbook gap -> `observable-by-default` and `technical-writing`.
-   - Record the timeline, disproved hypotheses (`decided:`), and guards via **lookback** + `make-it-stick`, then remove temp captures (**cleanup**).
+   - Record the timeline, disproved hypotheses (`decided:`), and guards via **lookback** + `make-it-stick`. Remove scratch/superseded captures (`cleanup`), retaining only sanitized evidence files handed off to `bugbash` or cited below (delete those once the follow-up fix lands).
 
 ## Triage Dossier (Reply)
 
 - **Impact & timeline:** affected scope, exact UTC onset, and current status.
-- **Preserved evidence:** exact `<file>_DEBUG_<shorthash>.*` paths and key command outputs.
+- **Preserved evidence:** exact retained (non-deleted) `<file>_DEBUG_<shorthash>.*` paths handed off for follow-up, plus key command outputs.
 - **Isolated layer & root cause:** proven failing layer vs. ruled-out layers with `ran` evidence.
 - **Mitigation & handoff:** safest reversible step (if degraded) and permanent fix handoff (`bugbash` or runbook/telemetry owner).

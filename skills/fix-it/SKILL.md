@@ -24,7 +24,7 @@ Evaluate the bug and any side effect along two axes:
 
 ## Ten rules for every fix
 
-1. **Repro and test first (**find-it**):** back every fix with a repro and failing behavior test. Extend existing tests before adding files.
+1. **Repro and test first (`find-it`):** back every fix with a repro and failing behavior test. Extend existing tests before adding files.
 2. **Keep it minimal:** write the smallest correct fix using existing patterns, because broad edits widen blast radius and mask regressions.
 3. **Stay inside the fault boundary:** avoid extra state, duplicate stores, or unrelated refactors, because extra state drifts and creates new bugs.
 4. **Fix concurrency at the state level:** treat races and deadlocks as mismanaged state first, because arbitrary locks hide bugs instead of solving them.
@@ -32,7 +32,7 @@ Evaluate the bug and any side effect along two axes:
 6. **Let the code speak:** clear code and tests explain the fix; skip narrating comments.
 7. **Harden against review edge cases:** strengthen tests for every proven edge case or failure mode surfaced in review.
 8. **Don't rearchitect inside a bug fix:** fix the specific bug cleanly and note deeper flaws in the PR, because mixed refactors obscure root-cause verification.
-9. **Prove before and after (**prove-it**):** a fix is done only when every failure reproduces without it and disappears with it.
+9. **Prove before and after (`prove-it`):** a fix is done only when every failure reproduces without it and disappears with it.
 10. **Check plausible system and perf impact:**
     - Check shifts in compute, memory, storage, network, caching, tail latency, or FDs.
     - When **blast-radius** shows plausible impact, benchmark against baseline noise via **benchmarking**. Skip heavy benchmarking on localized fixes.

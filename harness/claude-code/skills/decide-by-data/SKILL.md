@@ -10,7 +10,7 @@ Settle technical choices with evidence instead of debate, because engineering in
 
 1. **Check real telemetry first:** pull logs, traces, metrics, or query counts (`prove-it`, `research-this`). Measure what actually occurs before inventing options.
 2. **Probe UX or API ergonomics:** run a throwaway spike (`play-with-me`) when interaction feel drives the choice.
-3. **Benchmark competing variants:** run controlled **ab-test** experiments across extremes and failure modes. Always graft worthwhile ideas from losers onto the winner before deleting losers.
+3. **Benchmark competing variants:** compare any number of candidates via **ab-test** (including Holm–Bonferroni control and its graft-then-delete step).
 4. **Act by role:**
    - **Lead and workers:** once data settles the choice, pick the winner and delete losers in the same change. Escalate only trade-offs data cannot settle (**never-trade-functionality**).
    - **Researchers and reviewers:** stay read-only. Return measured evidence, trade-offs, and your pick without deleting files or escalating directly.

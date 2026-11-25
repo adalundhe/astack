@@ -16,10 +16,10 @@ Close every review finding and PR comment by fixing, answering, or disproving it
    - **Question:** answer clearly. If confusing code caused it, improve naming or tests instead of adding a narrating comment.
    - **Wrong or overstated:** refute it with runnable evidence (**worrywart**).
    - **Needs a human call:** escalate with your recommendation and keep working on the rest.
-4. **Guard against diff bloat (**simplify-me**):** run `astack-watch-pr diff-guard` each round. Review loops pile on cheap fixes: if the diff grew, cut or simplify before adding code. Decline out-of-scope requests with a written reason.
+4. **Guard against diff bloat (`simplify-me`):** run `astack-watch-pr diff-guard` each round. Review loops pile on cheap fixes: if the diff grew, cut or simplify before adding code. Decline out-of-scope requests with a written reason.
 5. **Preserve takeover credit:** keep original authorship (`--author`) or `Co-authored-by` trailers when amending another contributor's commits, because rewriting authorship erases contributor credit. Verify with `astack-watch-pr authorship-check`.
-6. **Reply on every thread plainly (**leave-feedback**):** state the fix, evidence, or answer with full context—never bare commit hashes or cryptic fragments. Before posting human-facing PR replies, Lead audits the draft with an independent reviewer via **leave-feedback** until `CLEAR`, then posts via `astack-watch-pr reply`. Resolve threads only after replying. Workers draft replies in their report and never spawn reviewers.
-7. **Re-review code fixes (**review**):** when code or tests changed, Lead runs `astack-check-gates` and vectored **review** (`astack-review-ledger`) before pushing. Route new findings to a fresh worker, then re-request review.
+6. **Reply on every thread plainly (`leave-feedback`):** state the fix, evidence, or answer with full context—never bare commit hashes or cryptic fragments. Before posting human-facing PR replies, Lead audits the draft with an independent reviewer via **leave-feedback** until `CLEAR`, then posts via `astack-watch-pr reply`. Resolve threads only after replying. Workers draft replies in their report and never spawn reviewers.
+7. **Re-review code fixes (`review`):** when code or tests changed, Lead runs `astack-check-gates` and vectored **review** (`astack-review-ledger`) before pushing. Route new findings to a fresh worker, then re-request review.
 
 If the same work keeps bouncing across rounds, escalate to Lead to adjust the plan or add help.
 

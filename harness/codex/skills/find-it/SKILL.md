@@ -34,8 +34,8 @@ Name every capture **`<file>_DEBUG_<shorthash>.<type>`** (e.g., `auth_DEBUG_a1b2
 - **Logs & stdio:** split `stdout` and `stderr` with timestamps (`tee`), enable debug logs on the suspect module, and keep request IDs.
 - **Tracing & HTTP:** capture OpenTelemetry spans and `traceparent` headers, and inspect HTTP/1.1, HTTP/2, or HTTP/3 streams (`curl`, proxies, `tshark`). Use **net-trace** for deeper packet, DNS, TLS, firewall, or flow-log tracing.
 - **UI & browser:** capture Playwright screenshots, trace zips, HAR files, and console errors (or run `drive-<app>`).
-- **Telemetry & metrics:** sample counters, queue depths, retry/error rates, GC pauses, RSS/heap, and open FDs.
-- **Profiles & live dumps:** grab CPU/alloc/lock flamegraphs (`perf`, `py-spy`, `samply`, `pprof`) and stack/goroutine dumps. Capture `strace`/`lsof`/`tcpdump` **before** restarting a stuck process.
+- **Telemetry, metrics, & trace forensics:** sample counters, queue depths, retry/error rates, GC pauses, RSS/heap, and open FDs. For large logs or trace dumps, load structured events into SQLite to query latency tails, span trees, and cross-request correlations instead of grepping blindly.
+- **Profiles, heap retainers, & live dumps:** grab CPU/alloc/lock flamegraphs (`perf`, `py-spy`, `samply`, `pprof`), heap snapshots with retainer chains and steady-state allocation diffs for leaks, and stack/goroutine dumps. Capture `strace`/`lsof`/`tcpdump` **before** restarting a stuck process.
 
 ## 4. Shrink the repro before diagnosing
 
@@ -52,8 +52,8 @@ Reduce the confirmed failure to the smallest standalone repro before proposing a
 ## 5. Narrow the root cause with runtime evidence
 
 - **Binary search & `git bisect`:** halve history (`git bisect run`) or execution paths with the shrunk repro.
-  - **Flaky repros:** never trust one clean run. For rate $p$ at confidence $c$, require $n \ge \lceil \ln(1-c)/\ln(1-p) \rceil$ clean runs (e.g., $29$ at $p=10\%$, $c=95\%$). Any single failure marks `bad`.
-  - **Performance regressions:** run a three-way Sobel–Wald dual SPRT (**benchmarking**) with interleaved `(good, candidate, bad)` runs. Confirm before stopping on `middle`.
+  - **Flaky repros:** never trust one clean run or raw point estimates. Compute a conservative 95% lower confidence bound $p_{\text{low}}$ on the measured failure rate $k/m$ (e.g., Clopper–Pearson: $3/20$ gives $p_{\text{low}} \approx 0.032$, needing $\sim 93$ clean runs at $\alpha=0.05$, not $19$). Across a $K$-step bisect ($K \approx \lceil\log_2 N\rceil$), control family-wise error with per-step $\alpha_{\text{step}} = \alpha / K$ (or $\alpha / (2K)$ two-sided): $n \ge \lceil \ln(\alpha_{\text{step}})/\ln(1-p_{\text{low}}) \rceil$. Any single failure marks `bad`.
+  - **Performance regressions:** bisect with interleaved alternating `(good, candidate)` runs sized from baseline median and $\sigma$ (**benchmarking**), applying per-step $\alpha / (2K)$ across $K$ bisect steps before marking a commit `good` or `bad`.
 - **Profiles & state charts:** read hot paths top-down, separate waiting from CPU work, map frames to `file:line`, and diagram bad transitions (`show-the-states`). One capture is only a hypothesis—confirm with a **before/after pair**.
 - **One falsifiable hypothesis at a time:** state the hypothesis and disproof test first. Record every rejected theory with evidence. Writable workers and single-agent hosts revert disproved edits immediately; read-only reviewers stay inside their repro folder. After **two consecutive disproved hypotheses**, stop and run **challenge**.
 
@@ -62,7 +62,7 @@ Reduce the confirmed failure to the smallest standalone repro before proposing a
 Hand off the shrunk repro, root cause (`file:line`), evidence, and **rejected theories** to **fix-it** and the lead. Logging dead ends as `decided:` stops repeats. Run **cleanup** once fixed to delete every `<file>_DEBUG_<shorthash>.<type>` file and debug hook.
 
 **Done when:**
-- the bug reproduces deterministically from a shrunk standalone repro;
+- the bug reproduces deterministically from a shrunk standalone repro, or (for confirmed intermittent faults) clears the flaky-repro statistical bar above;
 - runtime evidence pins the root cause to exact `file:line`;
 - every rejected theory is recorded with its disproof evidence;
 - all `<file>_DEBUG_<shorthash>.<type>` files and temporary hooks are cleaned up.

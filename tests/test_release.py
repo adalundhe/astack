@@ -166,22 +166,67 @@ class ReleaseTrainTest(unittest.TestCase):
         self.assertEqual(start_deploy["status"], "waiting_human")
         self.assertIn("deadbeef", start_deploy["title"])
 
-        # Completing iam-roles-apply with role ARNs unlocks security-pr AND interpolates inputs
-        comp = json.loads(run_cli(
+        # Attempting to complete OR verify --run a waiting_human prod deploy without approval MUST fail!
+        unapproved_comp = run_cli(
             "complete", str(self.state), "--id", "iam-roles-apply",
             "--output", "app_role_arn=arn:aws:iam::123456789012:role/app",
+            "--settings", str(self.settings),
+        )
+        self.assertEqual(unapproved_comp.returncode, 2)
+        self.assertIn("approve", unapproved_comp.stderr)
+
+        unapproved_ver = run_cli(
+            "verify", str(self.state), "--id", "iam-roles-apply", "--run",
+            "--settings", str(self.settings),
+        )
+        self.assertEqual(unapproved_ver.returncode, 2)
+        self.assertIn("approve", unapproved_ver.stderr)
+
+        # Record explicit human approval -> unblocks verify --run; skipping verify_cmd via complete still fails!
+        appr = run_cli(
+            "approve", str(self.state), "--id", "iam-roles-apply", "--by", "alice",
+            "--settings", str(self.settings), "--json",
+        )
+        self.assertEqual(appr.returncode, 0, appr.stderr)
+        self.assertEqual(json.loads(appr.stdout)["approved_by"], "alice")
+
+        skip_verify = run_cli(
+            "complete", str(self.state), "--id", "iam-roles-apply",
+            "--output", "app_role_arn=arn:aws:iam::123456789012:role/app",
+            "--settings", str(self.settings),
+        )
+        self.assertEqual(skip_verify.returncode, 2)
+        self.assertIn("verify_cmd", skip_verify.stderr)
+
+        # Running verify --run with immutable outputs marks iam-roles-apply done and unlocks security-pr
+        ver_deploy = run_cli(
+            "verify", str(self.state), "--id", "iam-roles-apply", "--run",
+            "--output", "app_role_arn=arn:aws:iam::123456789012:role/app",
             "--output", "migrator_role_arn=arn:aws:iam::123456789012:role/migrator",
-            "--settings", str(self.settings), "--json"
-        ).stdout)
-        self.assertEqual(comp["ready"], ["security-pr"])
+            "--settings", str(self.settings), "--json",
+        )
+        self.assertEqual(ver_deploy.returncode, 0, ver_deploy.stderr)
+        self.assertEqual(json.loads(ver_deploy.stdout)["step"]["status"], "done")
 
         ready_sec = json.loads(run_cli("ready", str(self.state), "--settings", str(self.settings), "--json").stdout)
         sec_item = ready_sec["ready"][0]
         self.assertEqual(sec_item["inputs"]["iam-roles-apply.app_role_arn"], "arn:aws:iam::123456789012:role/app")
         self.assertIn("arn:aws:iam::123456789012:role/app", sec_item["title"])
 
-        # Complete security-pr with policy_tag -> unlocks app-cutover-pr with BOTH upstream outputs!
+        # Completing an unmerged PR step while merge_pr is denied fails until human approval (or forge sync merge)
         run_cli("set-pr", str(self.state), "--id", "security-pr", "--pr-url", "https://github.com/org/security-repo/pull/22")
+        unapproved_pr = run_cli(
+            "complete", str(self.state), "--id", "security-pr",
+            "--output", "policy_tag=sec-v2.1.0",
+            "--settings", str(self.settings),
+        )
+        self.assertEqual(unapproved_pr.returncode, 2)
+        self.assertIn("merge_pr", unapproved_pr.stderr)
+
+        self.assertEqual(
+            run_cli("approve", str(self.state), "--id", "security-pr", "--by", "alice", "--settings", str(self.settings)).returncode,
+            0,
+        )
         comp_sec = json.loads(run_cli(
             "complete", str(self.state), "--id", "security-pr",
             "--output", "policy_tag=sec-v2.1.0",
@@ -195,8 +240,13 @@ class ReleaseTrainTest(unittest.TestCase):
         self.assertEqual(app_item["inputs"]["security-pr.policy_tag"], "sec-v2.1.0")
         self.assertIn("sec-v2.1.0", app_item["title"])
 
-        # Complete app-cutover-pr, then run verify --run on verify-zero-legacy -> unlocks retire-legacy-pr
-        run_cli("complete", str(self.state), "--id", "app-cutover-pr", "--settings", str(self.settings))
+        # Approve & complete app-cutover-pr, then run verify --run on verify-zero-legacy -> unlocks retire-legacy-pr
+        self.assertEqual(
+            run_cli("approve", str(self.state), "--id", "app-cutover-pr", "--by", "alice", "--settings", str(self.settings)).returncode,
+            0,
+        )
+        comp_app = run_cli("complete", str(self.state), "--id", "app-cutover-pr", "--settings", str(self.settings))
+        self.assertEqual(comp_app.returncode, 0, comp_app.stderr)
         ver = run_cli("verify", str(self.state), "--id", "verify-zero-legacy", "--run", "--settings", str(self.settings), "--json")
         self.assertEqual(ver.returncode, 0, ver.stderr)
         self.assertEqual(json.loads(ver.stdout)["step"]["status"], "done")
@@ -325,7 +375,8 @@ class ReleaseTrainTest(unittest.TestCase):
         ).stdout)
         self.assertEqual(s_blocked["synced"][0]["to_status"], "pending")
 
-        # 2. Repo A PR merges -> because verify_cmd is set, it transitions to `verifying` (NOT `done`), keeping Repo B blocked!
+        # 2. Repo A PR merges WITHOUT merge_commit_sha -> NEVER fabricates merge_sha from head_sha,
+        #    and because verify_cmd is set it transitions to `verifying`, keeping Repo B blocked!
         watcher_state.write_text(json.dumps({
             "https://github.com/org/infra-roles/pull/1": {
                 "state": "merged",
@@ -343,23 +394,31 @@ class ReleaseTrainTest(unittest.TestCase):
             "--pr-watcher", str(fake_watcher), "--json",
         ).stdout)
         self.assertEqual(s2["synced"][0]["to_status"], "verifying")
-        self.assertEqual(s2["synced"][0]["outputs"]["merge_sha"], "aaa1111")
-        self.assertEqual(s2["ready"], [])  # Repo B STILL blocked until external Terraform apply verifies!
+        self.assertNotIn("merge_sha", s2["synced"][0]["outputs"])
+        self.assertEqual(s2["ready"], [])  # Repo B STILL blocked until verify AND real merge_sha exist!
 
         # Verify fails before flag exists -> Repo B still blocked
         v_fail = run_cli("verify", str(self.state), "--id", "repo-a-pr", "--run", "--settings", str(self.settings), "--json")
         self.assertEqual(v_fail.returncode, 1)
         self.assertEqual(json.loads(v_fail.stdout)["step"]["status"], "failed")
 
-        # 3. External Terraform apply finishes -> verify --run passes -> Repo A becomes done -> Repo B unlocks with interpolated gate_cmds!
+        # 3. External Terraform apply finishes -> verify --run passes, but Repo B stays blocked until real merge_sha is recorded!
         flag.write_text("applied")
         v_ok = run_cli("verify", str(self.state), "--id", "repo-a-pr", "--run", "--settings", str(self.settings), "--json")
         self.assertEqual(v_ok.returncode, 0, v_ok.stderr)
         self.assertEqual(json.loads(v_ok.stdout)["step"]["status"], "done")
+        still_blocked = json.loads(run_cli("ready", str(self.state), "--settings", str(self.settings), "--json").stdout)
+        self.assertEqual(still_blocked["ready"], [])
 
+        # Recording the real base-branch squash/merge commit SHA (distinct from PR head_sha aaa1111) unlocks Repo B!
+        rec_sha = run_cli(
+            "complete", str(self.state), "--id", "repo-a-pr",
+            "--output", "merge_sha=squash999", "--settings", str(self.settings), "--json",
+        )
+        self.assertEqual(rec_sha.returncode, 0, rec_sha.stderr)
         ready_b = json.loads(run_cli("ready", str(self.state), "--settings", str(self.settings), "--json").stdout)
         self.assertEqual([s["id"] for s in ready_b["ready"]], ["repo-b-pr"])
-        self.assertEqual(ready_b["ready"][0]["gate_cmds"], ["echo checking aaa1111"])
+        self.assertEqual(ready_b["ready"][0]["gate_cmds"], ["echo checking squash999"])
 
         # Reject gate_cmd referencing non-ancestor output
         bad_gate = self.dir / "bad_gate.json"
@@ -373,6 +432,45 @@ class ReleaseTrainTest(unittest.TestCase):
         bad_res = run_cli("load", str(self.dir / "bad_gate_state.json"), "--spec", str(bad_gate))
         self.assertEqual(bad_res.returncode, 2)
         self.assertIn("not an upstream dependency", bad_res.stderr)
+
+    def test_production_env_variants_and_immutable_outputs(self):
+        """Production env variants (prd, live, prod-eu) are gated across start/complete, non-prod envs pass, and recorded outputs cannot be overwritten."""
+        spec = {
+            "name": "env-and-immutability",
+            "steps": [
+                {"id": "d-prd", "kind": "deploy", "env": "prd", "title": "Deploy prd"},
+                {"id": "d-live", "kind": "deploy", "env": "live-canary", "title": "Deploy live"},
+                {"id": "d-eu", "kind": "deploy", "env": "prod-eu", "title": "Deploy prod-eu"},
+                {"id": "d-pre", "kind": "deploy", "env": "pre-prod", "title": "Deploy pre-prod"},
+                {"id": "d-non", "kind": "deploy", "env": "nonprod", "title": "Deploy nonprod"},
+                {"id": "d-stg", "kind": "deploy", "env": "staging", "title": "Deploy staging"},
+            ],
+        }
+        spec_path = self.dir / "env_spec.json"
+        spec_path.write_text(json.dumps(spec))
+        self.assertEqual(run_cli("load", str(self.state), "--spec", str(spec_path)).returncode, 0)
+
+        for sid in ("d-prd", "d-live", "d-eu"):
+            st = json.loads(run_cli("start", str(self.state), "--id", sid, "--settings", str(self.settings), "--json").stdout)
+            self.assertEqual(st["status"], "waiting_human", f"{sid} must be gated")
+            bad = run_cli("complete", str(self.state), "--id", sid, "--settings", str(self.settings))
+            self.assertEqual(bad.returncode, 2, f"{sid} complete must fail without approve")
+
+        for sid in ("d-pre", "d-non", "d-stg"):
+            st = json.loads(run_cli("start", str(self.state), "--id", sid, "--settings", str(self.settings), "--json").stdout)
+            self.assertEqual(st["status"], "in_progress", f"{sid} should not be prod-gated")
+
+        # Record output on staging deploy, verify idempotent rerun succeeds and conflicting overwrite fails!
+        ok1 = run_cli("complete", str(self.state), "--id", "d-stg", "--output", "digest=sha256:aaa", "--settings", str(self.settings))
+        self.assertEqual(ok1.returncode, 0, ok1.stderr)
+        ok_idem = run_cli("complete", str(self.state), "--id", "d-stg", "--output", "digest=sha256:aaa", "--settings", str(self.settings))
+        self.assertEqual(ok_idem.returncode, 0, ok_idem.stderr)
+        bad_overwrite = run_cli("complete", str(self.state), "--id", "d-stg", "--output", "digest=sha256:bbb", "--settings", str(self.settings))
+        self.assertEqual(bad_overwrite.returncode, 2)
+        self.assertIn("immutable output", bad_overwrite.stderr)
+        state_data = json.loads(self.state.read_text())
+        stg_step = next(s for s in state_data["steps"] if s["id"] == "d-stg")
+        self.assertEqual(stg_step["outputs"]["digest"], "sha256:aaa")
 
 
 if __name__ == "__main__":

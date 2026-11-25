@@ -17,6 +17,7 @@ Parse external data into domain types once where it enters, then trust those typ
 
 ## Watch for
 
+- unparameterized SQL, `shell=True` or string-interpolated shell commands, unescaped HTML/templates, or unvalidated path joins (injection/traversal);
 - repeated validation or null checks on data that already crossed a boundary;
 - raw external payloads (dicts, JSON blobs, env strings, HTTP requests, DB rows) passed deep into core logic;
 - framework or transport types appearing in core function signatures;

@@ -12,7 +12,7 @@ Apply this across whatever IaC, GitOps, cloud, edge, or cluster tools the repo u
 ## Start with
 
 1. **Verify target context first (`analyze-environment`):** confirm account, project/zone, region, workspace/stack, and cluster in `TOOLS.md`. Check context before planning because applying to the wrong environment destroys live infrastructure.
-2. **Audit the real plan/diff (**prove-it**):** run the read-only preview (`plan`, `preview`, `what-if`, `diff`, `--dry-run`) against live state. Inspect every create, update, and **destroy or replace**, because small edits often trigger full replacement.
+2. **Audit and pin the real plan/diff (`prove-it`):** save a concrete plan artifact against live state (`terraform plan -out=<file>`, or the tool's preview/what-if/diff artifact—noting that `plan` takes state locks and evaluates data sources). Inspect every create, update, and **destroy or replace**, because small edits often trigger full replacement. When approved to apply, apply **only** that reviewed plan file (`terraform apply <file>`), never a fresh unreviewed `apply`.
 3. **Check live drift before applying:** flag any out-of-band console or incident hotfixes in the diff. Reconcile or import intentional live changes first so IaC does not revert an active fix.
 4. **Protect stateful, routing, and identity resources:**
    - Guard databases, buckets, queues, KMS keys, volumes, and DNS/WAF configs with deletion protection and snapshots.
@@ -38,6 +38,6 @@ Apply this across whatever IaC, GitOps, cloud, edge, or cluster tools the repo u
 - disposable ephemeral sandboxes with no retained state or shared dependencies;
 - an intentional replacement approved by the person with backup, migration, and rollback steps (**decisions-in-plain-words**, `safe-to-deploy`).
 
-**Showing it:** run the real read-only plan/diff against live state. Show the unintended replacement, reverted drift, unpinned digest, or unbounded resource.
+**Showing it:** run the real plan/diff against live state. Show the unintended replacement, reverted drift, unpinned digest, unpinned apply, or unbounded resource.
 
-Referenced skills: `analyze-environment` (`../analyze-environment/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`), `safe-to-deploy` (`../safe-to-deploy/SKILL.md`), `least-privilege` (`../least-privilege/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `analyze-environment` (`../analyze-environment/SKILL.md`), `safe-to-deploy` (`../safe-to-deploy/SKILL.md`), `least-privilege` (`../least-privilege/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.

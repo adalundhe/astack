@@ -29,8 +29,8 @@ Read-only Researchers stop at Step 7 and hand ranked cards in `~/.cache/astack/<
 
 Lead never codes before recording the decision and planning the DAG.
 
-8. **Record the decision (**create-adc**):** start the top pick on its own branch unless redirected. Log rejected candidates and why so future reviews don't re-suggest them.
-9. **Plan before coding (**dagify**):** break the restructure into small reviewed tasks with acceptance criteria and parallel lanes. Pin existing behavior with tests first (`tests-assert-behaviour`) and end in review.
+8. **Record the decision (`create-adc`):** start the top pick on its own branch unless redirected. Log rejected candidates and why so future reviews don't re-suggest them.
+9. **Plan before coding (`dagify`):** break the restructure into small reviewed tasks with acceptance criteria and parallel lanes. Pin existing behavior with tests first (`tests-assert-behaviour`) and end in review.
 10. **Dispatch workers in small passing steps:** split modules via `modularize` and compare close interface shapes with `ab-test`. Name new modules using existing domain vocabulary, updating the glossary if present.
 
 **Done when:** ranked cards exist in `~/.cache/astack/<program>/`; for execution, the AD is recorded, the `dagify` plan passes review, and workers land green steps.

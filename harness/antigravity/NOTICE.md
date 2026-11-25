@@ -69,9 +69,10 @@ Each adapted file ends with a one-line notice that points here.
 
 ## mattpocock/skills
 
-Two astack files adapt [mattpocock/skills](https://github.com/mattpocock/skills):
+Three astack files adapt [mattpocock/skills](https://github.com/mattpocock/skills):
 
 - `skills/create-adc/SKILL.md` adapts its `grilling` skill, as modified in adalundhe/mp-skills: the design tree, one evidenced exchange per decision, the ledger, specs the person accepts, and weighted research.
+- `skills/grill-with-docs/SKILL.md` (with `AD-FORMAT.md`) combines `grilling`, `grill-with-docs`, and domain terminology checks from mattpocock/skills and adalundhe/mp-skills with cross-OS `~/.astack/<project>/lessons/<lesson>/LESSON.md` and `~/.astack/<project>/architecture/AD_<N>.md` docs.
 - `skills/rearchitect/SKILL.md` adapts its `improve-codebase-architecture` skill: scoping by where the code changes most, the friction to look for, the deletion test, candidate cards with before-and-after diagrams and a recommendation strength, and not re-suggesting what a recorded decision ruled out.
 
 That repository is distributed under this license:

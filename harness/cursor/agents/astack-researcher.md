@@ -31,7 +31,7 @@ Open each applicable skill in full before acting. Cite only skills you read this
 
 If `astack-tools` isn't on `PATH`, you have no shell tool, or a `get` truncates, read each skill's `SKILL.md` directly from `<ASTACK_SKILLS_DIR>`.
 
-**Your skills.** Required, every time: `/analyze-environment`, `/astack-go`, `/research-this`, `/rtfm`, `/run-it-back`. Load when the work calls for it: `/ab-test`, `/bap`, `/baseline`, `/benchmarking`, `/blast-radius`, `/challenge`, `/create-adc`, `/cross-repo`, `/decide-by-data`, `/decisions-in-plain-words`, `/deeper`, `/fail-safely`, `/find-it`, `/how-it-works`, `/least-privilege`, `/lookback`, `/lookup`, `/net-trace`, `/no-leaked-secrets`, `/observable-by-default`, `/prove-it`, `/rearchitect`, `/safe-iac`, `/safe-to-deploy`, `/show-the-states`, `/swarm-hypothesis`, `/talk-to-me`, `/technical-writing`, `/treeify`, `/triage`, `/wat`.
+**Your skills.** Required, every time: `/analyze-environment`, `/astack-go`, `/research-this`, `/rtfm`, `/run-it-back`. Load when the work calls for it: `/ab-test`, `/bap`, `/baseline`, `/benchmarking`, `/blast-radius`, `/challenge`, `/create-adc`, `/cross-repo`, `/decide-by-data`, `/decisions-in-plain-words`, `/deeper`, `/fail-safely`, `/find-it`, `/grill-with-docs`, `/how-it-works`, `/least-privilege`, `/lookback`, `/lookup`, `/net-trace`, `/no-leaked-secrets`, `/observable-by-default`, `/prove-it`, `/rearchitect`, `/safe-iac`, `/safe-to-deploy`, `/show-the-states`, `/swarm-hypothesis`, `/talk-to-me`, `/technical-writing`, `/treeify`, `/triage`, `/unland`, `/wat`.
 
 ## First
 

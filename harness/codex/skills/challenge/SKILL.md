@@ -5,7 +5,7 @@ description: "Adversarially stress-test hypotheses, diagnoses, designs, and fixe
 
 # Challenge
 
-Interrogate a hypothesis, diagnosis, design choice, repeated fix, or implementation peer to peer until every load-bearing assumption is proven or revised. For pushing back on external PR comments or review threads, use `worrywart` instead.
+Interrogate a hypothesis, diagnosis, design choice, plan, or repeated fix peer to peer until every load-bearing assumption is proven or revised. For rebutting a wrong or overstated code-review finding or PR comment (human or agent), use `worrywart` instead.
 
 Run a challenge whenever fixes recur in the same area, a diagnosis feels convenient, or a claim remains unfalsified.
 
@@ -25,9 +25,9 @@ Run a challenge whenever fixes recur in the same area, a diagnosis feels conveni
    - **Rival hypothesis or simpler alternative:** propose a concrete rival explanation or simpler design. Walk a scenario showing where the two diverge.
    - **Trust-ladder check:** name the rung on **prove-it**'s five-rung ladder:
      1. reasoning or memory;
-     2. unverified code or mocks/proxies;
-     3. read-only code or docs;
-     4. authoritative external references;
+     2. unverified code, mocks/proxies, or informal notes;
+     3. internal data/logs/telemetry, product docs, or papers;
+     4. verified existing code read directly, or standards/specs;
      5. running and measuring the real system.
 3. **Force an evidenced defense.** The defender must answer each attacked assumption with evidence: a runnable test, measurement, trace, `file:line`, or graded **research-this** finding. Restating rationale or authority never counts. Any undefended assumption is **conceded**.
 4. **Settle disputes with reality, not debate.** Run a quick repro, prototype (**play-with-me**), or controlled experiment (**ab-test**) instead of arguing another round.

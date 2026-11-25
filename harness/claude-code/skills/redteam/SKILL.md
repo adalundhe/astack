@@ -13,7 +13,7 @@ Lead-only proactive attack, fix, and re-review loop for an existing codebase or 
 - **Never attack production**. Target only local dev builds, containers, approved hosted dev/staging, or live harnesses—never production or real customer data.
 - **Attack the live system:** actively break, disrupt, and limit-test real code, because static reading misses runtime limits.
 - **Stop on stall or oscillation:** if consecutive rounds fail to reduce verified issues or re-introduce fixed bugs, stop looping. Record dead ends (`decided:` in `LANES.md`) and escalate options.
-- **Delegate orchestration to **lead**:** use **slates** (or worktrees), role timers, watch-and-swap check-ins, and cross-harness "agents as tools" (`astack-dispatch`). Reviewers stay strictly read-only and never write or apply fixes themselves.
+- **Delegate orchestration:** follow **lead** for **slates** (or worktrees), role timers, watch-and-swap check-ins, and cross-harness "agents as tools" (`astack-dispatch`). Reviewers stay strictly read-only and never write or apply fixes themselves.
 
 ## 1. Scope target, live targets, and stopping rules
 

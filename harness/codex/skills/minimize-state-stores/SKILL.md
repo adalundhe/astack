@@ -14,7 +14,7 @@ Keep one source of truth for every piece of data, because every extra copy drift
 3. **Optimize the slow path before caching around it** (**benchmarking**).
 4. **Build justified caches properly:** when measurements prove a cache is needed, enforce every requirement below:
    - give it a single owner and explicit invalidation on source updates;
-   - bound its size with eviction, set user-accepted staleness limits, and track hit rate;
+   - bound its size with eviction, preserve freshness via invalidation (allow bounded staleness only when explicitly approved per `never-trade-functionality`), and track hit rate;
    - test it empty, stale, full, under miss bursts, and across restarts.
 
 ## Watch for

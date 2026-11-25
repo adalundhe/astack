@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "astack",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "description": "Run a program of work as lanes. A lead gives each lane one deliverable and a worker subagent a hard time limit to build it, holds workers to work, then robust, then fast, verifies every merge itself, and brings the person only real decisions, in plain words.",
   "author": {
     "name": "Ada Lündhé"

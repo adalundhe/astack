@@ -11,7 +11,7 @@ Make state-changing operations end in the right state regardless of reruns or mi
 ## Start with
 
 1. **Converge from current state,** because a prior run may have crashed halfway. Inspect live state, diff against the target, and apply only what's missing.
-2. **Make leftovers detectable as stale**. Tag lock files, temp files, partial records, and claimed jobs with owner, PID, lease/expiry, or checksum. That lets the next run identify and clean up crashed state.
+2. **Make leftovers detectable as stale**. When a shared resource genuinely requires a lock or lease (after ruling out per-writer isolation per `no-shared-writes`), tag lock files, temp files, partial records, and claimed jobs with owner, PID, lease/expiry, or checksum so the next run detects and cleans up crashed state.
 3. **Write atomically:** write to a temp file then rename into place so readers never see partial files. Commit multi-step updates in one transaction or all-or-nothing step.
 4. **Give retried requests an identity** (e.g. an idempotency key) so retries deduplicate instead of running twice.
 5. **Test crash recovery:** run twice, kill at each intermediate step, rerun, and assert final state (**full-spectrum-testing**). If outcome depends on crash point, add reconciliation.

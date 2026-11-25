@@ -12,8 +12,8 @@ Improve performance and tighten measured variance in small, grounded steps. Comm
 1. **Work, then robust, then fast.** Only optimize working code whose tests pass before and after every step (`tests-assert-behaviour`).
 2. **Define the target:** name each metric (CPU, memory/allocs, cache misses, I/O, throughput, binary size), the target number, and how it is measured.
 3. **Reproduce realistically:** use realistic data sizes, state, and concurrency. Fix the workload first if it cannot reproduce the bottleneck.
-4. **Baseline every important metric and its $\sigma$ (**benchmarking**):** record median, $\sigma$, p99/spread, environment, and commands across all key metrics so one win cannot hide a regression elsewhere. Confirm the harness executes real work.
-5. **Profile and trace (**find-it**):** locate where time, memory, I/O, and jitter actually go.
+4. **Baseline every important metric and its $\sigma$ (`benchmarking`):** record median, $\sigma$, p99/spread, environment, and commands across all key metrics so one win cannot hide a regression elsewhere. Confirm the harness executes real work.
+5. **Profile and trace (`find-it`):** locate where time, memory, I/O, and jitter actually go.
 6. **Keep an experiment log:** record hypothesis, change, before/after median and $\sigma$, Amdahl check, test result, and kept/reverted outcome for every attempt.
 
 ## Each step ($\sigma$-grounded hill-climbing)
@@ -50,6 +50,6 @@ Test independent ideas in parallel workspaces (**ab-test**). Lead may pair `clam
 
 **Reply (`prove-it`):** report baseline vs. final median and $\sigma$ for every metric, kept/reverted steps, experiment log, current bottleneck, and best next lead.
 
-Referenced skills: `benchmarking` (`../benchmarking/SKILL.md`), `find-it` (`../find-it/SKILL.md`), `never-trade-functionality` (`../never-trade-functionality/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `redteam` (`../redteam/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `swarm-hypothesis` (`../swarm-hypothesis/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `never-trade-functionality` (`../never-trade-functionality/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `redteam` (`../redteam/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `swarm-hypothesis` (`../swarm-hypothesis/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's Hillclimb playbook (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

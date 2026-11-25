@@ -23,7 +23,6 @@ break a host session.
 from __future__ import annotations
 
 import argparse
-import ctypes
 from datetime import datetime, timezone
 from enum import Enum
 import hashlib
@@ -33,7 +32,7 @@ from pathlib import Path
 import re
 import sys
 import time
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 
 SCHEMA_VERSION = 1
@@ -251,13 +250,42 @@ def _parse_lesson_fm(text: str) -> Dict[str, Any]:
     return fields
 
 
-def discover_active_lessons(workspace_dir: Optional[Path], limit: int = 6) -> Tuple[str, List[Dict[str, str]]]:
-    """Return (project_slug, matching active lessons from ~/.astack) — fails open on any OSError."""
+_PROMPT_STOPWORDS = frozenset({
+    "the", "and", "for", "with", "that", "this", "from", "into", "your", "have", "has",
+    "are", "was", "were", "will", "would", "could", "should", "can", "you", "our", "all",
+    "any", "not", "but", "now", "new", "use", "run", "fix", "add", "get", "set", "see",
+    "how", "why", "what", "when", "where", "who", "please", "help", "check", "update",
+    "make", "change", "code", "file", "files", "repo", "astack", "lead", "worker",
+})
+
+
+def _tokenize_terms(text: str) -> Set[str]:
+    return {
+        tok
+        for tok in re.findall(r"[a-z0-9]+", text.lower())
+        if len(tok) >= 3 and tok not in _PROMPT_STOPWORDS
+    }
+
+
+def discover_active_lessons(
+    workspace_dir: Optional[Path],
+    *,
+    query: Optional[str] = None,
+    limit: int = 4,
+) -> Tuple[str, List[Dict[str, Any]]]:
+    """Return (project_slug, matching active lessons from ~/.astack) — fails closed on missing status, open on OSError.
+
+    When `query` is provided (hook path), only lessons whose frontmatter `keywords` or lesson slug overlap
+    meaningful prompt tokens are returned, so unrelated lessons never enter context before the task is known.
+    """
     if workspace_dir is None:
         return "", []
     slug = _normalize_project_slug(workspace_dir)
     if not slug:
         return "", []
+    query_tokens = _tokenize_terms(query) if query is not None else None
+    if query is not None and not query_tokens:
+        return slug, []
     root = _astack_home_dir()
     try:
         if not root.is_dir():
@@ -270,7 +298,7 @@ def discover_active_lessons(workspace_dir: Optional[Path], limit: int = 6) -> Tu
     except OSError:
         return slug, []
 
-    found: List[Dict[str, str]] = []
+    found: List[Tuple[int, bool, str, Dict[str, Any]]] = []
     for pdir in project_dirs:
         ldir = pdir / "lessons"
         try:
@@ -291,38 +319,49 @@ def discover_active_lessons(workspace_dir: Optional[Path], limit: int = 6) -> Tu
             except OSError:
                 continue
             fm = _parse_lesson_fm(raw)
-            status = str(fm.get("status") or "active").strip().lower()
+            # Fail closed: require explicit `status: active` so malformed or status-less files are skipped
+            status = str(fm.get("status") or "").strip().lower()
             if status != "active":
                 continue
             rel = fm.get("related_projects")
             related = [str(r).strip().lower() for r in (rel if isinstance(rel, list) else []) if str(r).strip()]
             if pdir.name.lower() != slug and slug not in related:
                 continue
-            body = re.sub(r"\A---\r?\n.*?\r?\n---(?:\r?\n|\Z)", "", raw, count=1, flags=re.S)
-            title = ""
-            for line in body.splitlines():
-                st = line.strip()
-                if st:
-                    title = st.lstrip("#").strip()
-                    break
-            found.append({
+            raw_kw = fm.get("keywords")
+            keywords = [str(k).strip().lower() for k in (raw_kw if isinstance(raw_kw, list) else []) if str(k).strip()]
+            score = 0
+            if query_tokens is not None:
+                kw_tokens = set()
+                for kw in keywords:
+                    kw_tokens.update(_tokenize_terms(kw))
+                slug_tokens = _tokenize_terms(item.name)
+                score = 2 * len(query_tokens & kw_tokens) + len(query_tokens & (slug_tokens - kw_tokens))
+                if score == 0:
+                    continue
+            updated = str(fm.get("updated") or fm.get("created") or "")
+            entry: Dict[str, Any] = {
                 "project": pdir.name,
                 "lesson": item.name,
-                "title": title or item.name,
+                "keywords": keywords,
                 "path": str(doc),
-                "updated": str(fm.get("updated") or fm.get("created") or ""),
-            })
-    found.sort(key=lambda r: (r["project"].lower() == slug, r["updated"], r["lesson"]), reverse=True)
-    return slug, found[:limit]
+                "updated": updated,
+            }
+            found.append((score, pdir.name.lower() == slug, updated, entry))
+    found.sort(key=lambda r: (r[0], r[1], r[2], r[3]["lesson"]), reverse=True)
+    return slug, [r[3] for r in found[:limit]]
 
 
-def format_lessons_block(slug: str, lessons: List[Dict[str, str]]) -> str:
+def format_lessons_block(slug: str, lessons: List[Dict[str, Any]]) -> str:
+    """Format neutral slug/keyword/path pointers (no H1 conclusions) so lessons never prime a theory before evidence."""
     if not lessons:
         return ""
-    lines = [f"[astack lessons — {slug} (auto-recalled from ~/.astack)]"]
+    lines = [
+        f"[astack lessons — {slug} matching prompt (unverified hypotheses, not proof; read only if relevant and verify against code)]"
+    ]
     for item in lessons:
-        lines.append(f"- {item['project']}/{item['lesson']}: {item['title']} (`{item['path']}`)")
-    lines.append("Read any matching `LESSON.md` before acting when relevant, and verify claims against current code.")
+        kws = item.get("keywords") or []
+        kw_note = f" [keywords: {', '.join(kws)}]" if kws else ""
+        lines.append(f"- {item['project']}/{item['lesson']}{kw_note} (`{item['path']}`)")
     return "\n".join(lines)
 
 
@@ -447,72 +486,6 @@ def format_output(harness: str, event_name: str, message: Optional[str]) -> Dict
     return {}
 
 
-def default_dispatch_state_dir() -> Path:
-    if override := os.environ.get("ASTACK_DISPATCH_STATE_DIR"):
-        return Path(override).expanduser()
-    if xdg := os.environ.get("XDG_STATE_HOME"):
-        return Path(xdg).expanduser() / "astack" / "dispatches"
-    if os.name == "nt":
-        local_app = os.environ.get("LOCALAPPDATA")
-        base = Path(local_app) if local_app else Path.home() / "AppData" / "Local"
-        return base / "astack" / "dispatches"
-    return Path.home() / ".local" / "state" / "astack" / "dispatches"
-
-
-def _pid_alive(pid: Any) -> bool:
-    if not isinstance(pid, int) or pid <= 0:
-        return False
-    if os.name == "nt":
-        try:
-            k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-            handle = k32.OpenProcess(0x1000, False, pid)
-            if not handle:
-                return False
-            try:
-                code = ctypes.c_ulong()
-                return bool(k32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259
-            finally:
-                k32.CloseHandle(handle)
-        except Exception:
-            return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return False
-
-
-def find_live_dispatches(session_id: str, dispatch_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
-    """Return live astack-dispatch runs belonging to this session (or unbound runs)."""
-    sdir = dispatch_dir or default_dispatch_state_dir()
-    try:
-        if not sdir.is_dir():
-            return []
-        entries = sorted(sdir.iterdir(), key=lambda p: p.name)
-    except OSError:
-        return []
-    live: List[Dict[str, Any]] = []
-    for entry in entries:
-        if not entry.name.endswith(".json") or entry.name.endswith(".job.json") or entry.name.startswith("."):
-            continue
-        try:
-            rec = json.loads(entry.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-        if not isinstance(rec, dict) or rec.get("state") != "running":
-            continue
-        rec_session = str(rec.get("session_id") or "").strip()
-        if rec_session and session_id and rec_session != session_id:
-            continue
-        if _pid_alive(rec.get("pid")) or _pid_alive(rec.get("supervisor_pid")):
-            live.append(rec)
-    return live
-
-
 def handle_hook(
     event: Dict[str, Any],
     *,
@@ -538,42 +511,8 @@ def handle_hook(
     p_hash = _prompt_hash(prompt) if prompt else ""
     step_count = event.get("initialNumSteps") if isinstance(event.get("initialNumSteps"), int) else None
 
-    # 1. Stop guard (Claude Code / Codex): prevent Lead from halting while delegated cross-harness agents are live
-    if event_name == "Stop":
-        if current_state != GoModeState.ACTIVE.value:
-            return {}
-        live = find_live_dispatches(session_id)
-        if not live:
-            if record and record.get("last_stop_blocked_runs"):
-                record["last_stop_blocked_runs"] = []
-                record["updated_at"] = now
-                save_session(state_dir, session_id, record)
-            return {}
-        active_ids = sorted(str(r["run_id"]) for r in live)
-        prev_blocked = list((record or {}).get("last_stop_blocked_runs") or [])
-        if event.get("stop_hook_active") and active_ids == prev_blocked:
-            # Loop safety: never trap a session if the host already continued once for this exact active set
-            return {}
-        updated = dict(record or {})
-        updated["last_stop_blocked_runs"] = active_ids
-        updated["updated_at"] = now
-        save_session(state_dir, session_id, updated)
-        summary = ", ".join(
-            f"{r['run_id']} ({r.get('harness')} {r.get('provider')}/{r.get('model')} role={r.get('role')})"
-            for r in live
-        )
-        wait_flags = " ".join(f"--run-id {rid}" for rid in active_ids)
-        return {
-            "decision": "block",
-            "reason": (
-                f"Cross-harness astack-dispatch agent(s) are still running: {summary}. "
-                f"Follow the agents-as-tools pattern: do NOT halt or end your turn while delegated external agents are live. "
-                f"Run `astack-dispatch wait {wait_flags} --json` (or `astack-dispatch status`) to wait for them, "
-                f"harvest every report, and continue the workflow."
-            ),
-        }
-
-    # 2. SessionStart (Claude Code, Codex, Cursor, Antigravity)
+    # 1. SessionStart (Claude Code, Codex, Cursor): restore sticky Go mode after compaction/resume;
+    #    never dump unrelated lessons before the user's task is known.
     if event_name in ("SessionStart", "sessionStart"):
         source = str(event.get("source") or "").strip().lower()
         if source == "clear":
@@ -582,31 +521,9 @@ def handle_hook(
                 record["updated_at"] = now
                 save_session(state_dir, session_id, record)
             return format_output(harness, event_name, None)
-        ws_dir = extract_workspace_dir(event)
-        slug, active_lessons = discover_active_lessons(ws_dir)
-        lessons_block = format_lessons_block(slug, active_lessons)
-        lessons_sig = _prompt_hash(lessons_block) if lessons_block else ""
         if current_state == GoModeState.ACTIVE.value:
             is_compact = source in ("compact", "resume", "")
-            if record is not None and lessons_sig:
-                record["last_lessons_hash"] = lessons_sig
-                record["updated_at"] = now
-                save_session(state_dir, session_id, record)
-            return format_output(
-                harness,
-                event_name,
-                build_reminder(harness, skills_dir, post_compact=is_compact, lessons_block=lessons_block),
-            )
-        if lessons_block:
-            updated_rec = dict(record or {})
-            updated_rec.setdefault("schema_version", SCHEMA_VERSION)
-            updated_rec.setdefault("state", GoModeState.INACTIVE.value)
-            updated_rec["session_id"] = session_id
-            updated_rec["harness"] = harness
-            updated_rec["last_lessons_hash"] = lessons_sig
-            updated_rec["updated_at"] = now
-            save_session(state_dir, session_id, updated_rec)
-            return format_output(harness, event_name, lessons_block)
+            return format_output(harness, event_name, build_reminder(harness, skills_dir, post_compact=is_compact))
         return format_output(harness, event_name, None)
 
     # 2. PostToolUse (detects model auto-loading go/astack-go or subagent listing non-lead role)
@@ -653,7 +570,16 @@ def handle_hook(
             )
         return format_output(harness, event_name, None)
 
+    ws_dir = extract_workspace_dir(event)
+    slug, matched_lessons = discover_active_lessons(ws_dir, query=prompt) if prompt else ("", [])
+    lessons_block = format_lessons_block(slug, matched_lessons)
+    lessons_sig = _prompt_hash(lessons_block) if lessons_block else ""
+    prev_hash = str((record or {}).get("last_prompt_hash") or "")
+    prev_lessons_sig = str((record or {}).get("last_lessons_hash") or "")
+
     if prompt and ACTIVATE_PROMPT_RE.match(prompt):
+        already_seen_prompt = event_name == "PreInvocation" and bool(p_hash and p_hash == prev_hash)
+        include_lessons = lessons_block if (lessons_block and not already_seen_prompt) else ""
         save_session(state_dir, session_id, {
             "schema_version": SCHEMA_VERSION,
             "state": GoModeState.ACTIVE.value,
@@ -664,17 +590,21 @@ def handle_hook(
             "updated_at": now,
             "last_prompt_hash": p_hash,
             "last_step_count": step_count,
+            "last_lessons_hash": lessons_sig or prev_lessons_sig,
         })
-        # Don't duplicate instructions on the exact turn the user invoked /astack:go
-        return format_output(harness, event_name, None)
+        # Don't duplicate Go instructions on the /astack:go turn; surface only task-matched lessons if any
+        return format_output(harness, event_name, include_lessons or None)
 
     explicit_bap = bool(prompt and BAP_EXPLICIT_RE.match(prompt))
     if current_state != GoModeState.ACTIVE.value:
-        if explicit_bap:
-            # Explicit /astack:bap works even outside Go mode (deduped per prompt hash for PreInvocation)
-            prev_hash = str((record or {}).get("last_prompt_hash") or "")
+        if explicit_bap or lessons_block:
             if event_name == "PreInvocation" and p_hash and p_hash == prev_hash:
                 return format_output(harness, event_name, None)
+            parts: List[str] = []
+            if explicit_bap:
+                parts.append(build_bap_notice(skills_dir))
+            if lessons_block:
+                parts.append(lessons_block)
             save_session(state_dir, session_id, {
                 "schema_version": SCHEMA_VERSION,
                 "state": GoModeState.INACTIVE.value,
@@ -683,12 +613,12 @@ def handle_hook(
                 "updated_at": now,
                 "last_prompt_hash": p_hash,
                 "last_step_count": step_count,
+                "last_lessons_hash": lessons_sig or prev_lessons_sig,
             })
-            return format_output(harness, event_name, build_bap_notice(skills_dir))
+            return format_output(harness, event_name, "\n\n".join(parts))
         return format_output(harness, event_name, None)
 
     # Active Go mode on a follow-up prompt (or Antigravity PreInvocation)
-    prev_hash = str((record or {}).get("last_prompt_hash") or "")
     prev_steps = (record or {}).get("last_step_count")
     compacted = (
         isinstance(step_count, int)
@@ -706,11 +636,6 @@ def handle_hook(
                 save_session(state_dir, session_id, record)
             return format_output(harness, event_name, None)
 
-    ws_dir = extract_workspace_dir(event)
-    slug, active_lessons = discover_active_lessons(ws_dir)
-    lessons_block = format_lessons_block(slug, active_lessons)
-    lessons_sig = _prompt_hash(lessons_block) if lessons_block else ""
-    prev_lessons_sig = str((record or {}).get("last_lessons_hash") or "")
     include_lessons = lessons_block if (lessons_block and (compacted or lessons_sig != prev_lessons_sig)) else ""
 
     updated = dict(record or {})
@@ -763,9 +688,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_off.add_argument("--session", required=True)
     p_off.add_argument("--state-dir", type=Path, default=None)
 
-    p_lessons = sub.add_parser("lessons", help="Show active ~/.astack lessons auto-recalled for a workspace")
+    p_lessons = sub.add_parser("lessons", help="Show active ~/.astack lessons matching a workspace (and optional query)")
     p_lessons.add_argument("--cwd", type=Path, default=None)
-    p_lessons.add_argument("--limit", type=int, default=6)
+    p_lessons.add_argument("--query", default=None, help="Match only lessons overlapping this task prompt")
+    p_lessons.add_argument("--limit", type=int, default=4)
     p_lessons.add_argument("--json", dest="as_json", action="store_true")
     return parser
 
@@ -826,12 +752,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     if args.command == "lessons":
         ws = (args.cwd.expanduser() if args.cwd else Path.cwd())
-        slug, lessons = discover_active_lessons(ws, limit=max(1, args.limit))
+        slug, lessons = discover_active_lessons(ws, query=args.query, limit=max(1, args.limit))
         if args.as_json:
             print(json.dumps({"project": slug, "lessons": lessons}, indent=2))
         else:
             block = format_lessons_block(slug, lessons)
-            print(block if block else f"No active lessons for {slug or ws}")
+            print(block if block else f"No matching active lessons for {slug or ws}")
         return 0
 
     parser.print_help()

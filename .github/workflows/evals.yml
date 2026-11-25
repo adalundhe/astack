@@ -4,17 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       harness:
-        description: "Target harness CLI (claude, codex, agy)"
+        description: "Target harness CLI installed on Ubuntu CI (codex or claude)"
         required: true
         default: "codex"
         type: choice
         options:
           - codex
           - claude
-          - agy
       case:
-        description: "Eval case glob (default: * or diff-selected)"
-        required: true
+        description: "Eval case glob (leave blank to auto-select from PR diff)"
+        required: false
         default: "bugbash-investigates-and-proves-fix"
         type: string
       ablation:
@@ -25,6 +24,11 @@ on:
         options:
           - with-without
           - none
+      runs:
+        description: "Trials per arm (1 for smoke check; 3+ for variance-checked ablation)"
+        required: false
+        default: "1"
+        type: string
   pull_request:
     types: [labeled]
 
@@ -45,6 +49,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Verify required API key is configured
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          HARNESS: ${{ inputs.harness || 'codex' }}
+        run: |
+          if [ "$HARNESS" = "codex" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "::error::OPENAI_API_KEY secret is required to run Codex evals."
+            exit 1
+          fi
+          if [ "$HARNESS" = "claude" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::error::ANTHROPIC_API_KEY secret is required to run Claude evals."
+            exit 1
+          fi
       - name: Select diff-affected eval cases
         id: select
         env:
@@ -67,7 +85,7 @@ jobs:
                   "skills/bugbash/": "bugbash-investigates-and-proves-fix",
                   "skills/find-it/": "find-it-and-fix-it-bug",
                   "skills/fix-it/": "find-it-and-fix-it-bug",
-                  "skills/redteam/": "redteam-breaks-and-hardens",
+                  # redteam-breaks-and-hardens is opt-in via manual workflow_dispatch (multi-wave cost/duration)
                   "skills/squish/": "squish-consolidates-noisy-branch",
                   "skills/lookback/": "lookback-and-lookup-lessons",
                   "skills/lookup/": "lookback-and-lookup-lessons",
@@ -86,29 +104,37 @@ jobs:
               fh.write(f"cases={cases}\n")
           print(f"Selected cases: {cases}")
           PY
-      - name: Install Codex CLI when selected
+      - name: Install Codex CLI
         if: (inputs.harness || 'codex') == 'codex'
         run: npm install -g @openai/codex
+      - name: Install Claude Code CLI
+        if: inputs.harness == 'claude'
+        run: npm install -g @anthropic-ai/claude-code
       - name: Run ablation evals
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           HARNESS: ${{ inputs.harness || 'codex' }}
           ABLATION: ${{ inputs.ablation || 'with-without' }}
+          RUNS: ${{ inputs.runs || '1' }}
           CASES: ${{ steps.select.outputs.cases }}
         run: |
-          if [ "$HARNESS" = "codex" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
-            echo "OPENAI_API_KEY secret not configured; skipping paid eval run."
-            exit 0
-          fi
           mkdir -p eval-results
+          EXTRA_ARGS=()
+          if [ "$HARNESS" = "codex" ]; then
+            EXTRA_ARGS+=(
+              --reviewer-pool '[{"provider":"openai","model":"gpt-5.4","effort":"medium","harness":"codex"},{"provider":"openai","model":"gpt-5.4-mini","effort":"medium","harness":"codex"}]'
+              --worker-model '{"provider":"openai","model":"gpt-5.4-mini","effort":"medium","harness":"codex"}'
+            )
+          fi
           IFS=',' read -ra PATTERNS <<< "$CASES"
           for pat in "${PATTERNS[@]}"; do
-            python3 -B scripts/eval.py \
+            python3 -u -B scripts/eval.py \
               --harness "$HARNESS" \
               --case "$pat" \
               --ablation "$ABLATION" \
+              --runs "$RUNS" \
+              "${EXTRA_ARGS[@]}" \
               --json > "eval-results/${pat//\*/all}.json"
           done
       - uses: actions/upload-artifact@v4
@@ -116,4 +142,4 @@ jobs:
         with:
           name: eval-ablation-results
           path: eval-results/
-          if-no-files-found: ignore
+          if-no-files-found: error

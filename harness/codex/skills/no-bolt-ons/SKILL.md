@@ -26,6 +26,7 @@ Integrate each new requirement as if it belonged in the design from day one, bec
 
 ## When it doesn't fit
 
+- narrow, localized bug fixes scoped to the fault boundary (`fix-it`); fix the defect cleanly and log broader structural cleanup separately;
 - a genuinely separate concern that belongs in its own module with its own callers;
 - a requested migration behind a proper feature flag (**no-hidden-config**) with an explicit removal condition;
 - an alternative backed by measurements (**ab-test**), with the trade-off documented.

@@ -21,7 +21,7 @@ Verify claims locally (**prove-it**). Drop any point already answered by the PR,
 
 ## 2. Draft plain, direct, actionable feedback (**wat**)
 
-Every review comment must answer **five things** so the author never has to guess:
+Every **review finding** must answer **five things** so the author never has to guess:
 
 1. **What the issue is:** state it plainly in everyday words, naming **both sides** of any contradiction:
    - NOT: `"69a34f1 says tools-useast1-prod was bootstrapped"`
@@ -30,6 +30,8 @@ Every review comment must answer **five things** so the author never has to gues
 3. **Who/when/how often it hits:** name affected paths, frequency, or a concrete scenario.
 4. **How to reproduce it:** give exact input, command, or file/line citations.
 5. **Recommended fix:** name what to change and where—never vague hedging like *"worth considering"*.
+
+For **answers, fix confirmations, and rebuttals** (`address-feedback`, `worrywart`), state the direct answer, verified fix, or disputed claim, back it with concrete evidence or citations, and state the resulting decision or closure (never invent a code fix when none is needed).
 
 Keep the prose tight and human:
 
@@ -45,10 +47,10 @@ Reviewers and workers return drafts to the lead for audit; subagents never spawn
 The auditor returns **`REVISE`** (blocking posting) if **any** check fails:
 
 - **Context verified:** rejects already-answered questions, duplicate threads, or ignored linked context.
-- **Complete 5-part structure:** rejects any comment missing issue, impact, scenario, repro/citation, or concrete fix.
+- **Complete structure by comment kind:** for review findings, reject any missing issue, impact, scenario, repro/citation, or concrete fix; for answers, fix confirmations, or rebuttals, reject any missing direct answer/verdict, concrete evidence/citation, or clear closure.
 - **No bare internal references:** rejects uncontextualized SHAs, internal filenames, lane IDs, or unexplained symbols.
 - **Prose quality:** rejects awkward, stilted, repetitive, or rambling walls of text.
-- **Actionability:** rejects comments without a concrete change or decision.
+- **Actionability / closure:** rejects findings without a concrete change or decision, and replies/rebuttals that leave the thread ambiguous.
 - **Zero internal leaks:** rejects internal narration, model rosters, stopping math, or `P0`–`P5` codes.
 - **Plain directness:** rejects hedged questions hiding real defects; requires both sides of any contradiction.
 

@@ -10,10 +10,10 @@ Try to break the change the way its users would, in its real environment. Resear
 
 Reviewers never edit code or apply candidate fixes themselves, because authors test what they meant to build. Save standalone failing repro scripts (non-zero on buggy code, `0` once fixed) outside `repo/`. Return findings and recommended fixes to Lead so a worker implements them in an isolated `slates` volume or git worktree.
 
-1. **Research first (**rtfm**).** Read surrounding callers, tests, configs, `RULES.md`, project guides, git history, PR description, all PR comments and review threads, and every linked issue, PR, discussion, ADR, or doc. Follow links instead of guessing.
+1. **Research first (`rtfm`).** Read surrounding callers, tests, configs, `RULES.md`, project guides, git history, PR description, all PR comments and review threads, and every linked issue, PR, discussion, ADR, or doc. Follow links instead of guessing.
    - **Never ask drive-by questions** (*"Is X guaranteed?"*, *"Was Y intentional?"*) when code, git log, PR threads, docs, or running it already answer them. Surface an unresolved gap only when nothing settles it, stating what you checked and what decision is needed.
-2. **Run it for real (**prove-it**).** Use a local dev environment whenever possible, or an environment explicitly approved in your brief. Never test against production, because adversarial probes can corrupt live data or trigger outages.
-3. **Judge in context (**blast-radius**).** Focus on your assigned vector while keeping the whole diff in view. Report any proven bug outside your vector too, naming its root-cause vector. Skip issues already handled by surrounding systems.
+2. **Run it for real (`prove-it`).** Use a local dev environment whenever possible, or an environment explicitly approved in your brief. Never test against production, because adversarial probes can corrupt live data or trigger outages.
+3. **Judge in context (`blast-radius`).** Focus on your assigned vector while keeping the whole diff in view. Report any proven bug outside your vector too, naming its root-cause vector. Skip issues already handled by surrounding systems.
 4. **Cross-check for contradictions and state them plainly.** Compare code against the PR description, commits, linked issues, ADRs, docs, tests, and PR comments. Name **both sides** of every contradiction and the concrete fix. Never soften a proven defect into a polite question.
    - NOT: `"69a34f1 says tools-useast1-prod was bootstrapped."`
    - YES: `"README.md:42 says tools-useast1-prod is not bootstrapped, but commit 69a34f1 says it was. Update README.md or verify cluster state."`
@@ -25,7 +25,7 @@ Reviewers never edit code or apply candidate fixes themselves, because authors t
    - **Faults:** slow or failing dependencies, mid-operation restarts, lost or duplicated messages, full disk.
    - **Concurrency:** races, deadlocks, and livelocks around locks, retries, or waits.
    - **Misuse:** plausible mistakes by a user, scripted client, or agent.
-   - **Rollout & rollback (**safe-to-deploy**):** for migrations, auth/IAM, infra, or schema/API changes, verify pre-change workloads and rolled-back releases still work.
+   - **Rollout & rollback (`safe-to-deploy`):** for migrations, auth/IAM, infra, or schema/API changes, verify pre-change workloads and rolled-back releases still work.
 8. **Enforce astack coding rules.** Open and read the matching rule `SKILL.md` from `skills/` whenever its trigger appears, checking `Watch for`, `Showing it`, and `When it doesn't fit`:
    - Schemas, structs, state, algorithms -> `data-structures-first`
    - Lifecycle flags, order-dependent behavior -> `no-implicit-states`
@@ -53,15 +53,10 @@ Reviewers never edit code or apply candidate fixes themselves, because authors t
 
    Tag every rule finding with `[rule: <name>]` (internal-only for Lead). Departing from a rule without justification is a real finding even when tests pass.
 9. **Prove every finding.** Include runnable steps, actual output, and expected output. Blockers must be proven locally; unproven suspicions never block. Run each repro without the change too to state whether the change caused it, left it, or failed to fix it.
-10. **Rank by user impact.** Keep `P0–P5` strictly internal-only for Lead; surface only blockers, suggestions, and nits externally:
-    - **P0:** critical outage or whole systems broken.
-    - **P1:** widespread breakage or severe degradation on core systems.
-    - **P2:** primary feature broken, or limited widespread breakage.
-    - **P3:** secondary feature broken or notable non-breaking bug in a primary feature.
-    - **P4:** isolated intermittent issue or minor bug in a secondary feature.
-    - **P5:** rare, non-breaking nit.
-
-    P0–P2 are blocking, P3 is a suggestion, P4 is a suggestion or nit, and P5 is a nit.
+10. **Rank by user impact.** Classify every finding strictly as **blocking**, **suggestion**, or **nit** (never print `P0–P5` labels):
+    - **Blocking:** outage, core breakage, broken primary feature, data/security bug, or violated invariant with local proof.
+    - **Suggestion:** secondary breakage, non-breaking defect in a primary feature, or meaningful design/clarity improvement.
+    - **Nit:** rare, isolated non-breaking polish item.
 
 **Reply (internal-only to Lead):** put `VECTOR` and `MODEL` (internal-only for Lead) at the top, followed by blockers, suggestions, nits, and what held. For each finding, include:
 - what is wrong (both sides of any contradiction);
@@ -69,4 +64,4 @@ Reviewers never edit code or apply candidate fixes themselves, because authors t
 - exact repro or citation plus runnable evidence;
 - recommended fix, internal `[rule: <name>]` tag, and root-cause vector if outside yours.
 
-Referenced skills: `rtfm` (`../rtfm/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`), `blast-radius` (`../blast-radius/SKILL.md`), `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`), `safe-to-deploy` (`../safe-to-deploy/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `prove-it` (`../prove-it/SKILL.md`), `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`), `safe-to-deploy` (`../safe-to-deploy/SKILL.md`). Read any cited skill file before acting when its trigger applies.

@@ -1404,67 +1404,141 @@ class GoModeHookTest(Scratch):
         self.assertIn("astack BAP", repeat_ctx)
         self.assertIn("astack Go mode — ACTIVE (Lead role)", repeat_ctx)
 
-    def test_auto_memory_recall_injects_matching_and_related_lessons_without_tool_calls(self):
+    def test_auto_memory_recall_is_prompt_matched_non_anchoring_and_requires_explicit_active_status(self):
         state_root = self.dir / "state-lessons"
         astack_home = self.dir / "astack-home"
         ws = self.dir / "billing-api"
         ws.mkdir()
 
-        # Direct active lesson, related-project active lesson, and superseded lesson (ignored)
-        l1 = astack_home / "billing-api" / "lessons" / "raw-hmac" / "LESSON.md"
+        # Direct active lesson, related-project active lesson, superseded lesson, and malformed (status-less) lesson
+        l1 = astack_home / "billing-api" / "lessons" / "webhook-hmac" / "LESSON.md"
         l1.parent.mkdir(parents=True)
         l1.write_text(
-            "---\nlesson: raw-hmac\nproject: billing-api\nrelated_projects: []\n"
-            "status: active\nupdated: 2026-11-25T12:00Z\n---\n\n# Hash raw webhook bytes before JSON parsing\n",
+            "---\nlesson: webhook-hmac\nproject: billing-api\nrelated_projects: []\n"
+            "keywords: [webhook, hmac, signature]\nstatus: active\nupdated: 2026-11-25T12:00Z\n---\n\n"
+            "# Webhook failures are always TLS\n",
             encoding="utf-8",
         )
-        l2 = astack_home / "payments-gw" / "lessons" / "retry-order" / "LESSON.md"
+        l2 = astack_home / "payments-gw" / "lessons" / "retry-idempotency" / "LESSON.md"
         l2.parent.mkdir(parents=True)
         l2.write_text(
-            "---\nlesson: retry-order\nproject: payments-gw\nrelated_projects: [billing-api]\n"
-            "status: active\nupdated: 2026-11-24T10:00Z\n---\n\n# Preserve idempotency key across retries\n",
+            "---\nlesson: retry-idempotency\nproject: payments-gw\nrelated_projects: [billing-api]\n"
+            "keywords: [retry, idempotency, webhook]\nstatus: active\nupdated: 2026-11-24T10:00Z\n---\n\n"
+            "# Always cache failed receipts\n",
             encoding="utf-8",
         )
         l3 = astack_home / "billing-api" / "lessons" / "retired-xml" / "LESSON.md"
         l3.parent.mkdir(parents=True)
         l3.write_text(
-            "---\nlesson: retired-xml\nproject: billing-api\nstatus: superseded\n---\n\n# Old XML note\n",
+            "---\nlesson: retired-xml\nproject: billing-api\nkeywords: [webhook]\nstatus: superseded\n---\n\n# Old XML\n",
+            encoding="utf-8",
+        )
+        l4 = astack_home / "billing-api" / "lessons" / "malformed-no-status" / "LESSON.md"
+        l4.parent.mkdir(parents=True)
+        l4.write_text(
+            "---\nlesson: malformed-no-status\nproject: billing-api\nkeywords: [webhook]\n---\n\n# Missing status\n",
             encoding="utf-8",
         )
 
         env = {**os.environ, "ASTACK_STATE_DIR": str(state_root), "ASTACK_HOME": str(astack_home)}
 
-        # SessionStart recalls active direct + related lessons even before Go mode activates!
+        # 1. SessionStart before task is known MUST stay silent (no blind dump of unrelated lessons)
         r_start = subprocess.run(
             [str(BIN / "astack-go-hook"), "--harness", "claude-code", "--event", "SessionStart"],
             input=json.dumps({"session_id": "recall-1", "source": "startup", "cwd": str(ws)}),
             capture_output=True, text=True, env=env,
         )
         self.assertEqual(r_start.returncode, 0, r_start.stderr)
-        ctx = json.loads(r_start.stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("billing-api/raw-hmac", ctx)
-        self.assertIn("payments-gw/retry-order", ctx)
-        self.assertNotIn("retired-xml", ctx)
+        self.assertEqual(r_start.stdout.strip(), "")
 
-        # Antigravity SessionStart emits injectSteps with matching lessons
+        # 2. Unrelated prompt MUST inject nothing
+        r_unrel = subprocess.run(
+            [str(BIN / "astack-go-hook"), "--harness", "claude-code", "--event", "UserPromptSubmit"],
+            input=json.dumps({"session_id": "recall-1", "prompt": "Refactor the CSS button padding", "cwd": str(ws)}),
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r_unrel.returncode, 0, r_unrel.stderr)
+        self.assertEqual(r_unrel.stdout.strip(), "")
+
+        # 3. Relevant prompt surfaces ONLY matching explicit status:active slugs/keywords/paths — NEVER H1 conclusions!
+        r_match = subprocess.run(
+            [str(BIN / "astack-go-hook"), "--harness", "claude-code", "--event", "UserPromptSubmit"],
+            input=json.dumps({"session_id": "recall-1", "prompt": "Debug webhook signature 400 errors", "cwd": str(ws)}),
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r_match.returncode, 0, r_match.stderr)
+        ctx = json.loads(r_match.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("billing-api/webhook-hmac", ctx)
+        self.assertIn("payments-gw/retry-idempotency", ctx)
+        self.assertIn("unverified hypotheses", ctx)
+        self.assertNotIn("Webhook failures are always TLS", ctx)
+        self.assertNotIn("Always cache failed receipts", ctx)
+        self.assertNotIn("retired-xml", ctx)
+        self.assertNotIn("malformed-no-status", ctx)
+
+        # 4. Antigravity PreInvocation surfaces matching lessons once per prompt without H1 titles
         r_ag = subprocess.run(
-            [str(BIN / "astack-go-hook"), "--harness", "antigravity", "--event", "SessionStart"],
-            input=json.dumps({"conversationId": "ag-recall-1", "workspacePaths": [str(ws)]}),
+            [str(BIN / "astack-go-hook"), "--harness", "antigravity", "--event", "PreInvocation"],
+            input=json.dumps({
+                "conversationId": "ag-recall-1",
+                "lastUserInput": "Investigate retry idempotency timeout",
+                "workspacePaths": [str(ws)],
+            }),
             capture_output=True, text=True, env=env,
         )
         self.assertEqual(r_ag.returncode, 0, r_ag.stderr)
         ag_msg = json.loads(r_ag.stdout)["injectSteps"][0]["systemMessage"]["systemMessage"]
-        self.assertIn("billing-api/raw-hmac", ag_msg)
+        self.assertIn("payments-gw/retry-idempotency", ag_msg)
+        self.assertNotIn("billing-api/webhook-hmac", ag_msg)
+        self.assertNotIn("Always cache failed receipts", ag_msg)
 
-        # CLI `astack-go-mode lessons --cwd ... --json` exposes the exact same list
+        # 5. CLI `astack-go-mode lessons --cwd ... --query ... --json` matches cleanly and skips status-less lessons
         r_cli = subprocess.run(
-            [sys.executable, "-B", str(BIN / "astack-go-mode"), "lessons", "--cwd", str(ws), "--json"],
+            [sys.executable, "-B", str(BIN / "astack-go-mode"), "lessons", "--cwd", str(ws), "--query", "hmac", "--json"],
             capture_output=True, text=True, env=env,
         )
         self.assertEqual(r_cli.returncode, 0, r_cli.stderr)
         data = json.loads(r_cli.stdout)
         self.assertEqual(data["project"], "billing-api")
-        self.assertEqual([x["lesson"] for x in data["lessons"]], ["raw-hmac", "retry-order"])
+        self.assertEqual([x["lesson"] for x in data["lessons"]], ["webhook-hmac"])
+
+    def test_arch_path_resolves_cross_os_astack_home_and_increments_ad_numbers(self):
+        astack_home = self.dir / "astack-home"
+        env = {**os.environ, "ASTACK_HOME": str(astack_home)}
+
+        # --next --ensure creates <ASTACK_HOME>/<project>/architecture/ and starts at AD_1.md
+        r1 = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "arch", "path", "hyperscale", "--next", "--ensure"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        p1 = Path(r1.stdout.strip())
+        self.assertEqual(p1, astack_home / "hyperscale" / "architecture" / "AD_1.md")
+        self.assertTrue(p1.parent.is_dir())
+
+        # Writing AD_1.md and AD_3.md -> --next advances to AD_4.md
+        p1.write_text("# AD-1\n")
+        (p1.parent / "AD_3.md").write_text("# AD-3\n")
+        r2 = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "arch", "path", "hyperscale", "--next"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertEqual(Path(r2.stdout.strip()), p1.parent / "AD_4.md")
+
+        # Explicit number & path-traversal rejection
+        r_num = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "arch", "path", "hyperscale", "26"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r_num.returncode, 0, r_num.stderr)
+        self.assertEqual(Path(r_num.stdout.strip()), p1.parent / "AD_26.md")
+
+        r_bad = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "arch", "path", "../escape", "--next"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r_bad.returncode, 2)
 
 
 if __name__ == "__main__":

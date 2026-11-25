@@ -836,7 +836,7 @@ class BuildTest(unittest.TestCase):
         ):
             self.assertIn("**squish**", (ROOT / squish_caller).read_text(), f"{squish_caller} missing **squish** reference")
 
-        # Cross-harness agents-as-tools tracking & non-halting wave barrier across skills and Stop hooks
+        # Cross-harness agents-as-tools tracking & wave monitoring across skills
         for xh_path in (
             "skills/bugbash/SKILL.md",
             "skills/review/SKILL.md",
@@ -848,8 +848,6 @@ class BuildTest(unittest.TestCase):
             xhtext = (ROOT / xh_path).read_text()
             self.assertIn("agents as tools", xhtext, f"{xh_path} missing agents-as-tools cross-harness rule")
             self.assertIn("astack-dispatch", xhtext, f"{xh_path} missing astack-dispatch")
-        self.assertIn('"Stop"', (HARNESS / "claude-code/hooks/hooks.json").read_text())
-        self.assertIn('"Stop"', (HARNESS / "codex/hooks/hooks.json").read_text())
 
         redteam_src = (ROOT / "skills/redteam/SKILL.md").read_text()
         self.assertIn("**review**", redteam_src)

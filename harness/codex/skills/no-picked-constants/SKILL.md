@@ -25,7 +25,8 @@ Behavior-driving numbers: limits, buffer/pool sizes, timeouts, retries, backoff 
 - user-configurable settings (e.g. retention period) with a sensible documented default (**no-hidden-config**);
 - constants derived from a cited external source;
 - mathematical/physical constants and unit conversions;
-- deterministic test inputs and seeds.
+- deterministic test inputs and seeds;
+- generous hang-guard timeouts in tests that stop infinite hangs without asserting speed (`tests-assert-behaviour`).
 
 **Showing it:** run the code where the picked constant breaks down—different hardware, heavier load, or larger inputs (**benchmarking**).
 

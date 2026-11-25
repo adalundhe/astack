@@ -18,7 +18,7 @@ Use the telemetry, logging, tracing, and alerting stack the repo already runs (*
 2. **Propagate correlation context:** pass trace and job IDs (`traceparent`, ray IDs) across headers, queues, and logs. Shared IDs matter because cross-hop failures look unrelated without them. Strip secrets and unneeded PII (**no-leaked-secrets**).
 3. **Keep metric cardinality bounded**. Never put unbounded IDs (`user_id`, `request_id`, raw URLs) in metric labels, because explosions break metrics backends. Put those fields in structured logs or traces instead.
 4. **Alert on symptoms, not noisy causes:** page on SLO burn, error rate, stuck queues, or missed heartbeats. Skip transient CPU blips, because alert fatigue hides real outages. Every paging alert must state user impact and link to a verified runbook.
-5. **Ship a verified runbook (**technical-writing**, **prove-it**):** include read-only health checks, stuck-work inspection, replay/drain steps, and rollback commands. Verify every command against the real system, because untested runbooks fail under pressure.
+5. **Ship a verified runbook (`technical-writing`, `prove-it`):** include read-only health checks, stuck-work inspection, replay/drain steps, and rollback commands. Verify every command against the real system, because untested runbooks fail under pressure.
 
 ## Watch for
 
@@ -37,4 +37,4 @@ Use the telemetry, logging, tracing, and alerting stack the repo already runs (*
 
 **Showing it:** trigger a job failure, queue stall, or high-cardinality input and show silence, exploding series, or a broken runbook command.
 
-Referenced skills: `analyze-environment` (`../analyze-environment/SKILL.md`), `no-leaked-secrets` (`../no-leaked-secrets/SKILL.md`), `technical-writing` (`../technical-writing/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `analyze-environment` (`../analyze-environment/SKILL.md`), `no-leaked-secrets` (`../no-leaked-secrets/SKILL.md`). Read any cited skill file before acting when its trigger applies.

@@ -83,6 +83,9 @@ query WatchPR($owner: String!, $repo: String!, $number: Int!) {
       }
       headRefName
       headRefOid
+      mergeCommit {
+        oid
+      }
       baseRefName
       baseRef {
         target {
@@ -763,7 +766,7 @@ class GitHubAdapter(core.ForgeAdapter):
 
         merged_at = pr.get("merged_at")
         raw_state = str(pr.get("state") or "open").lower()
-        if merged_at or raw_state == "merged":
+        if merged_at or bool(pr.get("merged")) or raw_state == "merged":
             lifecycle = core.PRLifecycle.MERGED
         elif raw_state == "closed":
             lifecycle = core.PRLifecycle.CLOSED
@@ -933,6 +936,7 @@ class GitHubAdapter(core.ForgeAdapter):
             if isinstance(lbl, dict) and str(lbl.get("name") or "").strip()
         )
         rest_auto_merge = bool(pr.get("auto_merge"))
+        rest_merge_sha = str(pr.get("merge_commit_sha") or "") if lifecycle == core.PRLifecycle.MERGED else ""
         snap = core.PRSnapshot(
             target=target,
             lifecycle=lifecycle,
@@ -952,6 +956,7 @@ class GitHubAdapter(core.ForgeAdapter):
             approvals_required=None,
             created_at=str(pr.get("created_at") or ""),
             updated_at=str(pr.get("updated_at") or ""),
+            merge_commit_sha=rest_merge_sha,
             checks=checks_final,
             required_check_names=required_names,
             had_previous_passing_ci=False,
@@ -1163,6 +1168,11 @@ class GitHubAdapter(core.ForgeAdapter):
             if isinstance(node, dict) and str(node.get("name") or "").strip()
         )
         gql_auto_merge = bool(pr.get("autoMergeRequest"))
+        gql_merge_sha = (
+            str((pr.get("mergeCommit") or {}).get("oid") or "")
+            if lifecycle == core.PRLifecycle.MERGED
+            else ""
+        )
         snap = core.PRSnapshot(
             target=target,
             lifecycle=lifecycle,
@@ -1182,6 +1192,7 @@ class GitHubAdapter(core.ForgeAdapter):
             approvals_required=None,
             created_at=str(pr.get("createdAt") or ""),
             updated_at=str(pr.get("updatedAt") or ""),
+            merge_commit_sha=gql_merge_sha,
             checks=checks_final,
             required_check_names=required_names,
             had_previous_passing_ci=had_prev_pass,

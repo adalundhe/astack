@@ -63,7 +63,7 @@ Optimize correctness, then robustness, then efficiency, weighed against complexi
 
 ## The document of record
 
-1. **Format:** match the project's existing ADs (commonly `docs/architecture/AD_<N>.md`). If none exist, copy `template.md` beside this file to `docs/architecture/AD_<N>.md` (title `AD-<N>`, filename `AD_<N>.md`).
+1. **Format and path:** store architecture decisions cross-OS at `~/.astack/<project>/architecture/AD_<N>.md` (`$HOME/.astack/<project>/architecture/AD_<N>.md` on macOS/Linux, `%USERPROFILE%\.astack\<project>\architecture\AD_<N>.md` on Windows, honoring `ASTACK_HOME`; resolve via `astack-tools arch path <project> --next --ensure`). If the project already maintains an explicit AD directory, match its structure; otherwise copy `template.md` beside this file (`title AD-<N>`, filename `AD_<N>.md`).
 2. **Numbering:** claim the next unused number across the folder and any documents citing AD numbers. Published numbers never change; if your number is taken while drafting, bump to the next free one before publishing.
 3. **Draft incrementally** in `AD_<N>.draft.md` in the working folder. Track the tree, settled specs, cost ledger, open branches, and in-flight research so a later session resumes cleanly.
 4. **Confirm when done:** verify every branch has an accepted spec (or explicit deferral), every load-bearing choice was weighed against alternatives, and nothing stays assumed. Summarize the full design and ask for confirmation to publish.

@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Replace repeated commands, manual polling, and noisy logs with scripts and watchers, because manual chores burn context and hide real failures.
 
-- **Use watchers instead of polling (**event-driven**):** use `astack-watch-pr` for PRs and CI, or `astack-status` for lane state. For other waits, start one background watcher that returns on the event. Never re-check by hand.
+- **Use watchers instead of polling (`event-driven`):** use `astack-watch-pr` for PRs and CI, or `astack-status` for lane state. For other waits, start one background watcher that returns on the event. Never re-check by hand.
 - **Script anything you run twice:** turn repeated commands into a parameterized script with clear exit codes. Check `automation.mode` in `~/.config/astack/settings.json` (set via `setup`):
   - **`"agentic-only"`** (or Python stack absent): use shell or repo-native scripts, watchers, and pure-agentic flows.
   - **`"python-stack"`:** verify via `astack-tools doctor`. Run scripts through `astack-tools python` or `astack-tools werkflow`.

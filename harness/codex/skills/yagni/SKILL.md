@@ -5,7 +5,7 @@ description: "Keep one code path per job: migrate callers and delete legacy path
 
 # YAGNI
 
-Keep one path per job, because parallel legacy paths double surface area and drift silently. Never add or keep legacy paths, shims, adapters, compatibility layers, or dead flags unless explicitly requested.
+Build only what current callers need and keep one path per job, because speculative abstractions and parallel legacy paths double surface area and drift silently. Avoid unused extension points, unrequested config knobs, legacy paths, shims, adapters, and dead flags outside explicit requests or temporary `safe-to-deploy` transition windows.
 
 ## Start with
 
@@ -16,6 +16,7 @@ Keep one path per job, because parallel legacy paths double surface area and dri
 
 ## Watch for
 
+- speculative abstractions, unused plugin hooks, or premature generality built for one caller;
 - old implementations left beside new ones or fallback branches to legacy code;
 - pass-through wrappers or adapters translating between old and new shapes;
 - deprecated aliases and re-exports;

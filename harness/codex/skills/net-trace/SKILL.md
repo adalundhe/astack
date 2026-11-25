@@ -22,7 +22,7 @@ Discover whichever cloud, edge, mesh, cluster, or host networking tools apply vi
 
 Work top-down from DNS and edge to packets, because cheap control-plane signals isolate hops faster than raw captures:
 
-1. **DNS & service discovery:** resolve from the failing source (`dig +trace`, `drill`, `nslookup`) across authoritative, private, and cluster DNS. Check targets, CNAME flattening, DNSSEC, TTLs, `ndots`, and port `53` egress.
+1. **DNS & service discovery:** test private and cluster DNS against the failing source's own configured resolver first (`dig <name>`, `resolvectl`, `nslookup`, checking `/etc/resolv.conf`, `ndots`, TTLs, and port `53` egress). Use `dig +trace` or `drill` only for public authoritative delegation (it bypasses private, split-horizon, and cluster resolvers). Check targets, CNAME flattening, and DNSSEC.
 2. **Edge, CDN, & WAF:** isolate edge vs. origin first. Inspect ray/cache headers, edge SSL mode, and WAF logs, then probe the origin from an authorized vantage point.
 3. **Routing & path analyzers:** check route tables, NAT, peering, transit hubs, private endpoints, and LB target health. Run the platform path analyzer when available (AWS Reachability Analyzer, GCP Connectivity Tests, Azure Network Watcher).
 4. **Flow logs & bidirectional policies:** query virtual-network, firewall, or CNI flow logs (VPC/NSG Flow Logs, Hubble/Cilium) for verdicts and post-NAT addresses. Always check **both directions**, because asymmetric return drops look identical to outbound blocks:
@@ -33,11 +33,11 @@ Work top-down from DNS and edge to packets, because cheap control-plane signals 
 6. **Packets, sockets, & kernel state:** when policy and flow logs don't settle it, take bounded, filtered captures from the failing workload:
    - `ss -tinp`, `ip route get <dst>`, `mtr -rwzbc 20 <dst>`, `tracepath <dst>` (asymmetric routes, loss, PMTU);
    - `conntrack -S` and socket/ephemeral port counts (NAT/`conntrack` exhaustion);
-   - `tcpdump -nn -i <iface> -c <N> -s 96` (header-only by default) and `tshark` for SYN/RST, retransmits, zero-window, or TLS alerts.
+   - `tcpdump -nn -i <iface> -c <N> -s 54` (IPv4+TCP base headers) or `-s 74` (IPv6+TCP base headers) and `tshark` for SYN/RST, retransmits, zero-window, or TLS alerts. Larger snaplens like `-s 96` capture ~30–42 bytes of application payload (including cleartext HTTP request lines and tokens); never use them on unencrypted traffic.
 
 ## 3. Keep captures safe and hand off cleanly
 
-- Save captures as `<file>_DEBUG_<shorthash>.<type>` with header-only `-s 96` by default (**no-leaked-secrets**). Delete every capture afterward (**cleanup**).
+- Save captures as `<file>_DEBUG_<shorthash>.<type>` with header-bounded snaplens (`-s 54` IPv4 / `-s 74` IPv6; never capture cleartext payloads or tokens, **no-leaked-secrets**). Delete every capture afterward (**cleanup**).
 - Cite exact commands, flow-log verdicts, or packet frames proving the failing hop (ran vs. read).
 - Route firewall/WAF/IAM fixes through `least-privilege`, `safe-iac`, and `safe-to-deploy`. Route timeout/drain fixes through `fail-safely`, and confirmed code/IaC bugs through **bugbash**.
 

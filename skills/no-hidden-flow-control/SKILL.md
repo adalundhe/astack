@@ -34,6 +34,6 @@ Handle each failure specifically where it happens, or return it as a typed value
 - intentional partial-success flows (e.g. best-effort cleanup) whose return value reports what failed;
 - exceptions required by a framework's own protocol, raised and caught strictly where expected.
 
-**Showing it:** trigger an unexpected error (e.g. a `NameError` or cancellation) inside the handler and show how it gets swallowed.
+**Showing it:** trigger an unexpected error the handler actually catches (e.g., `KeyError`/`TypeError` under Python `except Exception`, or cancellation/`KeyboardInterrupt` under bare `except:` or `catch (Throwable)`) and show how it gets swallowed.
 
 <!-- Adapts pstack's boundary-discipline principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

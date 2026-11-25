@@ -13,7 +13,7 @@ Use the bundled `astack-statechart` CLI instead of transcribing traces by hand. 
 
 - **Model-check with TLC and draw the chart:**
   `astack-statechart check MODEL.tla [--cfg MODEL.cfg] [--mermaid out.mmd] [--json]`
-  Emits collision-safe Mermaid `stateDiagram-v2` and preserves TLC exit codes (`0` clean, `1` violation/deadlock, `2` tool/spec error).
+  Emits collision-safe Mermaid `stateDiagram-v2` and maps TLC exit codes (`0` clean, `1` for TLC violation exits `10–14`, `2` for tool/spec errors; raw `tlc_exit_code` is in `--json`). Note that legitimate terminal states trip TLC's default deadlock check unless modeled with a self-looping end action (`Done == pc = "done" /\ UNCHANGED vars`).
 - **Render existing TLC DOT or trace output offline:**
   `astack-statechart render states.dot [--trace tlc.out] [--mermaid out.mmd] [--json]`
   Emits shortest violation paths and keeps failure states visible even when `--max-states` trims large graphs.

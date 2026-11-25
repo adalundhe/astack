@@ -14,13 +14,6 @@
     ]
   },
   "astack-go-mode": {
-    "SessionStart": [
-      {
-        "type": "command",
-        "command": "./bin/astack-go-hook --harness antigravity --event SessionStart",
-        "timeout": 10
-      }
-    ],
     "PostToolUse": [
       {
         "matcher": "read_file|view_file|run_command",

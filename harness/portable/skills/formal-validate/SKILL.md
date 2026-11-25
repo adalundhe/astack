@@ -27,12 +27,12 @@ Check whether the project already has a `verify-<area>` skill for this area. Cre
    - **Explicit scope:** document what is verified, exact bounds and assumptions, and exclusions.
    - **Readable without the tool:** state each property and user impact in one plain sentence. Translate counterexamples into plain code-level steps.
    - **Cheap to rerun:** use one command with a pinned tool version that runs fast on relevant changes.
-4. **Visualize failures and state spaces** when review needs it (**show-the-states**). For TLA+, run `astack-statechart check <model.tla>` or `astack-statechart render <states.dot> --trace <tlc.out>`. Report shortest paths to broken invariants and generate Mermaid `stateDiagram-v2` from TLC output.
+4. **Visualize failures and state spaces** when review needs it (**show-the-states**). For TLA+, run `astack-statechart check <model.tla>` or `astack-statechart render <states.dot> --trace <tlc.out>`. Note that legitimate terminal/end states trip TLC's default deadlock check—model intentional termination with a self-looping end action (`Done == pc = "done" /\ UNCHANGED vars`) instead of blindly disabling deadlock checking with `--no-deadlock`. Report shortest paths to broken invariants and generate Mermaid `stateDiagram-v2` from TLC output.
 5. **Replay every counterexample on real code** as a test or live repro, step for step. If a step cannot happen in real code, treat the model as wrong, because an unfaithful model produces false alarms.
 6. **Write a project skill (`verify-<area>`)** in the repo's skills folder, not `~/.astack`. Cover how to spot touched code, run the check, separate real bugs from drift, and update for intentional changes. Record covered files and the last confirmed commit SHA.
-7. **Prove the skill works:** follow it cold against a scratch mutation breaking the invariant in real code. Confirm it catches the break, revert the mutation, and confirm green again.
+7. **Prove the skill works:** if the current code passes, follow the skill cold against a scratch mutation breaking the invariant in real code, confirm it catches the break, revert, and confirm green again. If the current code already fails with a verified counterexample, replay it on real code and report it as a real bug without weakening the property.
 
-**Done when:** the check catches a real mutation, replays any counterexample on real code, and the repo's `verify-<area>` skill passes a cold run.
+**Done when:** the check catches a real mutation and either passes a cold run on clean code or replays and reports a real product-bug counterexample without weakening properties, with `verify-<area>` saved in the repo.
 
 ## Keep it true
 

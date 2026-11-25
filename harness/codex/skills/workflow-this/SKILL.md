@@ -9,8 +9,8 @@ Turn a reviewed `$dagify` task graph into an automated, crash-resumable workflow
 
 **Skip if one-off.** For single-shot work that needs no unattended execution or recurrence, run the plan directly via `lead` instead of building workflow scaffolding.
 
-1. **Start from a reviewed graph (**dagify**).** Confirm tasks, edges, acceptance criteria, and tests are already verified.
-2. **Choose the runner (**automate-this**).** Check `automation.mode` in `~/.config/astack/settings.json` and `astack-tools doctor`:
+1. **Start from a reviewed graph (`dagify`).** Confirm tasks, edges, acceptance criteria, and tests are already verified.
+2. **Choose the runner (`automate-this`).** Check `automation.mode` in `~/.config/astack/settings.json` and `astack-tools doctor`:
    - **`agentic-only` (or Python stack absent):** use pure-agentic `lead` flows, the host's native runner, CI, or a repo-language script. Never install Python packages without permission.
    - **`python-stack` (run via `astack-tools python` / `astack-tools werkflow`):**
      - **taskex** for checkpointed tasks, shell watchers, and live pause/resume (`checkpoint`, `suspend`, `resume`);
@@ -27,7 +27,7 @@ Turn a reviewed `$dagify` task graph into an automated, crash-resumable workflow
    - Kill or pause mid-run and prove checkpoint recovery completes cleanly.
    - Fail one task to confirm dependents skip while independent branches finish.
    - Verify a review block halts downstream steps.
-10. **Close with **lookback**.** When the workflow finishes or fails, save lessons to `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md`. Harden recurring failures via `make-it-stick`.
+10. **Close cleanly:** when the workflow finishes or fails, run **lookback** to save lessons to `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md`. Harden recurring failures via `make-it-stick`.
 
 Only genuine human decisions pause a branch (**decisions-in-plain-words**). Everything else runs to completion or reports failure.
 
@@ -35,4 +35,4 @@ Only genuine human decisions pause a branch (**decisions-in-plain-words**). Ever
 
 **Reply:** name the chosen runner, workflow file path, state diagram, verification results, and exact rerun/resume command.
 
-Referenced skills: `dagify` (`../dagify/SKILL.md`), `automate-this` (`../automate-this/SKILL.md`), `taskex` (`../taskex/SKILL.md`), `orchestral` (`../orchestral/SKILL.md`), `werkflow` (`../werkflow/SKILL.md`), `lookback` (`../lookback/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `taskex` (`../taskex/SKILL.md`), `orchestral` (`../orchestral/SKILL.md`), `werkflow` (`../werkflow/SKILL.md`), `lookback` (`../lookback/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.

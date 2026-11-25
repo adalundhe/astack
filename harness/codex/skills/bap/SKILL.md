@@ -9,7 +9,7 @@ Stop immediately when the person has to repeat themselves. Don't apologize, patc
 
 1. **Full stop, zero fluff:** skip apologies and defensive explanations, because excuses waste turns without fixing the miss. State the missed rule in one plain sentence.
 2. **Audit why it slipped, not just what slipped:** run **lookup** first to check whether a saved `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md` or `LANES.md` entry already warned about this trap. Trace the real cause:
-   - skipped or unloaded skill (`astack-tools skills list` / `skills get`) or skipped **lookup**;
+   - skipped or unloaded skill (`astack-tools skills list --role <role>` / `skills get <name>`) or skipped **lookup**;
    - dropped role (Lead solo-coding, solo-debugging, or drifting out of Go mode);
    - ignored directive (`LANES.md`, `RULES.md`, or repo docs via `rtfm`);
    - stale or drifted subagent that never received the directive;
@@ -18,7 +18,7 @@ Stop immediately when the person has to repeat themselves. Don't apologize, patc
    - Load any skipped skill in full before acting.
    - **Lead:** delegate code edits to a fresh worker, run any skipped **review**, update `RULES.md` and `rules rev:` in `LANES.md` via `astack-stamp --add`, and steer or replace drifted subagents.
    - **Non-Lead:** fix only within your writable scope, never spawn subagents, and return a draft lesson plus structural guard to Lead.
-4. **Prevent repeat #3 (**lookback**, **make-it-stick**):** Lead runs **lookback** on the failure trail to write or update `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md`. Then climb **make-it-stick**'s structural fix ladder from strongest rung down, proposing source-repo rule edits only when mechanical guards cannot catch it.
+4. **Prevent repeat #3 (`lookback`, `make-it-stick`):** Lead runs **lookback** on the failure trail to write or update `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md`. Then climb **make-it-stick**'s structural fix ladder from strongest rung down, proposing source-repo rule edits only when mechanical guards cannot catch it.
 
 **Reply (3 bullets):**
 - what slipped and why;

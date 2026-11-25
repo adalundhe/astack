@@ -331,7 +331,7 @@ class DispatchTest(unittest.TestCase):
         to_data = json.loads(to.stdout)
         self.assertTrue(to_data["timed_out"])
 
-    def test_spawn_status_wait_kill_batch_and_stop_hook_track_cross_harness_agents_as_tools(self):
+    def test_spawn_status_wait_kill_and_batch_track_cross_harness_agents_as_tools(self):
         _make_stub(
             self.stub_bin,
             "codex",
@@ -344,7 +344,6 @@ class DispatchTest(unittest.TestCase):
         _make_stub(self.stub_bin, "devin", "sleep 30\n")
 
         state_dir = self.dir / "xharness-state"
-        go_state_dir = self.dir / "go-sessions"
         out_cx = self.dir / "reports" / "codex.md"
         out_pi = self.dir / "reports" / "pi.md"
 
@@ -374,10 +373,10 @@ class DispatchTest(unittest.TestCase):
         st_data = json.loads(st_live.stdout)
         self.assertEqual(st_data["active_count"], 2)
 
-        # 3. astack-status surfaces live cross-harness agents alongside LANES.md
+        # 3. astack-status surfaces live cross-harness agents alongside LANES.md AND standalone (without LANES.md)
         lanes = self.dir / "LANES.md"
         lanes.write_text("<!-- astack lane log -->\n# prog\n\n## Log\n\n")
-        env_st = {**os.environ, "ASTACK_DISPATCH_STATE_DIR": str(state_dir)}
+        env_st = {**os.environ, "ASTACK_DISPATCH_STATE_DIR": str(state_dir), "XDG_CACHE_HOME": str(self.dir / "empty-cache")}
         as_res = subprocess.run(
             [sys.executable, "-B", str(BIN / "astack-status"), str(lanes)],
             capture_output=True, text=True, env=env_st,
@@ -386,33 +385,22 @@ class DispatchTest(unittest.TestCase):
         self.assertIn("Running cross-harness agents (astack-dispatch)", as_res.stdout)
         self.assertIn(h1["run_id"], as_res.stdout)
 
-        # 4. Stop hook blocks premature turn end while cross-harness runs are live (and enforces loop safety)
-        subprocess.run(
-            [sys.executable, "-B", str(BIN / "astack-go-mode"), "on", "--session", "sess-mixed", "--state-dir", str(go_state_dir)],
-            check=True, capture_output=True, text=True,
+        empty_cwd = self.dir / "no-lanes"
+        empty_cwd.mkdir()
+        as_standalone = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-status")],
+            cwd=empty_cwd, capture_output=True, text=True, env=env_st,
         )
-        stop_env = {**os.environ, "ASTACK_DISPATCH_STATE_DIR": str(state_dir)}
-        stop1 = subprocess.run(
-            [sys.executable, "-B", str(BIN / "astack-go-mode"), "--hook", "--harness", "claude-code", "--event", "Stop", "--state-dir", str(go_state_dir)],
-            input=json.dumps({"session_id": "sess-mixed", "stop_hook_active": False}),
-            capture_output=True, text=True, env=stop_env,
+        self.assertEqual(as_standalone.returncode, 0, as_standalone.stderr)
+        self.assertIn(h1["run_id"], as_standalone.stdout)
+        as_line = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-status"), "--line"],
+            cwd=empty_cwd, capture_output=True, text=True, env=env_st,
         )
-        self.assertEqual(stop1.returncode, 0, stop1.stderr)
-        stop1_json = json.loads(stop1.stdout)
-        self.assertEqual(stop1_json["decision"], "block")
-        self.assertIn("astack-dispatch wait", stop1_json["reason"])
-        self.assertIn(h1["run_id"], stop1_json["reason"])
+        self.assertEqual(as_line.returncode, 0, as_line.stderr)
+        self.assertIn("2xh", as_line.stdout)
 
-        # Loop safety: if host retries Stop immediately for the exact same active set with stop_hook_active=True, fail open!
-        stop_loop = subprocess.run(
-            [sys.executable, "-B", str(BIN / "astack-go-mode"), "--hook", "--harness", "claude-code", "--event", "Stop", "--state-dir", str(go_state_dir)],
-            input=json.dumps({"session_id": "sess-mixed", "stop_hook_active": True}),
-            capture_output=True, text=True, env=stop_env,
-        )
-        self.assertEqual(stop_loop.returncode, 0, stop_loop.stderr)
-        self.assertEqual(stop_loop.stdout.strip(), "")
-
-        # 5. wait --all joins both cross-harness agents and returns their outputs
+        # 4. wait --all joins both cross-harness agents and returns their outputs (explicit agent-called monitoring, no Stop hook)
         wt = self.run_dispatch(
             "wait", "--state-dir", str(state_dir), "--run-id", h1["run_id"], "--run-id", h2["run_id"],
             "--all", "--poll-interval", "0.05", "--timeout", "10", "--json",
@@ -425,16 +413,12 @@ class DispatchTest(unittest.TestCase):
         self.assertIn("CLEAR (codex)", outputs[h1["run_id"]])
         self.assertIn("CLEAR (pi)", outputs[h2["run_id"]])
 
-        # Once all cross-harness runs are finished, Stop hook allows normal exit!
-        stop_clear = subprocess.run(
-            [sys.executable, "-B", str(BIN / "astack-go-mode"), "--hook", "--harness", "claude-code", "--event", "Stop", "--state-dir", str(go_state_dir)],
-            input=json.dumps({"session_id": "sess-mixed", "stop_hook_active": False}),
-            capture_output=True, text=True, env=stop_env,
-        )
-        self.assertEqual(stop_clear.returncode, 0, stop_clear.stderr)
-        self.assertEqual(stop_clear.stdout.strip(), "")
+        # Once all cross-harness runs finish, status --active-only reports zero active runs
+        st_done = self.run_dispatch("status", "--state-dir", str(state_dir), "--session", "sess-mixed", "--active-only", "--json")
+        self.assertEqual(st_done.returncode, 0, st_done.stderr)
+        self.assertEqual(json.loads(st_done.stdout)["active_count"], 0)
 
-        # 6. kill cleanly stops a long-running external agent
+        # 5. kill cleanly stops a long-running external agent
         sp_long = self.run_dispatch(
             "spawn", "--harness", "devin", "--provider", "devin", "--model", "default",
             "--role", "worker", "--cwd", str(self.work), "--prompt", "Long task",

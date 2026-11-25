@@ -520,6 +520,11 @@ class GitLabAdapter(core.ForgeAdapter):
             str(lbl).strip() for lbl in (mr.get("labels") or []) if str(lbl).strip()
         )
         gl_auto_merge = bool(mr.get("auto_merge") or mr.get("merge_when_pipeline_succeeds"))
+        merge_commit_sha = (
+            str(mr.get("merge_commit_sha") or mr.get("squash_commit_sha") or "")
+            if lifecycle == core.PRLifecycle.MERGED
+            else ""
+        )
         snap = core.PRSnapshot(
             target=target,
             lifecycle=lifecycle,
@@ -539,6 +544,7 @@ class GitLabAdapter(core.ForgeAdapter):
             approvals_required=approvals_required,
             created_at=str(mr.get("created_at") or ""),
             updated_at=str(mr.get("updated_at") or ""),
+            merge_commit_sha=merge_commit_sha,
             checks=tuple(checks),
             required_check_names=(),
             had_previous_passing_ci=False,

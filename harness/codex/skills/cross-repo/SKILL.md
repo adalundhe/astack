@@ -14,8 +14,8 @@ Coordinate changes spanning multiple repositories or multi-stage deploy trains f
 
 ## 2. Plan one ordered cross-repo graph
 
-1. **Plan with **dagify** or **treeify**, anchored by **safe-to-deploy**:** sequence breaking cutovers as **Expand -> Switch & verify -> Contract** across releases. Never assume simultaneous atomic deploys across repos. Keep live workloads and rollbacks working at every step (`safe-iac`, `least-privilege`).
-2. **Pin immutable outputs:** record SHAs, tags, digests, or resource IDs via `astack-release complete --output key=value`. Never pin floating `main` or `latest`, because moving refs break reproducibility and rollbacks. Never store raw secrets (`no-leaked-secrets`).
+1. **Plan with `dagify` or `treeify`, anchored by `safe-to-deploy`:** sequence breaking cutovers as **Expand -> Switch & verify -> Contract** across releases. Never assume simultaneous atomic deploys across repos. Keep live workloads and rollbacks working at every step (`safe-iac`, `least-privilege`).
+2. **Pin immutable outputs and honor human gates:** record SHAs, tags, digests, or resource IDs via `astack-release complete --output key=value` (or `verify --run --output key=value`). Recorded outputs are immutable once set, and `sync` never copies `head_sha` into `merge_sha`. Never pin floating `main` or `latest`, and never store raw secrets (`no-leaked-secrets`). Record explicit human approvals for gated steps via `astack-release approve --by <approver>`.
 3. **Audit before editing any repo:** validate acyclicity and ancestor outputs with `astack-release load <file> --spec <spec.json>` then `astack-release status <file>`. Run `astack-reviewer` (**review**) to check `blast-radius`, deploy order, missing consumers, and intermediate rollbacks.
 
 ## 3. Execute per-repo lanes with strict DAG gates
@@ -25,14 +25,14 @@ Follow **lead** for isolated workspaces (**slates** or git worktrees), read-only
 1. **Fetch ready steps:** run `astack-release ready <program>/release.json --json`. Pick steps whose upstream dependencies and `{{step.key}}` outputs are `done`.
 2. **One repo per worker:** dispatch each `astack-worker` inside one repo with resolved upstream outputs and `<program>/RELEASE.md`.
 3. **Review locally and across seams:** run read-only `astack-reviewer` subagents (**review**). Check repo correctness and compatibility with live upstream and downstream versions.
-4. **Gate every PR on upstream steps:** open dependent PRs as Draft or with a hold label (`do-not-merge`/`hold`). Never enable forge auto-merge, because out-of-order merges break live consumers. Attach PRs (`astack-release set-pr`), watch with `astack-watch-pr --release-file <program>/release.json --release-step <id>`, and sync with `astack-release sync`. Upstream steps must merge and pass `astack-release verify --run` before downstream PRs leave `held`.
+4. **Gate every PR on upstream steps:** open dependent PRs as Draft or with a hold label (`do-not-merge`/`hold`). Never enable forge auto-merge, because out-of-order merges break live consumers. Attach PRs (`astack-release set-pr`), watch with `astack-watch-pr --release-file <program>/release.json --release-step <id>`, and sync with `astack-release sync`. Upstream steps must reach `done` (with `astack-release verify --run` passing on every step that defines `verify_cmd`) before downstream PRs leave `held`.
 
 ## 4. Ship one unified deploy and rollback runbook
 
-Render `<program>/RELEASE.md` with `astack-release render`. Include its Mermaid `flowchart LR` graph in your report and PR descriptions (`show-the-states`, `technical-writing`, `observable-by-default`). Document merge order, verification (`astack-release verify --run`), reverse-order rollbacks (`astack-release rollback-plan`), and the contract phase.
+Render `<program>/RELEASE.md` with `astack-release render`. Include its Mermaid `flowchart LR` graph in your report and PR descriptions (`show-the-states`, `technical-writing`, `observable-by-default`). Document merge order, verification (`astack-release verify --run`), reverse-order rollbacks (`astack-release rollback-plan`, `unland`), and the contract phase.
 
 Once the train finishes or rolls back, run **lookback** into `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md` (listing every touched repo in `related_projects`). Pair with **make-it-stick** for systemic guards.
 
-**Done when:** all steps pass `astack-release verify --run` in order. `<program>/RELEASE.md` has the Mermaid graph and rollback plan, and **lookback** recorded the lesson.
+**Done when:** every step reaches `done` in dependency order (with `astack-release verify --run` passing on every step that defines `verify_cmd`), `<program>/RELEASE.md` has the Mermaid graph and rollback plan, and **lookback** recorded the lesson.
 
-Referenced skills: `lookup` (`../lookup/SKILL.md`), `dagify` (`../dagify/SKILL.md`), `treeify` (`../treeify/SKILL.md`), `safe-to-deploy` (`../safe-to-deploy/SKILL.md`), `review` (`../astack-review/SKILL.md`), `lead` (`../astack-lead/SKILL.md`), `slates` (`../slates/SKILL.md`), `lookback` (`../lookback/SKILL.md`), `make-it-stick` (`../make-it-stick/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `lookup` (`../lookup/SKILL.md`), `review` (`../astack-review/SKILL.md`), `lead` (`../astack-lead/SKILL.md`), `slates` (`../slates/SKILL.md`), `lookback` (`../lookback/SKILL.md`), `make-it-stick` (`../make-it-stick/SKILL.md`). Read any cited skill file before acting when its trigger applies.

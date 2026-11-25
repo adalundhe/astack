@@ -310,6 +310,62 @@ def cmd_lessons_path(args) -> int:
     return 0
 
 
+_AD_FILE_RE = re.compile(r"^AD_(\d+)\.md$")
+
+
+def cmd_arch_path(args) -> int:
+    try:
+        project = _validate_lesson_slug(args.project, "project_name")
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.number is not None and args.next:
+        print("error: pass either NUMBER or --next, not both", file=sys.stderr)
+        return 2
+    if args.number is not None and args.number < 1:
+        print("error: AD number must be a positive integer", file=sys.stderr)
+        return 2
+    root = astack_home_dir()
+    project_dir = root / project
+    arch_dir = project_dir / "architecture"
+    if root.exists():
+        resolved_root = root.resolve()
+        for existing in (project_dir, arch_dir):
+            if existing.exists() and not existing.resolve().is_relative_to(resolved_root):
+                print(f"error: refusing path outside astack home ({resolved_root}): {existing.resolve()}", file=sys.stderr)
+                return 1
+    if args.ensure:
+        try:
+            _ensure_private_dir(root)
+            for directory in (project_dir, arch_dir):
+                _ensure_private_dir(directory, root=root)
+        except OSError as exc:
+            print(f"error: failed to create architecture directory {arch_dir}: {exc}", file=sys.stderr)
+            return 1
+        writable, write_err = _probe_writable(arch_dir)
+        if not writable:
+            print(f"error: {arch_dir} is not writable ({write_err})", file=sys.stderr)
+            return 1
+    if args.next:
+        highest = 0
+        try:
+            if arch_dir.is_dir():
+                for item in arch_dir.iterdir():
+                    m = _AD_FILE_RE.match(item.name)
+                    if m:
+                        highest = max(highest, int(m.group(1)))
+        except OSError as exc:
+            print(f"error: failed to inspect {arch_dir}: {exc}", file=sys.stderr)
+            return 1
+        output_path = arch_dir / f"AD_{highest + 1}.md"
+    elif args.number is not None:
+        output_path = arch_dir / f"AD_{args.number}.md"
+    else:
+        output_path = arch_dir
+    print(output_path)
+    return 0
+
+
 def _parse_lesson_front_matter(text: str) -> dict[str, object]:
     """Parse flat YAML frontmatter (scalars + inline or block string lists) with stdlib only."""
     match = re.match(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", text, re.S)
@@ -1552,6 +1608,14 @@ def main(argv=None) -> int:
     p_lessons_list.add_argument("--status", choices=("active", "tentative", "superseded", "all"), help="filter by frontmatter status")
     p_lessons_list.add_argument("--json", action="store_true", dest="as_json")
 
+    p_arch = sub.add_parser("arch", help="resolve per-project architecture decision paths under ~/.astack/<project>/architecture/AD_<N>.md")
+    arch_sub = p_arch.add_subparsers(dest="arch_command", required=True)
+    p_arch_path = arch_sub.add_parser("path", help="print (and optionally create) a project architecture dir or AD_<N>.md path")
+    p_arch_path.add_argument("project", metavar="PROJECT")
+    p_arch_path.add_argument("number", metavar="NUMBER", type=int, nargs="?")
+    p_arch_path.add_argument("--next", action="store_true", help="resolve the next unused AD_<N>.md filename")
+    p_arch_path.add_argument("--ensure", action="store_true", help="create directories with user-private permissions and verify writability")
+
     p_inst = sub.add_parser("install", help="provision Python >=3.11 via uv, create/update the venv, and install packages")
     p_inst.add_argument("--venv", type=Path, default=default_venv())
     p_inst.add_argument("--profile", choices=("core", "standard", "all"), default="standard")
@@ -1610,6 +1674,8 @@ def main(argv=None) -> int:
         return cmd_init_home(args)
     if args.command == "lessons":
         return cmd_lessons_path(args) if args.lessons_command == "path" else cmd_lessons_list(args)
+    if args.command == "arch":
+        return cmd_arch_path(args)
     if args.command == "install":
         return cmd_install(args)
     if args.command == "link-bin":

@@ -5,7 +5,7 @@ description: "Push back on unproven or overstated review comments with concrete 
 
 # Worrywart
 
-Push back on an incorrect or overstated review point with concrete evidence, because debating opinions wastes rounds and blindly obeying adds dead complexity.
+Push back on an incorrect or overstated code-review finding or PR comment (human or agent) with concrete evidence, because debating opinions wastes rounds and blindly obeying adds dead complexity. For peer-to-peer interrogation of hypotheses, diagnoses, designs, or plans, use `challenge` instead.
 
 1. **Restate the claim plainly:** state what the reviewer says breaks, for whom, and under what conditions.
 2. **Test it first:** run the reviewer's reproduction or build the exact scenario they described. If it reproduces, the point is real—fix it instead of pushing back.

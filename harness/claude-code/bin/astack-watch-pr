@@ -316,6 +316,7 @@ class PRSnapshot:
     approvals_required: Optional[int]
     created_at: str
     updated_at: str
+    merge_commit_sha: str = ""
     checks: Tuple[CheckRun, ...] = ()
     required_check_names: Tuple[str, ...] = ()
     had_previous_passing_ci: bool = False
@@ -434,7 +435,11 @@ def fence_untrusted(label: str, text: str, max_len: int = 4000) -> str:
 
 
 def audit_reply_text(body: str, audit_receipt_path: Optional[Path]) -> List[str]:
-    """Structurally enforce /leave-feedback before posting a human-facing PR reply."""
+    """Check reply text for leaked internals and verify the audit receipt records a final CLEAR verdict.
+
+    Note: reviewer independence is a /leave-feedback workflow requirement, not something verifiable
+    from a local receipt file alone.
+    """
     violations: List[str] = []
     if not body or not body.strip():
         violations.append("reply body is empty")
@@ -447,12 +452,22 @@ def audit_reply_text(body: str, audit_receipt_path: Optional[Path]) -> List[str]
         violations.append(f"audit receipt file not found: {audit_receipt_path}")
     else:
         receipt_text = audit_receipt_path.read_text(encoding="utf-8", errors="replace")
-        has_clear = bool(re.search(r"\bCLEAR\b", receipt_text))
-        has_revise_final = bool(re.search(r"(?:verdict|status)\s*[:=]\s*REVISE\b", receipt_text, re.IGNORECASE))
-        if not has_clear or has_revise_final:
+        verdicts = re.findall(
+            r"(?:verdict|status)\s*[:=]\s*(NOT\s+CLEAR|CLEAR|REVISE)\b",
+            receipt_text,
+            re.IGNORECASE,
+        )
+        if verdicts:
+            passed_clear = verdicts[-1].upper() == "CLEAR"
+        else:
+            has_not_clear = bool(re.search(r"\bNOT\s+CLEAR\b", receipt_text, re.IGNORECASE))
+            has_revise = bool(re.search(r"\bREVISE\b", receipt_text))
+            has_clear = bool(re.search(r"\bCLEAR\b", receipt_text))
+            passed_clear = has_clear and not has_not_clear and not has_revise
+        if not passed_clear:
             violations.append(
                 f"audit receipt {audit_receipt_path} does not show a final CLEAR verdict "
-                "(revise and re-audit until the independent reviewer returns CLEAR)"
+                "(revise and re-audit until the reviewer returns CLEAR)"
             )
     for label, pattern in FORBIDDEN_REPLY_PATTERNS:
         if pattern.search(body):

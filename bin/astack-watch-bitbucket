@@ -541,6 +541,11 @@ class BitbucketAdapter(core.ForgeAdapter):
                     )
                 )
 
+        merge_commit_sha = (
+            str((pr.get("merge_commit") or {}).get("hash") or "")
+            if lifecycle == core.PRLifecycle.MERGED
+            else ""
+        )
         snap = core.PRSnapshot(
             target=target,
             lifecycle=lifecycle,
@@ -560,6 +565,7 @@ class BitbucketAdapter(core.ForgeAdapter):
             approvals_required=None,
             created_at=str(pr.get("created_on") or ""),
             updated_at=str(pr.get("updated_on") or ""),
+            merge_commit_sha=merge_commit_sha,
             checks=tuple(checks),
             required_check_names=(),
             had_previous_passing_ci=False,
@@ -749,6 +755,11 @@ class BitbucketAdapter(core.ForgeAdapter):
                     )
                 )
 
+        srv_merge_sha = (
+            str(((pr.get("properties") or {}).get("mergeCommit") or {}).get("id") or "")
+            if lifecycle == core.PRLifecycle.MERGED
+            else ""
+        )
         snap = core.PRSnapshot(
             target=target,
             lifecycle=lifecycle,
@@ -768,6 +779,7 @@ class BitbucketAdapter(core.ForgeAdapter):
             approvals_required=None,
             created_at="",
             updated_at="",
+            merge_commit_sha=srv_merge_sha,
             checks=tuple(checks),
             required_check_names=(),
             had_previous_passing_ci=False,

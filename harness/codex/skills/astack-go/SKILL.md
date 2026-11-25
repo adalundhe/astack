@@ -1,6 +1,6 @@
 ---
 name: astack-go
-description: "Single entry point for astack; routes on demand by path to all 87 hidden workflows and coding rules. Use before any review, bug, refactor, build, plan, test, benchmark, research, or catch-up task."
+description: "Single entry point for astack; routes on demand by path to all 89 hidden workflows and coding rules. Use before any review, bug, refactor, build, plan, test, benchmark, research, or catch-up task."
 ---
 
 # Go mode
@@ -33,6 +33,7 @@ Read matching skill file(s) before starting:
   - Reviewed task DAG: `../dagify/SKILL.md`
   - Bottom-up component-tree waves: `../treeify/SKILL.md`
   - Multi-repo PR merge & deploy DAG (`astack-release`): `../cross-repo/SKILL.md`
+  - Safe revert & deploy rollback (investigate landing/deploy shape first): `../unland/SKILL.md`
   - Automated/recurring workflows: `../workflow-this/SKILL.md`
   - Parallel worker lanes: `../astack-lead/SKILL.md`
   - Issue-tracker sync: `../track-it/SKILL.md`
@@ -54,6 +55,7 @@ Read matching skill file(s) before starting:
   - Throwaway prototype/mockup: `../play-with-me/SKILL.md`
   - Explain unfamiliar concepts: `../talk-to-me/SKILL.md`
   - Architecture decision record (`AD-N`): `../create-adc/SKILL.md`
+  - Design-tree interview + `LESSON.md` & `AD_<N>.md` docs: `../grill-with-docs/SKILL.md`
 - **Optimize & experiment:**
   - Statistical benchmarks: `../benchmarking/SKILL.md`
   - Fair competitor baselines: `../baseline/SKILL.md`
@@ -102,7 +104,7 @@ Read matching skill file(s) before starting:
 
 ## Principles and coding-rules index
 
-Read before any code work; open a rule's file when its trigger applies. Any code written or reviewed triggers `data-structures-first`, `check-your-boundaries`, `no-bolt-ons`, `yagni`, `comment-cop`, and checking impacted repo docs (`technical-writing`).
+Read before any code work; open a rule's file when its trigger applies. Features and refactors trigger `data-structures-first`, `check-your-boundaries`, `no-bolt-ons`, `yagni`, `comment-cop`, and impacted repo docs (`technical-writing`); narrow bug fixes stay minimal per `fix-it` instead of rearchitecting from scratch.
 
 | Trigger | Rule file | Core rule |
 |---|---|---|
@@ -167,10 +169,11 @@ Every skill has an owner: **required** = load in full before starting; **when it
 | `$formal-validate` | – | when it applies | when it applies | – |
 | `$full-spectrum-testing` | – | when it applies | when it applies | – |
 | `$astack-go` | required | required | required | required |
+| `$grill-with-docs` | when it applies | – | – | when it applies |
 | `$how-it-works` | when it applies | when it applies | when it applies | when it applies |
 | `$astack-lead` | required | – | – | – |
 | `$least-privilege` | when it applies | when it applies | when it applies | when it applies |
-| `$leave-feedback` | when it applies | – | when it applies | – |
+| `$leave-feedback` | when it applies | when it applies | when it applies | – |
 | `$leave-it-better` | when it applies | when it applies | – | – |
 | `$lookback` | when it applies | when it applies | – | when it applies |
 | `$lookup` | when it applies | when it applies | when it applies | when it applies |
@@ -217,6 +220,7 @@ Every skill has an owner: **required** = load in full before starting; **when it
 | `$track-it` | when it applies | – | – | – |
 | `$treeify` | when it applies | – | when it applies | when it applies |
 | `$triage` | when it applies | when it applies | when it applies | when it applies |
+| `$unland` | when it applies | when it applies | when it applies | when it applies |
 | `$wat` | required | when it applies | when it applies | when it applies |
 | `$watch-pr` | when it applies | – | – | – |
 | `$werkflow` | when it applies | when it applies | – | – |

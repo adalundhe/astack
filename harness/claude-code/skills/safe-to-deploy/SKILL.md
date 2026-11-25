@@ -12,14 +12,14 @@ Apply this across whatever runtime, orchestrator, serverless, edge, database, or
 
 ## Start with
 
-1. **Map the live transition window (**blast-radius**):** list every live consumer across repos, not just the end state. Include rolling compute, cron/queued jobs, migration hooks, DNS/CDN/TLS cutovers, infra stacks, and the rolled-back release.
+1. **Map the live transition window (`blast-radius`):** list every live consumer across repos, not just the end state. Include rolling compute, cron/queued jobs, migration hooks, DNS/CDN/TLS cutovers, infra stacks, and the rolled-back release.
 2. **Ship breaking cutovers as expand -> switch -> contract:**
    - **Expand:** add the new identity, grant, schema, endpoint, route, or cert while keeping existing callers working. Lower DNS TTLs and validate certs before flipping traffic.
-   - **Switch & verify:** roll services, scheduled jobs, and cross-repo callers onto the new path. Verify zero live traffic remains on the old path.
+   - **Switch & verify:** roll services, scheduled jobs, and cross-repo callers progressively (canary/small slice first when supported). Verify post-deploy health, SLOs, error rates, and zero remaining traffic on the old path (`observable-by-default`, `prove-it`) before promoting to 100% or contracting; roll back via `unland` on regression.
    - **Contract:** revoke old privileges or drop old columns/routes in a **later release**. Wait until rollback is no longer needed because early cleanup breaks prior releases.
 3. **Keep rollback working at every commit**. If a service rolls back *after* a DB or infra change commits, pre-change workloads must still function.
 4. **Test mixed versions (**prove-it**, `full-spectrum-testing`):** run pre-change code and real non-privileged roles against post-migration state, plus rollback. Never test only new code on new state, because that hides live transition breakage.
-5. **Escalate unavoidable outages upfront (**decisions-in-plain-words**, **technical-writing**):** get human sign-off first. Document impact, deploy order, and rollback steps in both PR and runbook.
+5. **Escalate unavoidable outages upfront (`decisions-in-plain-words`, `technical-writing`):** get human sign-off first. Document impact, deploy order, and rollback steps in both PR and runbook.
 
 ## Watch for
 
@@ -40,4 +40,4 @@ Apply this across whatever runtime, orchestrator, serverless, edge, database, or
 
 **Showing it:** apply the change against a pre-PR environment. Run real queries as the pre-PR non-privileged identity and from a rolled-back version to expose the failure.
 
-Referenced skills: `blast-radius` (`${CLAUDE_SKILL_DIR}/../blast-radius/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`), `technical-writing` (`${CLAUDE_SKILL_DIR}/../technical-writing/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.

@@ -81,7 +81,7 @@ raise SystemExit(asyncio.run(main()))
 ### Checkpointing, pause, and crash recovery
 
 - Give durable workflows a stable `workflow_id` and a `SQLiteCheckpointStore` (or `MERCURY_SYNC_CHECKPOINT_DB_PATH`).
-- **Checkpoints:** save progress with `checkpoint()` and inspect via `orch.checkpoint`, `get_checkpoint`, `list_checkpoints`, or `clear_checkpoints` (**checkpoint**).
+- **Checkpoints:** save progress inside tasks with `checkpoint()` (or externally via `await orch.checkpoint(target, state)`) and inspect or manage them via `orch.get_checkpoint`, `list_checkpoints`, or `clear_checkpoints` (**checkpoint**).
 - **Live pause:** freeze workflows or steps with `orch.pause()` and `pause_step(target)` (**suspend**).
 - **Resume & crash recovery:** unpause in place or replay with `orch.resume(rerun_completed=False)` and `add_task(..., resume_from=...)` (**resume**).
 

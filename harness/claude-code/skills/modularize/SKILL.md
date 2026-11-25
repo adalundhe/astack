@@ -10,7 +10,7 @@ Split monolithic code into single-purpose modules that test and swap cleanly. Pr
 
 ## Design the seams (Workers and Lead)
 
-1. **Map responsibilities (**how-it-works**):** list each job, owned data, call graph, and where state lives (`show-the-states`).
+1. **Map responsibilities (`how-it-works`):** list each job, owned data, call graph, and where state lives (`show-the-states`).
 2. **Pin behavior first:** add external behavior tests (`tests-assert-behaviour`) that stay green unchanged, because unpinned moves hide regressions.
 3. **Cut along domain seams, not technical layers.** Group code by job and owned data. Untangle shared mutable state and hidden state machines first (`minimize-state-stores`, `no-shared-writes`, `no-implicit-states`).
 4. **Keep each module tight:** give each module one job, owned data, a narrow interface, and hidden internals. Enforce acyclic dependencies, isolate I/O (`check-your-boundaries`), and add traits only at real boundaries.
@@ -18,8 +18,8 @@ Split monolithic code into single-purpose modules that test and swap cleanly. Pr
 ## Execute in three reviewed stages (Lead only; workers use Steps 1–4)
 
 5. **Prove the pattern on the smallest slice:** migrate one cohesive unit end to end and run pinning tests. Confirm parity with vectored **review** first, because a flawed seam multiplies rework across batches.
-6. **Migrate in parallel **dagify** batches:** plan non-overlapping batches and execute via **lead** with **slates** workspaces and watch-and-swap orchestration. Update callers per batch, separate moves from behavior edits, and verify `blast-radius` seams via **review**.
-7. **Trim scope with **simplify-me** and `yagni`:** delete legacy paths, dead shims, and scaffolding down to parity. Confirm with final vectored **review** (`benchmarking` if latency matters) and add a Mermaid dependency diagram.
+6. **Migrate in parallel `dagify` batches:** plan non-overlapping batches and execute via **lead** with **slates** workspaces and watch-and-swap orchestration. Update callers per batch, separate moves from behavior edits, and verify `blast-radius` seams via **review**.
+7. **Trim scope with `simplify-me` and `yagni`:** delete legacy paths, dead shims, and scaffolding down to parity. Confirm with final vectored **review** (`benchmarking` if latency matters) and add a Mermaid dependency diagram.
 
 **Don't split:**
 
@@ -29,4 +29,4 @@ Split monolithic code into single-purpose modules that test and swap cleanly. Pr
 
 **Done when:** pinning tests pass unchanged, shims are trimmed, final **review** passes, and a Mermaid diagram is included.
 
-Referenced skills: `how-it-works` (`${CLAUDE_SKILL_DIR}/../how-it-works/SKILL.md`), `review` (`${CLAUDE_SKILL_DIR}/../review/SKILL.md`), `dagify` (`${CLAUDE_SKILL_DIR}/../dagify/SKILL.md`), `lead` (`${CLAUDE_SKILL_DIR}/../lead/SKILL.md`), `slates` (`${CLAUDE_SKILL_DIR}/../slates/SKILL.md`), `simplify-me` (`${CLAUDE_SKILL_DIR}/../simplify-me/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `review` (`${CLAUDE_SKILL_DIR}/../review/SKILL.md`), `lead` (`${CLAUDE_SKILL_DIR}/../lead/SKILL.md`), `slates` (`${CLAUDE_SKILL_DIR}/../slates/SKILL.md`). Read any cited skill file before acting when its trigger applies.

@@ -7,7 +7,7 @@ Usage:
 
 Exit codes:
   check:  0 = all invariants hold (TLC exit 0 and no errors/violations)
-          1 = violation/deadlock/liveness failure found (or TLC violation exit 10/11/12/13)
+          1 = violation/deadlock/liveness/assertion failure found (or TLC violation exit 10–14)
           2 = TLC missing, invocation/parse/config error, or non-zero TLC crash (e.g. 1, 150, 255)
   render: 0 = rendered cleanly, 2 = missing file or parse error
 """
@@ -49,8 +49,8 @@ LEVEL_TLCBUG = 2
 LEVEL_WARNING = 3
 LEVEL_STATE = 4
 
-# TLC violation process exit codes (10=deadlock/old, 11=deadlock, 12=safety/invariant, 13=liveness/temporal)
-TLC_VIOLATION_EXITS = frozenset({10, 11, 12, 13})
+# Official TLC violation exit codes (tlc2.output.EC.ExitStatus: 10=assumption, 11=deadlock, 12=safety, 13=liveness, 14=assertion)
+TLC_VIOLATION_EXITS = frozenset({10, 11, 12, 13, 14})
 
 
 @dataclass
@@ -1037,7 +1037,7 @@ def _classify_tlc_outcome(returncode: int, violations: list[Violation], trace_in
 
     if returncode in TLC_VIOLATION_EXITS:
         if not violations:
-            # TLC exited with a violation code (10/11/12/13) even if our parser didn't see a trace
+            # TLC exited with a violation code (10–14) even if our parser didn't see a trace
             errs = trace_info.get("errors") or []
             hint = errs[0].splitlines()[0] if errs else (
                 next((ln.strip() for ln in combined.splitlines() if ln.strip()), f"exit {returncode}")

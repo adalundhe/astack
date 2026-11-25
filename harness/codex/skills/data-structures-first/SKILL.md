@@ -17,6 +17,8 @@ Get the data representation right before writing control flow. Clear data struct
 
 ## Watch for
 
+- binary floating-point (`float`/`double`) for money, currency, or exact decimals instead of integer minor units or fixed-point `Decimal`;
+- N+1 query loops or per-item round trips where a batched query, join, or indexed lookup matches the access pattern;
 - parallel arrays or maps indexed by the same position or key that must stay manually synchronized;
 - stringly-typed dicts, untyped JSON blobs, or bags of optional fields standing in for real domain types;
 - complex nested conditionals compensating for an awkward representation;

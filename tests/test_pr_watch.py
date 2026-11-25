@@ -219,11 +219,20 @@ class GoodCitizenRateLimitAndPolicyTest(unittest.TestCase):
             root = Path(td)
             revise_receipt = root / "revise.txt"
             revise_receipt.write_text("Verdict: REVISE\nFix phrasing.\n")
+            not_clear_receipt = root / "not_clear.txt"
+            not_clear_receipt.write_text("This draft is NOT CLEAR yet.\n")
+            revise_last_receipt = root / "revise_last.txt"
+            revise_last_receipt.write_text("Verdict: CLEAR\nWait, found leak.\nVerdict: REVISE\n")
+            clear_last_receipt = root / "clear_last.txt"
+            clear_last_receipt.write_text("Verdict: REVISE\nFixed.\nVerdict: CLEAR\n")
             clear_receipt = root / "clear.txt"
             clear_receipt.write_text("Audit complete.\nVerdict: CLEAR\n")
 
             self.assertTrue(core.audit_reply_text("Fixed the null check in parser.py.", None))
             self.assertTrue(core.audit_reply_text("Fixed the null check in parser.py.", revise_receipt))
+            self.assertTrue(core.audit_reply_text("Fixed the null check in parser.py.", not_clear_receipt))
+            self.assertTrue(core.audit_reply_text("Fixed the null check in parser.py.", revise_last_receipt))
+            self.assertEqual(core.audit_reply_text("Fixed the null check in parser.py.", clear_last_receipt), [])
             for leaky in (
                 "Updated per LANES.md and RULES.md.",
                 "Status: POOL EXHAUSTED after capture-recapture check.",
@@ -1764,6 +1773,112 @@ class ExternalGateAndHoldTests(unittest.TestCase):
             dec = core.evaluate_snapshot(snap, core.PolicyConfig())
             self.assertEqual(dec.state, core.PRState.HELD)
             self.assertIn("WARNING: forge auto-merge is enabled", dec.reason)
+
+    def test_merge_commit_sha_populated_only_when_merged_across_forges(self):
+        """GitHub (GraphQL + REST), GitLab, and Bitbucket populate merge_commit_sha only on MERGED PRs (never speculative open merge_commit_sha)."""
+        gh_state = {"merged": False}
+
+        def gh_handler(method, path, headers, body):
+            if path.endswith("/graphql"):
+                pr_node = {
+                    "number": 88,
+                    "url": "https://github.com/acme/repo/pull/88",
+                    "title": "Squash merge test",
+                    "state": "MERGED" if gh_state["merged"] else "OPEN",
+                    "isDraft": False,
+                    "createdAt": "2026-11-24T10:00:00Z",
+                    "updatedAt": "2026-11-24T11:00:00Z",
+                    "mergeable": "MERGEABLE",
+                    "mergeStateStatus": "CLEAN",
+                    "reviewDecision": "APPROVED",
+                    "autoMergeRequest": None,
+                    "labels": {"nodes": []},
+                    "headRefName": "feat/squash",
+                    "headRefOid": "head1111",
+                    "mergeCommit": {"oid": "squash9999"} if gh_state["merged"] else {"oid": "speculative0000"},
+                    "baseRefName": "main",
+                    "baseRef": {"target": {"oid": "base0000"}},
+                    "author": {"login": "alice", "__typename": "User"},
+                    "comments": {"nodes": []},
+                    "reviewThreads": {"nodes": []},
+                    "reviews": {"nodes": []},
+                    "commits": {"nodes": []},
+                }
+                return 200, {}, {"data": {"rateLimit": {"cost": 1, "remaining": 4999, "limit": 5000, "resetAt": "2099-01-01T00:00:00Z"}, "viewer": {"login": "alice"}, "repository": {"pullRequest": pr_node}}}
+            if path.endswith("/pulls/88"):
+                return 200, {}, {
+                    "number": 88,
+                    "title": "Squash merge test",
+                    "html_url": "https://github.com/acme/repo/pull/88",
+                    "state": "closed" if gh_state["merged"] else "open",
+                    "merged": gh_state["merged"],
+                    "draft": False,
+                    "merge_commit_sha": "squash9999" if gh_state["merged"] else "speculative0000",
+                    "head": {"ref": "feat/squash", "sha": "head1111"},
+                    "base": {"ref": "main", "sha": "base0000"},
+                    "user": {"login": "alice"},
+                    "labels": [],
+                }
+            if path.endswith("/user"):
+                return 200, {}, {"login": "alice"}
+            return 200, {}, []
+
+        with mock_http_boundary(gh_handler) as base_url:
+            target = core.PRTarget(core.ForgeKind.GITHUB, "127.0.0.1", "acme/repo", 88, url="https://github.com/acme/repo/pull/88", api_url=base_url)
+            # Open PR: merge_commit_sha MUST stay empty on both GraphQL and REST!
+            gql_open, _ = gh_mod.GitHubAdapter(core.RateLimitGovernor(), token="tok").fetch_snapshot(target, core.PolicyConfig())
+            self.assertEqual(gql_open.merge_commit_sha, "")
+            rest_adapter = gh_mod.GitHubAdapter(core.RateLimitGovernor(), token="tok")
+            rest_adapter._prefer_rest = True
+            rest_open, _ = rest_adapter.fetch_snapshot(target, core.PolicyConfig())
+            self.assertEqual(rest_open.merge_commit_sha, "")
+
+            # Merged PR: both GraphQL and REST capture real squash9999 (distinct from head1111)!
+            gh_state["merged"] = True
+            gql_merged, _ = gh_mod.GitHubAdapter(core.RateLimitGovernor(), token="tok").fetch_snapshot(target, core.PolicyConfig())
+            self.assertEqual(gql_merged.merge_commit_sha, "squash9999")
+            rest_merged, _ = rest_adapter.fetch_snapshot(target, core.PolicyConfig())
+            self.assertEqual(rest_merged.merge_commit_sha, "squash9999")
+
+        # GitLab squash-merged MR (merge_commit_sha null -> uses squash_commit_sha)
+        def gl_merged_handler(method, path, headers, body):
+            if "/merge_requests/16" in path:
+                return 200, {}, {
+                    "iid": 16, "title": "Squash MR", "state": "merged", "draft": False,
+                    "web_url": "https://gitlab.com/org/repo/-/merge_requests/16",
+                    "sha": "glhead111", "source_branch": "feat/gl", "target_branch": "main",
+                    "diff_refs": {"base_sha": "glbase000", "head_sha": "glhead111"},
+                    "merge_commit_sha": None, "squash_commit_sha": "glsquash888",
+                    "author": {"username": "alice"}, "labels": [],
+                }
+            if path.endswith("/user"):
+                return 200, {}, {"username": "alice"}
+            return 200, {}, []
+
+        with mock_http_boundary(gl_merged_handler) as base_url:
+            gl_target = core.PRTarget(core.ForgeKind.GITLAB, "127.0.0.1", "org/repo", 16, url="https://gitlab.com/org/repo/-/merge_requests/16", api_url=base_url)
+            gl_snap, _ = gl_mod.GitLabAdapter(core.RateLimitGovernor(), token="tok").fetch_snapshot(gl_target, core.PolicyConfig())
+            self.assertEqual(gl_snap.merge_commit_sha, "glsquash888")
+
+        # Bitbucket Cloud merged PR
+        def bb_merged_handler(method, path, headers, body):
+            if path.endswith("/pullrequests/5"):
+                return 200, {}, {
+                    "id": 5, "title": "BB Merged", "state": "MERGED", "draft": False,
+                    "source": {"branch": {"name": "feat/bb"}, "commit": {"hash": "bbhead111"}},
+                    "destination": {"branch": {"name": "main"}, "commit": {"hash": "bbbase000"}},
+                    "merge_commit": {"hash": "bbmerge777"},
+                    "author": {"nickname": "alice"}, "participants": [],
+                    "links": {"html": {"href": "https://bitbucket.org/ws/repo/pull-requests/5"}},
+                }
+            if path.endswith("/user"):
+                return 200, {}, {"nickname": "alice"}
+            return 200, {}, {"values": []}
+
+        with mock_http_boundary(bb_merged_handler) as base_url:
+            bb_target = core.PRTarget(core.ForgeKind.BITBUCKET_CLOUD, "127.0.0.1", "ws/repo", 5, url="https://bitbucket.org/ws/repo/pull-requests/5", api_url=base_url)
+            bb_snap, _ = bb_mod.BitbucketAdapter(core.RateLimitGovernor()).fetch_snapshot(bb_target, core.PolicyConfig())
+            self.assertEqual(bb_snap.merge_commit_sha, "bbmerge777")
 
 
 if __name__ == "__main__":

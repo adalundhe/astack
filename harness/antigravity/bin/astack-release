@@ -10,7 +10,8 @@ Usage:
   astack-release ready FILE [--settings PATH] [--json]
   astack-release sync FILE [--step ID] [--settings PATH] [--pr-watcher PATH] [--markdown PATH] [--json]
   astack-release start FILE --id ID [--settings PATH] [--note TEXT] [--markdown PATH] [--json]
-  astack-release verify FILE --id ID [--run] [--timeout SECONDS] [--note TEXT] [--markdown PATH] [--json]
+  astack-release approve FILE --id ID --by APPROVER [--settings PATH] [--note TEXT] [--markdown PATH] [--json]
+  astack-release verify FILE --id ID [--run] [--output KEY=VALUE ...] [--timeout SECONDS] [--note TEXT] [--markdown PATH] [--json]
   astack-release complete FILE --id ID [--output KEY=VALUE ...] [--note TEXT] [--markdown PATH] [--json]
   astack-release fail FILE --id ID --reason TEXT [--markdown PATH] [--json]
   astack-release rollback-plan FILE [--from-step ID] [--json]
@@ -19,8 +20,9 @@ Usage:
 
 Stdlib-only (Python >=3.9). Stores state atomically in JSON (write-to-temp + fsync + os.replace),
 validates DAG acyclicity and output dependencies, integrates with astack-watch-pr for live PR state,
-enforces settings.json autonomy boundaries, resolves upstream outputs for downstream repos, and
-renders a Mermaid release-train diagram + reverse-topological rollback runbook.
+enforces settings.json autonomy gates across start/verify/complete (requiring recorded approve --by
+entries for gated steps), enforces immutable recorded outputs, resolves upstream outputs for
+downstream repos, and renders a Mermaid release-train diagram + reverse-topological rollback runbook.
 """
 from __future__ import annotations
 
@@ -172,6 +174,8 @@ class ReleaseStep:
     verify_cmd: str = ""
     rollback_cmd: str = ""
     requires_human: bool = False
+    approved_by: str = ""
+    approved_at: str = ""
     status: StepStatus = StepStatus.PENDING
     pr_state: str = ""
     outputs: Dict[str, str] = field(default_factory=dict)
@@ -196,6 +200,8 @@ class ReleaseStep:
             "verify_cmd": self.verify_cmd,
             "rollback_cmd": self.rollback_cmd,
             "requires_human": bool(self.requires_human),
+            "approved_by": self.approved_by,
+            "approved_at": self.approved_at,
             "status": self.status.value,
             "pr_state": self.pr_state,
             "outputs": dict(self.outputs),
@@ -264,6 +270,9 @@ class ReleaseStep:
             raise ReleaseError(f"step {step_id!r}: gate_cmds must be a list")
         gate_cmds = [str(g).strip() for g in gate_cmds_raw if str(g).strip()]
 
+        approved_by = str(raw.get("approved_by") or "").strip()
+        if approved_by:
+            check_no_secrets(f"{step_id}.approved_by", approved_by)
         step = cls(
             id=step_id,
             kind=kind,
@@ -281,6 +290,8 @@ class ReleaseStep:
             verify_cmd=str(raw.get("verify_cmd") or "").strip(),
             rollback_cmd=str(raw.get("rollback_cmd") or "").strip(),
             requires_human=bool(raw.get("requires_human", False)) or (kind == StepKind.MANUAL),
+            approved_by=approved_by,
+            approved_at=str(raw.get("approved_at") or "").strip(),
             status=status,
             pr_state=str(raw.get("pr_state") or "").strip(),
             outputs=outputs,
@@ -439,24 +450,74 @@ def validate_graph(plan: ReleasePlan) -> List[str]:
     return topo
 
 
-def step_gate_reason(step: ReleaseStep, autonomy: Dict[str, Any]) -> Optional[str]:
+_PROD_ENV_TOKEN_RE = re.compile(r"^(?:prod|production|prd|live)\d*$")
+_NON_PROD_PREFIXES = frozenset({"non", "pre"})
+_EXTERNAL_RELEASE_TOKENS = frozenset({"public", "external", "release", "oss"})
+
+
+def _env_tokens(env: str) -> List[str]:
+    return [t for t in re.split(r"[^a-z0-9]+", env.strip().lower()) if t]
+
+
+def _is_production_env(env: str) -> bool:
+    tokens = _env_tokens(env)
+    for idx, tok in enumerate(tokens):
+        if _PROD_ENV_TOKEN_RE.match(tok):
+            if idx > 0 and tokens[idx - 1] in _NON_PROD_PREFIXES:
+                continue
+            return True
+    return False
+
+
+def _is_external_release_env(env: str) -> bool:
+    if _is_production_env(env):
+        return True
+    return any(tok in _EXTERNAL_RELEASE_TOKENS for tok in _env_tokens(env))
+
+
+def _record_immutable_outputs(step: ReleaseStep, new_outputs: Dict[str, str]) -> None:
+    for k, v in new_outputs.items():
+        check_no_secrets(f"{step.id}.outputs.{k}", v)
+        if k in step.outputs and step.outputs[k] != v:
+            raise ReleaseError(
+                f"cannot overwrite immutable output {step.id}.{k} "
+                f"(existing={step.outputs[k]!r}, new={v!r})"
+            )
+    step.outputs.update(new_outputs)
+
+
+def step_gate_reason(
+    step: ReleaseStep,
+    autonomy: Dict[str, Any],
+    *,
+    for_complete: bool = False,
+) -> Optional[str]:
+    if step.approved_by:
+        return None
     deny = set(autonomy.get("deny", []))
     allow = set(autonomy.get("allow", []))
     mode = str(autonomy.get("mode") or "supervised")
     if step.kind == StepKind.MANUAL or step.requires_human:
         return "step requires explicit human action or approval"
-    if step.kind == StepKind.DEPLOY:
-        env_l = step.env.lower()
-        if env_l in ("prod", "production") and "prod_deploy_or_destructive_migration" in deny:
+    if step.kind == StepKind.DEPLOY and _is_production_env(step.env):
+        if "prod_deploy_or_destructive_migration" in deny:
             return "production deploy blocked by autonomy.deny (prod_deploy_or_destructive_migration)"
-        if mode != "unattended" and env_l in ("prod", "production"):
+        if mode != "unattended" and "prod_deploy_or_destructive_migration" not in allow:
             return "production deploy requires human approval in supervised mode"
-    if step.kind == StepKind.TAG and "publish_external_release" in deny and step.env.lower() in ("prod", "production", "public"):
-        return "external release blocked by autonomy.deny (publish_external_release)"
-    if step.kind == StepKind.PR and step.pr_state == "merge_ready" and "merge_pr" in deny:
-        return "PR merge requires human action (autonomy.deny: merge_pr)"
-    if mode != "unattended" and step.kind == StepKind.DEPLOY and "prod_deploy_or_destructive_migration" not in allow and step.env.lower() in ("prod", "production"):
-        return "production deploy requires human sign-off"
+    if step.kind == StepKind.TAG and _is_external_release_env(step.env):
+        if "publish_external_release" in deny:
+            return "external release blocked by autonomy.deny (publish_external_release)"
+        if mode != "unattended" and "publish_external_release" not in allow:
+            return "external release requires human approval in supervised mode"
+    if step.kind == StepKind.PR:
+        merge_gated = "merge_pr" in deny or (mode != "unattended" and "merge_pr" not in allow)
+        if merge_gated and step.pr_state == "merge_ready":
+            return "PR merge requires human action (autonomy: merge_pr)"
+        if for_complete and merge_gated and step.pr_state != "merged":
+            return (
+                "completing an unmerged PR step requires forge merge confirmation via sync "
+                "or explicit human approval (autonomy: merge_pr)"
+            )
     return None
 
 
@@ -513,6 +574,8 @@ def resolve_step(plan: ReleasePlan, step: ReleaseStep, autonomy: Dict[str, Any])
         "gate_cmds": [interpolate(g) for g in step.gate_cmds],
         "verify_cmd": interpolate(step.verify_cmd),
         "rollback_cmd": interpolate(step.rollback_cmd),
+        "approved_by": step.approved_by,
+        "approved_at": step.approved_at,
         "human_gate": human_gate,
         "note": step.note,
     }
@@ -656,6 +719,8 @@ def render_markdown(plan: ReleasePlan, autonomy: Dict[str, Any]) -> str:
             details.append(pr_s)
         if item["ref"]:
             details.append(f"`{item['ref']}`")
+        if item["approved_by"]:
+            details.append(f"approved by `{item['approved_by']}`")
         if item["human_gate"] and item["effective_state"] != "done":
             details.append(f"human: {item['human_gate']}")
         detail_str = "; ".join(details) if details else "-"
@@ -795,11 +860,15 @@ def cmd_set_pr(args: argparse.Namespace) -> int:
     step = plan.get_step(args.id)
     if step.kind != StepKind.PR:
         raise ReleaseError(f"step {step.id!r} has kind={step.kind.value}, expected 'pr'")
+    if step.status == StepStatus.DONE:
+        raise ReleaseError(f"cannot modify PR metadata on completed step {step.id!r}")
     step.pr_url = args.pr_url.strip()
     if args.branch:
         step.branch = args.branch.strip()
     if args.head_sha:
-        step.outputs["head_sha"] = args.head_sha.strip()
+        sha = args.head_sha.strip()
+        check_no_secrets(f"{step.id}.outputs.head_sha", sha)
+        step.outputs["head_sha"] = sha
     step.updated_at = utc_now()
     prev = step.status.value
     autonomy = load_autonomy(Path(args.settings) if args.settings else None)
@@ -914,11 +983,43 @@ def cmd_start(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_approve(args: argparse.Namespace) -> int:
+    path = Path(args.file).expanduser()
+    plan = load_plan_file(path)
+    autonomy = load_autonomy(Path(args.settings) if args.settings else None)
+    step = plan.get_step(args.id)
+    approver = args.by.strip()
+    if not approver:
+        raise ReleaseError("--by must be a non-empty approver name or handle")
+    check_no_secrets(f"{step.id}.approved_by", approver)
+    if args.note:
+        check_no_secrets(f"{step.id}.note", args.note)
+    prev = step.status.value
+    now = utc_now()
+    step.approved_by = approver
+    step.approved_at = now
+    if step.status == StepStatus.WAITING_HUMAN:
+        step.status = StepStatus.IN_PROGRESS
+    if args.note:
+        step.note = args.note
+    step.updated_at = now
+    detail = f"approved by {approver}" + (f" ({args.note})" if args.note else "")
+    plan.record_event(step.id, "approve", from_status=prev, to_status=step.status.value, detail=detail)
+    save_plan_file(path, plan, Path(args.markdown).expanduser() if args.markdown else None, autonomy)
+    out = resolve_step(plan, step, autonomy)
+    if args.json:
+        print(json.dumps(out, indent=2))
+    else:
+        print(f"Approved {step.id!r} by {approver} ({prev} -> {step.status.value})")
+    return 0
+
+
 def cmd_verify(args: argparse.Namespace) -> int:
     path = Path(args.file).expanduser()
     plan = load_plan_file(path)
     autonomy = load_autonomy(Path(args.settings) if args.settings else None)
     step = plan.get_step(args.id)
+    new_outputs = parse_kv(getattr(args, "output", None) or [])
     res = resolve_step(plan, step, autonomy)
     if res["missing_deps"] or res["missing_outputs"]:
         raise ReleaseError(
@@ -927,8 +1028,20 @@ def cmd_verify(args: argparse.Namespace) -> int:
     prev = step.status.value
     verify_cmd = res["verify_cmd"]
     if args.run:
+        gate = step_gate_reason(step, autonomy, for_complete=True)
+        if gate:
+            raise ReleaseError(
+                f"cannot verify --run {step.id!r}: {gate}; record human approval first with "
+                f"'astack-release approve {path} --id {step.id} --by <approver>'"
+            )
         if not verify_cmd:
             raise ReleaseError(f"step {step.id!r} has no verify_cmd to run")
+        for k, v in new_outputs.items():
+            if k in step.outputs and step.outputs[k] != v:
+                raise ReleaseError(
+                    f"cannot overwrite immutable output {step.id}.{k} "
+                    f"(existing={step.outputs[k]!r}, new={v!r})"
+                )
         step.status = StepStatus.VERIFYING
         proc = subprocess.run(
             verify_cmd,
@@ -939,9 +1052,9 @@ def cmd_verify(args: argparse.Namespace) -> int:
         )
         snippet = (proc.stdout + proc.stderr).strip()[:1000]
         if proc.returncode == 0:
+            _record_immutable_outputs(step, {**new_outputs, "verify_status": "passed"})
             step.status = StepStatus.DONE
             step.note = args.note or f"verify passed: {verify_cmd}"
-            step.outputs["verify_status"] = "passed"
         else:
             step.status = StepStatus.FAILED
             step.note = f"verify failed (exit {proc.returncode}): {snippet}"
@@ -973,14 +1086,25 @@ def cmd_complete(args: argparse.Namespace) -> int:
     plan = load_plan_file(path)
     autonomy = load_autonomy(Path(args.settings) if args.settings else None)
     step = plan.get_step(args.id)
+    new_outputs = parse_kv(args.output or [])
     res = resolve_step(plan, step, autonomy)
     if res["missing_deps"] or res["missing_outputs"]:
         raise ReleaseError(
             f"cannot complete {step.id!r}: blocked on deps={res['missing_deps']} outputs={res['missing_outputs']}"
         )
-    new_outputs = parse_kv(args.output or [])
+    gate = step_gate_reason(step, autonomy, for_complete=True)
+    if gate:
+        raise ReleaseError(
+            f"cannot complete {step.id!r}: {gate}; record human approval first with "
+            f"'astack-release approve {path} --id {step.id} --by <approver>'"
+        )
+    if step.verify_cmd and step.outputs.get("verify_status") != "passed":
+        raise ReleaseError(
+            f"cannot complete {step.id!r}: step defines verify_cmd; "
+            f"run 'astack-release verify {path} --id {step.id} --run' first"
+        )
     prev = step.status.value
-    step.outputs.update(new_outputs)
+    _record_immutable_outputs(step, new_outputs)
     step.status = StepStatus.DONE
     if args.note:
         step.note = args.note
@@ -1155,19 +1279,37 @@ def cmd_sync(args: argparse.Namespace) -> int:
         pr_state, pr_outputs = _extract_pr_snapshot(data)
         prev = step.status.value
         step.pr_state = pr_state
-        for k, v in pr_outputs.items():
-            check_no_secrets(f"{step.id}.outputs.{k}", v)
-            step.outputs[k] = v
+        if step.status in (StepStatus.DONE, StepStatus.VERIFYING):
+            _record_immutable_outputs(step, pr_outputs)
+        else:
+            for k, v in pr_outputs.items():
+                check_no_secrets(f"{step.id}.outputs.{k}", v)
+                if k == "merge_sha" and "merge_sha" in step.outputs and step.outputs["merge_sha"] != v:
+                    raise ReleaseError(
+                        f"cannot overwrite immutable output {step.id}.merge_sha "
+                        f"(existing={step.outputs['merge_sha']!r}, new={v!r})"
+                    )
+                step.outputs[k] = v
 
         if pr_state == "merged":
-            if "merge_sha" not in step.outputs and "head_sha" in step.outputs:
-                step.outputs["merge_sha"] = step.outputs["head_sha"]
+            # Never fabricate merge_sha from head_sha: squash/rebase merges produce a different
+            # commit on the base branch, so downstream steps requiring merge_sha stay blocked
+            # until the real merge commit SHA is observed or recorded.
+            missing_merge_sha = "merge_sha" not in step.outputs
             if step.verify_cmd and step.outputs.get("verify_status") != "passed":
                 step.status = StepStatus.VERIFYING
-                step.note = "PR merged; awaiting post-merge external verification (`astack-release verify --run`)"
+                step.note = (
+                    "PR merged (merge_commit_sha not reported by watcher); awaiting post-merge verification (`astack-release verify --run`)"
+                    if missing_merge_sha
+                    else "PR merged; awaiting post-merge external verification (`astack-release verify --run`)"
+                )
             else:
                 step.status = StepStatus.DONE
-                step.note = "PR merged"
+                step.note = (
+                    "PR merged (merge_commit_sha not reported by watcher; record real base-branch merge_sha if downstream steps require it)"
+                    if missing_merge_sha
+                    else "PR merged"
+                )
         elif pr_state == "closed":
             step.status = StepStatus.FAILED
             step.note = "PR closed without merge"
@@ -1302,17 +1444,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_start.add_argument("--markdown")
     p_start.add_argument("--json", action="store_true")
 
-    p_verify = sub.add_parser("verify", help="mark a step verifying or run its read-only verify_cmd")
+    p_approve = sub.add_parser("approve", help="record explicit human approval for a gated step (unblocks verify/complete)")
+    p_approve.add_argument("file")
+    p_approve.add_argument("--id", required=True)
+    p_approve.add_argument("--by", required=True, help="approving human name or handle")
+    p_approve.add_argument("--settings")
+    p_approve.add_argument("--note", default="")
+    p_approve.add_argument("--markdown")
+    p_approve.add_argument("--json", action="store_true")
+
+    p_verify = sub.add_parser("verify", help="mark a step verifying or run its verify_cmd (requires approval if gated)")
     p_verify.add_argument("file")
     p_verify.add_argument("--id", required=True)
     p_verify.add_argument("--run", action="store_true")
+    p_verify.add_argument("--output", action="append", default=[], help="KEY=VALUE recorded immutably on --run pass (repeatable)")
     p_verify.add_argument("--timeout", type=int, default=120)
     p_verify.add_argument("--settings")
     p_verify.add_argument("--note", default="")
     p_verify.add_argument("--markdown")
     p_verify.add_argument("--json", action="store_true")
 
-    p_comp = sub.add_parser("complete", help="mark a step done and record immutable upstream outputs")
+    p_comp = sub.add_parser("complete", help="mark a step done and record immutable upstream outputs (enforces autonomy and verify_cmd gates)")
     p_comp.add_argument("file")
     p_comp.add_argument("--id", required=True)
     p_comp.add_argument("--output", action="append", default=[], help="KEY=VALUE (repeatable)")
@@ -1362,6 +1514,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "ready": cmd_ready,
         "sync": cmd_sync,
         "start": cmd_start,
+        "approve": cmd_approve,
         "verify": cmd_verify,
         "complete": cmd_complete,
         "fail": cmd_fail,

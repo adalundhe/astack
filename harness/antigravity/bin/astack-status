@@ -208,17 +208,29 @@ def main():
     args = parser.parse_args()
 
     log = find_log(args.path)
+    now = datetime.now(timezone.utc)
+    xharness = active_dispatches()
     if not log or not log.is_file():
-        print("astack: no lane log found" if args.line else "No astack lane log found.")
-        return 1
+        if not xharness:
+            print("astack: no lane log found" if args.line else "No astack lane log found.")
+            return 1
+        if args.line:
+            print(f"astack: {len(xharness)} running ({len(xharness)}xh)")
+            return 0
+        print(f"astack status at {now:{STAMP_FORMAT}}: standalone cross-harness agents (no LANES.md)")
+        print("\nRunning cross-harness agents (astack-dispatch)")
+        for d in xharness:
+            vec = f", vector {d['vector']}" if d.get("vector") else ""
+            print(f"  {d['run_id']} ({d.get('harness')} {d.get('provider')}/{d.get('model')}, role {d.get('role')}{vec}, pid {d.get('pid') or d.get('supervisor_pid')})")
+            if d.get("out_file"):
+                print(f"    out: {d['out_file']}")
+        return 0
     agents, lanes, asks, repository, unstamped = read_log(log)
     repo = args.repo or repository or "."
-    now = datetime.now(timezone.utc)
     running = {name: a for name, a in agents.items() if not a["ended"]}
     running_workers = {n: a for n, a in running.items() if a["role"] == "worker"}
     running_reviewers = {n: a for n, a in running.items() if a["role"] == "reviewer"}
     running_researchers = {n: a for n, a in running.items() if a["role"] == "researcher"}
-    xharness = active_dispatches()
     program = log.parent.name
 
     if args.line:

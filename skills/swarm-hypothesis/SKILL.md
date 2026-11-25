@@ -8,16 +8,15 @@ disable-model-invocation: true
 
 When no single design is clearly best, build competing approaches and measure them. Graft the strongest ideas from losing attempts onto the winner, then delete the losers.
 
-**Skip if obvious:** when prior art or constraints already pick one clear design, build it directly instead of spawning parallel variants.
+**Skip if obvious:** when prior art or constraints pick one clear design, build it directly instead of spawning parallel variants.
 
-1. **Research prior art (**research-this**):** survey competing implementations, algorithms, and references. Grade every source by quality.
-2. **Push past the obvious baseline:** combine strong ideas from prior art and target the bottlenecks holding existing options back. Propose distinct candidate designs worth testing.
-3. **Build candidates cleanly:**
-   - **Lead:** dispatch one `astack:worker` per candidate (including promising hybrids) in isolated **slates** volumes or git worktrees under **lead**'s watch-and-swap clocks.
-   - **Workers / Researchers:** propose candidates or prototype them sequentially inside your own workspace without spawning subagents.
-4. **Measure and compare:** profile each candidate under the same workload using **benchmarking** and **ab-test**.
-5. **Graft before deleting:** inspect where any loser beat the winner—sub-benchmarks, tail latency, memory, cleaner data shape, or simpler error handling. Graft those wins onto the winner, because the second-place design often solves one edge better than the overall winner. Re-verify all tests and benchmarks.
-6. **Don't duck hard designs:** if the winning approach is harder to build, still build it properly. Make it work, then robust, then fast.
-7. **Clean up and ship:** log every candidate's numbers and the graft decisions as `decided:` in `LANES.md`. Delete all losing variants and workspaces in the same change, then send the grafted winner to **review**.
+1. **Research prior art (`research-this`):** survey competing implementations, algorithms, and references. Grade every source by quality.
+2. **Architect distinct candidates (any number $k \ge 2$):** combine strong ideas from prior art and target the real bottlenecks. **Researchers** stay strictly read-only. They determine and architect each candidate POC (interfaces, data structures, risks, measurement plan) and hand specs to Lead for worker implementation.
+3. **Build candidates via workers:**
+   - **Lead:** dispatch one `astack:worker` per candidate (including hybrids) in isolated **slates** volumes or git worktrees under **lead**'s watch-and-swap clocks.
+   - **Workers:** build your assigned candidate without spawning subagents. If tasked to compare options locally, prototype them sequentially in your own writable workspace.
+4. **Measure, graft, and delete losing variants (`ab-test`, `benchmarking`):** compare all $k$ candidates with randomized alternating rounds and Holm–Bonferroni control. Follow `ab-test`'s graft-then-delete step.
+5. **Don't duck hard designs:** if the winning approach is harder to build, still build it properly. Make it work, then robust, then fast.
+6. **Clean up and ship:** log every candidate's numbers and graft choices as `decided:` in `LANES.md`. Delete all losing variants and workspaces in the same change, then send the grafted winner to **review**.
 
 **Done when:** one grafted winner passes tests, benchmarks, and **review**, all losing workspaces are deleted, and every candidate's numbers are logged.

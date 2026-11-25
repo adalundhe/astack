@@ -43,7 +43,7 @@ raise SystemExit(asyncio.run(main()))
 
 ### Tasks, subprocesses, and schedules
 
-- **Python callables.** Call `runner.run(fn, *args, alias="name", timeout="30s", resume_from=..., **kwargs)` to get a `Run` with `run.token`. Use `runner.bundle(fn, *args, **kwargs)` to group varied calls under one alias.
+- **Python callables.** Call `runner.run(fn, *args, alias="name", timeout="30s", resume_from=..., **kwargs)` to get a `Run` with `run.token`. Use `runner.bundle(fn, *args, **kwargs)` (a `functools.partial` helper) to pre-bind arguments before passing a callable to `runner.run(...)` or schedules.
 - **Shell commands.** Call `runner.command(cmd, *args, alias="name", env=..., cwd=..., shell=False, timeout="30s", resume_from=...)`. Keep `shell=False` and pass separate arg strings, because shell expansion opens command injection.
 - **Env gotcha.** `env=...` replaces the child environment instead of merging. Pass `{**os.environ, ...}` to preserve `PATH`.
 - **Inspecting results.** `await runner.wait(token)` and `wait_all(tokens)` return typed snapshots (`status`, `result`, `error`, `trace`, `elapsed`, `paused_duration`, `checkpoint`). Read live streams via `get_task_update(token)`, `run.get_stdout()`, and `run.get_stderr()`.
@@ -86,9 +86,9 @@ raise SystemExit(asyncio.run(main()))
 
 ### Playbooks and store pointers
 
-- **Checkpoints (**checkpoint**).** Use `last_checkpoint()`, `await checkpoint(...)`, or `checkpoint_sync(...)` (`"thread"` / `"none"`). For `"process"` tasks, call `await runner.checkpoint(token, state)` because `ContextVar` cannot cross OS processes. Default store is `MemoryCheckpointStore`. For crash durability, pass `SQLiteCheckpointStore(path)` or set `Env(MERCURY_SYNC_CHECKPOINT_DB_PATH=...)`.
-- **Live pause (**suspend**).** Call `await runner.pause(token)` to pause at `pause_point()`/`checkpoint()`, or send `SIGSTOP` to POSIX shell groups. Timeouts freeze while paused.
-- **Recovery (**resume**).** Call `await runner.resume(token_or_name, *args, call=fn, **kwargs)` on a live or fresh `TaskRunner` sharing the SQLite store. Or pass `resume_from=...` to `runner.run(...)` or `runner.command(...)`.
+- **Checkpoints (`checkpoint`).** Use `last_checkpoint()`, `await checkpoint(...)`, or `checkpoint_sync(...)` (`"thread"` / `"none"`). For `"process"` tasks, call `await runner.checkpoint(token, state)` because `ContextVar` cannot cross OS processes. Default store is `MemoryCheckpointStore`. For crash durability, pass `SQLiteCheckpointStore(path)` or set `Env(MERCURY_SYNC_CHECKPOINT_DB_PATH=...)`.
+- **Live pause (`suspend`).** Call `await runner.pause(token)` to pause at `pause_point()`/`checkpoint()`, or send `SIGSTOP` to POSIX shell groups. Timeouts freeze while paused.
+- **Recovery (`resume`).** Call `await runner.resume(token_or_name, *args, call=fn, **kwargs)` on a live or fresh `TaskRunner` sharing the SQLite store. Or pass `resume_from=...` to `runner.run(...)` or `runner.command(...)`.
 
 ## Hygiene
 
@@ -98,4 +98,4 @@ raise SystemExit(asyncio.run(main()))
 
 **Done when:** the script runs via `astack-tools python`, checks `res.status`, exits non-zero on failure, and survives an idempotent rerun or resume.
 
-Referenced skills: `checkpoint` (`../checkpoint/SKILL.md`), `suspend` (`../suspend/SKILL.md`), `resume` (`../resume/SKILL.md`), `no-hidden-flow-control` (`../no-hidden-flow-control/SKILL.md`), `safe-to-rerun` (`../safe-to-rerun/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `no-hidden-flow-control` (`../no-hidden-flow-control/SKILL.md`), `safe-to-rerun` (`../safe-to-rerun/SKILL.md`). Read any cited skill file before acting when its trigger applies.

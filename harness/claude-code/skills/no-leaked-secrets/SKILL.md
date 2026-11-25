@@ -11,9 +11,10 @@ Never commit, expose, return, or log secrets, credentials, unneeded personal dat
 ## Start with
 
 1. **Keep secrets out of code and artifacts**. Load keys, passwords, tokens, salts, and connection strings from secret stores or runtime env vars. Never put them in source, defaults, fixtures, or dumps, because leaked artifacts persist in git history.
-2. **Minimize exposed data (**check-your-boundaries**):** return only fields the caller needs. Strip internal IDs, tokens, cookies, stack traces, and unneeded PII from API responses, errors, and client bundles.
+2. **Minimize exposed data (`check-your-boundaries`):** return only fields the caller needs. Strip internal IDs, tokens, cookies, stack traces, and unneeded PII from API responses, errors, and client bundles.
 3. **Log narrowly and redact at the sink**. Log correlation IDs, status codes, and bounded summaries. Never log auth headers, raw bodies, `env` dumps, or user SQL params, because logs spread widely. Redact centrally across logs, metrics, and traces.
 4. **Sweep outgoing artifacts before review or push**. Scan diffs, commits, PR descriptions, proof attachments, configs, tests, and untracked files. Run **cleanup** if stray debug dumps turn up.
+5. **Rotate and revoke first if a real secret already leaked:** whenever a live credential was committed, logged, or exposed, rotate and revoke it immediately before rewriting history or scrubbing files, because scrubbing does not invalidate an already-exposed key.
 
 ## Watch for
 
@@ -33,4 +34,4 @@ Never commit, expose, return, or log secrets, credentials, unneeded personal dat
 
 **Showing it:** cite the exact `file:line` or runtime output where the secret, token, or PII leaks.
 
-Referenced skills: `check-your-boundaries` (`${CLAUDE_SKILL_DIR}/../check-your-boundaries/SKILL.md`), `cleanup` (`${CLAUDE_SKILL_DIR}/../cleanup/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `cleanup` (`${CLAUDE_SKILL_DIR}/../cleanup/SKILL.md`). Read any cited skill file before acting when its trigger applies.

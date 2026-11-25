@@ -13,10 +13,10 @@ Apply this across whatever cloud, edge, orchestrator, database, or identity prov
 ## Start with
 
 1. **Scope actions, resources, and conditions explicitly:** name exact operations, resources, and conditions (account, project, VPC, IP, service). Never grant wildcards (`*`), admin presets, global keys, or `0.0.0.0/0` ingress without a documented boundary need.
-2. **Lock down trust and federation boundaries:** constrain OIDC, workload identity, and cross-account trust to exact issuer, audience, repo, or namespace. Never wildcard subject (`sub`) claims, because wildcards enable confused-deputy takeover.
+2. **Lock down trust and federation boundaries:** constrain OIDC, workload identity, and cross-account trust to exact issuer, audience, **and** subject claim (`sub`: exact repo/branch/environment or namespace/service-account). Never allow audience-only trust or wildcard `sub` claims, because either enables confused-deputy takeover.
 3. **Separate runtime, migration, deploy, and admin identities:** give serving workloads minimal runtime rights only. Keep migrations, CI deploys, DNS, and admin separate, because mixing them turns any app bug into full compromise.
-4. **Preserve live workloads during revocations (**safe-to-deploy**):** tighten or rotate live identities via expand -> switch -> contract so running jobs and rollbacks keep working.
-5. **Prove both allow and deny (**prove-it**):** verify allowed actions succeed and disallowed actions fail as the target identity. Use the real scoped token, non-superuser role, `kubectl auth can-i --as=...`, or IAM simulator. Never test only as admin, because elevated runners mask missing or overly broad grants.
+4. **Preserve live workloads during revocations (`safe-to-deploy`):** tighten or rotate live identities via expand -> switch -> contract so running jobs and rollbacks keep working.
+5. **Prove both allow and deny (`prove-it`):** verify allowed actions succeed and disallowed actions fail as the target identity. Use the real scoped token, non-superuser role, `kubectl auth can-i --as=...`, or IAM simulator. Never test only as admin, because elevated runners mask missing or overly broad grants.
 
 ## Watch for
 
@@ -35,5 +35,3 @@ Apply this across whatever cloud, edge, orchestrator, database, or identity prov
 - intentionally public internet ingress, still gated behind TLS, WAF/rate limits, and authenticated origins.
 
 **Showing it:** run a disallowed action or identity assumption as the target identity (or policy evaluator). Show it succeeds when it must be denied.
-
-Referenced skills: `safe-to-deploy` (`../safe-to-deploy/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.

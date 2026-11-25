@@ -25,9 +25,9 @@ Only the Lead updates the tracker, because parallel worker edits create duplicat
 ## 3. Sync states and close with proof
 
 1. **Move on real transitions.** Mark `in progress` on start and `in review` when the PR opens. Mark `done` on verified merge, or `blocked` with the blocker ref.
-2. **Close with proof (**prove-it**).** Post what changed, the PR or SHA, and how done-when passed. When a ticket splits or re-plans, note the update instead of deleting it.
+2. **Close with proof (`prove-it`).** Post what changed, the PR or SHA, and how done-when passed. When a ticket splits or re-plans, note the update instead of deleting it.
 3. **Keep notifications narrow.** Notify only the person or people explicitly requested.
 
 **Reply:** list the parent Epic ref, created or updated ticket IDs in dependency order, `<program>/tickets.json`, and ready vs. blocked tickets.
 
-Referenced skills: `sprint` (`../sprint/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`), `dagify` (`../dagify/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `sprint` (`../sprint/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`), `dagify` (`../dagify/SKILL.md`). Read any cited skill file before acting when its trigger applies.

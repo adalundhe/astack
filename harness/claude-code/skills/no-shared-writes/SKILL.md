@@ -28,7 +28,7 @@ Avoid shared mutable state across concurrent writers instead of reaching for loc
 
 ## When it doesn't fit
 
-- one shared target enforcing a real invariant, serialized structurally per `Start with`;
+- one shared target enforcing a real invariant, serialized structurally per `Start with` (if a crash-recoverable lock/lease file is required, tag it with owner, PID, and expiry per `safe-to-rerun`);
 - concurrent readers of immutable data;
 - writes serialized with documented platform guarantees (database transactions, atomic append, atomic rename).
 

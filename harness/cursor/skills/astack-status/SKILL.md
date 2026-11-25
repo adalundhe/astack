@@ -10,10 +10,11 @@ Run `astack-status` from `PATH` (linked into `~/.local/bin` by `/astack-setup`) 
 
 ## Log lookup and flags
 
-- With no path argument, `astack-status` reads `./LANES.md` first. Otherwise it opens the newest `LANES.md` under `~/.cache/astack/`.
-- Pass a program folder or `LANES.md` path to inspect another program, or `--repo DIR` to override the git checkout.
+- With no path argument, `astack-status` reads `./LANES.md` first, else the newest `LANES.md` under `~/.cache/astack/`. If no lane log exists, it still reports live `astack-dispatch` runs.
+- Pass a program folder or `LANES.md` path to inspect another program. Use `--repo DIR` to override the git checkout.
 - Use `astack-status --line` for a one-line status-bar summary.
-- If `astack-status` exits `1` (`No astack lane log found.`), report that no active program log exists rather than inventing status.
+- Check or join cross-harness runs directly with `astack-dispatch status --active-only --json` and `astack-dispatch wait <run_id ...> --json`.
+- If `astack-status` exits `1` (`No astack lane log found.`), report that no active program log or cross-harness run exists.
 
 ## Reporting output
 

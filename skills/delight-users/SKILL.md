@@ -18,6 +18,7 @@ Prioritize the consumer's experience over implementation convenience, because ro
 
 ## Watch for
 
+- inaccessible UIs (missing keyboard navigation, semantic labels/ARIA, visible focus states, or readable contrast);
 - actions with no feedback, or errors that hide what failed or how to fix it;
 - missing empty, loading, or failure states;
 - defaults that force manual setup, or options nobody asked for;

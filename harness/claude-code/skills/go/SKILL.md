@@ -1,6 +1,6 @@
 ---
 name: go
-description: "Single entry point for astack; routes on demand by path to all 87 hidden workflows and coding rules. Use before any review, bug, refactor, build, plan, test, benchmark, research, or catch-up task."
+description: "Single entry point for astack; routes on demand by path to all 89 hidden workflows and coding rules. Use before any review, bug, refactor, build, plan, test, benchmark, research, or catch-up task."
 ---
 
 # Go mode
@@ -33,6 +33,7 @@ Read matching skill file(s) before starting:
   - Reviewed task DAG: `${CLAUDE_SKILL_DIR}/../dagify/SKILL.md`
   - Bottom-up component-tree waves: `${CLAUDE_SKILL_DIR}/../treeify/SKILL.md`
   - Multi-repo PR merge & deploy DAG (`astack-release`): `${CLAUDE_SKILL_DIR}/../cross-repo/SKILL.md`
+  - Safe revert & deploy rollback (investigate landing/deploy shape first): `${CLAUDE_SKILL_DIR}/../unland/SKILL.md`
   - Automated/recurring workflows: `${CLAUDE_SKILL_DIR}/../workflow-this/SKILL.md`
   - Parallel worker lanes: `${CLAUDE_SKILL_DIR}/../lead/SKILL.md`
   - Issue-tracker sync: `${CLAUDE_SKILL_DIR}/../track-it/SKILL.md`
@@ -54,6 +55,7 @@ Read matching skill file(s) before starting:
   - Throwaway prototype/mockup: `${CLAUDE_SKILL_DIR}/../play-with-me/SKILL.md`
   - Explain unfamiliar concepts: `${CLAUDE_SKILL_DIR}/../talk-to-me/SKILL.md`
   - Architecture decision record (`AD-N`): `${CLAUDE_SKILL_DIR}/../create-adc/SKILL.md`
+  - Design-tree interview + `LESSON.md` & `AD_<N>.md` docs: `${CLAUDE_SKILL_DIR}/../grill-with-docs/SKILL.md`
 - **Optimize & experiment:**
   - Statistical benchmarks: `${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`
   - Fair competitor baselines: `${CLAUDE_SKILL_DIR}/../baseline/SKILL.md`
@@ -102,7 +104,7 @@ Read matching skill file(s) before starting:
 
 ## Principles and coding-rules index
 
-Read before any code work; open a rule's file when its trigger applies. Any code written or reviewed triggers `data-structures-first`, `check-your-boundaries`, `no-bolt-ons`, `yagni`, `comment-cop`, and checking impacted repo docs (`technical-writing`).
+Read before any code work; open a rule's file when its trigger applies. Features and refactors trigger `data-structures-first`, `check-your-boundaries`, `no-bolt-ons`, `yagni`, `comment-cop`, and impacted repo docs (`technical-writing`); narrow bug fixes stay minimal per `fix-it` instead of rearchitecting from scratch.
 
 | Trigger | Rule file | Core rule |
 |---|---|---|
@@ -167,10 +169,11 @@ Every skill has an owner: **required** = load in full before starting; **when it
 | `/astack:formal-validate` | – | when it applies | when it applies | – |
 | `/astack:full-spectrum-testing` | – | when it applies | when it applies | – |
 | `/astack:go` | required | required | required | required |
+| `/astack:grill-with-docs` | when it applies | – | – | when it applies |
 | `/astack:how-it-works` | when it applies | when it applies | when it applies | when it applies |
 | `/astack:lead` | required | – | – | – |
 | `/astack:least-privilege` | when it applies | when it applies | when it applies | when it applies |
-| `/astack:leave-feedback` | when it applies | – | when it applies | – |
+| `/astack:leave-feedback` | when it applies | when it applies | when it applies | – |
 | `/astack:leave-it-better` | when it applies | when it applies | – | – |
 | `/astack:lookback` | when it applies | when it applies | – | when it applies |
 | `/astack:lookup` | when it applies | when it applies | when it applies | when it applies |
@@ -217,6 +220,7 @@ Every skill has an owner: **required** = load in full before starting; **when it
 | `/astack:track-it` | when it applies | – | – | – |
 | `/astack:treeify` | when it applies | – | when it applies | when it applies |
 | `/astack:triage` | when it applies | when it applies | when it applies | when it applies |
+| `/astack:unland` | when it applies | when it applies | when it applies | when it applies |
 | `/astack:wat` | required | when it applies | when it applies | when it applies |
 | `/astack:watch-pr` | when it applies | – | – | – |
 | `/astack:werkflow` | when it applies | when it applies | – | – |

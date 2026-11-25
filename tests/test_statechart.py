@@ -368,6 +368,22 @@ class StatechartUnitTest(unittest.TestCase):
         self.assertEqual(r12.returncode, 1, r12.stdout)
         self.assertNotIn("All checked invariants held", r12.stdout)
 
+        # TLC exit 14 (assertion failure) and exit 10 (assumption violation) map to exit 1 with raw tlc_exit_code in JSON!
+        for code in (10, 14):
+            tlc_v = self.dir / f"fake-tlc-{code}"
+            tlc_v.write_text(
+                "#!/bin/sh\n"
+                'dot_file=""; prev=""\n'
+                'for a in "$@"; do if [ "$prev" = "dot,actionlabels" ]; then dot_file="$a"; fi; prev="$a"; done\n'
+                'printf \'digraph G { 1 [label="x = 0", style=filled]; }\\n\' > "$dot_file"\n'
+                f"printf '%s\\n' 'Error: TLC violation exit {code}.'\n"
+                f"exit {code}\n"
+            )
+            tlc_v.chmod(0o755)
+            rv = run_sc("check", str(model), "--tlc", str(tlc_v), "--json")
+            self.assertEqual(rv.returncode, 1, rv.stderr)
+            self.assertEqual(json.loads(rv.stdout)["tlc_exit_code"], code)
+
         # Truncated crash exit 255 with partial DOT -> MUST exit 2, NEVER 0 or 1
         tlc_255 = self.dir / "fake-tlc-255"
         tlc_255.write_text(

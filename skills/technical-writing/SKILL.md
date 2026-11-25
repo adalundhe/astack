@@ -14,7 +14,7 @@ Keep docs accurate on every change. Write so an engineer can use, debug, or modi
    - Replace marketing copy and bare adjectives ("blazing fast", "seamless", "robust") with exact behavior, limits, defaults, and numbers.
    - Show exact commands, file paths, flags, inputs, and expected outputs.
    - Document failure modes, prerequisites, and platform differences explicitly.
-4. **Verify every claim against real code (**prove-it**):** confirm every command, flag, default, path, and example matches the repo and runs as written.
+4. **Verify every claim against real code (`prove-it`):** confirm every command, flag, default, path, and example matches the repo and runs as written.
 5. **Write for scanning:**
    - Use short sentences, active voice, and direct imperatives ("Run X", not "You might consider running X").
    - Use plain topic headings, bullets for parallel items, and tables only for multi-column comparisons.

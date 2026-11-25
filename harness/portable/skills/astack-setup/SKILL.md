@@ -50,7 +50,7 @@ Configure role models, `reviewer_pool`, **autonomy**, role timers, CLI `PATH` li
        {"provider": "<provider-2>", "model": "<model-2>", "effort": "<effort-2>"}
      ],
      "autonomy": {
-       "mode": "unattended",
+       "mode": "<supervised|unattended>",
        "allow": [
          "local_worktrees_and_experiments",
          "out_of_dir_work",
@@ -72,14 +72,14 @@ Configure role models, `reviewer_pool`, **autonomy**, role timers, CLI `PATH` li
        ]
      },
      "automation": {
-       "mode": "python-stack",
-       "profile": "standard",
-       "venv": "~/.local/share/astack/venv"
+       "mode": "<agentic-only|python-stack>",
+       "profile": "<core|standard|all>",
+       "venv": "<~/.local/share/astack/venv>"
      }
    }
    ```
 
-   If the person declined Python tooling, write `"automation": {"mode": "agentic-only"}` so `workflow-this` and `automate-this` default to pure-agentic flows.
+   For the defaults: under `supervised`, set `"mode": "supervised"` and `"allow": []` (keeping `"deny"`). Under `agentic-only`, write `"automation": {"mode": "agentic-only"}` and omit `"profile"`/`"venv"`.
 
    Initialize `~/.astack` (`$HOME/.astack` on macOS/Linux; `%USERPROFILE%\.astack` on Windows) with `<astack-tools> init-home`. If `astack-tools` is absent, create `$HOME/.astack` (`0700` on POSIX) or `%USERPROFILE%\.astack` directly—never store lessons inside a git repo.
 5. **Install the agents and verify reachability.** Run `astack-tools install-agents --harness all` (or `--harness antigravity` / `devin` / `pi` / `cursor` / `codex`) to install all four native agents (`astack-lead`, `astack-worker`, `astack-reviewer`, `astack-researcher`). Check every approved `reviewer_pool` model with `astack-dispatch check-pool` (passing `--host agy` / `cursor` / `devin` / `pi` as applicable). Native models dispatch via `agents/astack-reviewer.md`, and cross-harness models (`claude`, `codex`, `agy`, `cursor-agent`/`agent`, `devin`, `pi`, `gemini`, custom CLI) dispatch via `astack-dispatch`. Report any unreachable model instead of letting `review` substitute another.

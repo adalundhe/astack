@@ -15,7 +15,7 @@ Run this Lead-only consolidation pass after `dagify`, `treeify`, `redteam`, `spr
    - lanes or review rounds left fixup churn, revert/reapply noise, or tiny mechanical commits;
    - a single-repo `dagify` or `treeify` run split one tightly coupled feature across fragmented PRs.
 3. **Keep separate (do not combine) when:**
-   - **Staged deploy gates (**safe-to-deploy**):** expand/contract migrations or `cross-repo` steps must roll out separately.
+   - **Staged deploy gates:** expand/contract migrations (**safe-to-deploy**) or `cross-repo` steps must roll out separately.
    - **Unrelated fixes:** preexisting CI or infra fixes belong in their own PR (`leave-it-better`).
    - **Distinct ownership or review:** separate CODEOWNERS domains, external review threads, or PRs owned by others (`close_or_delete_others_pr` is denied).
    - **Bisectable perf steps:** keep measured `clamber` optimization commits distinct; squash only inner fixup churn.
