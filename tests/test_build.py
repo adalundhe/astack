@@ -461,7 +461,14 @@ class BuildTest(unittest.TestCase):
         self.assertIn("No convergence / stalled", bugbash)
         self.assertIn("prove-it", bugbash)
         self.assertIn("throwaway scratch worktree", bugbash)
-        self.assertIn("Slates VFS volume", bugbash)
+        self.assertIn("**slates**", bugbash)
+
+        slates_skill = (ROOT / "skills/slates/SKILL.md").read_text()
+        self.assertIn("https://github.com/hyper-light/slates", slates_skill)
+        self.assertIn("slates status", slates_skill)
+        self.assertIn("git worktree", slates_skill)
+        self.assertIn("slates volume destroy", slates_skill)
+
         for path in (
             "skills/dagify/SKILL.md",
             "skills/bugbash/SKILL.md",
@@ -475,7 +482,7 @@ class BuildTest(unittest.TestCase):
             "agents/lead.md",
         ):
             text = (ROOT / path).read_text()
-            self.assertIn("Slates VFS", text, f"{path} missing preferred Slates VFS volume / worktree isolation rule")
+            self.assertIn("https://github.com/hyper-light/slates", text, f"{path} missing Slates definition/link")
         self.assertIn("throwaway scratch worktree", (ROOT / "agents/reviewer.md").read_text())
         self.assertIn("make-it-stick", bugbash)
         self.assertIn("rejected root-cause theory", bugbash)
@@ -484,6 +491,27 @@ class BuildTest(unittest.TestCase):
         self.assertIn("rejected theories", lead_src)
         self.assertIn("failed fix approaches/attempts", (ROOT / "skills/review/SKILL.md").read_text())
         self.assertIn("rejected root-cause theories", (ROOT / "skills/make-it-stick/SKILL.md").read_text())
+
+        # Verify time-limit watch/swap across swarm flows, deterministic/data-backed prove-it, and whole-environment find-it
+        for swarm_path in (
+            "skills/bugbash/SKILL.md",
+            "skills/ab-test/SKILL.md",
+            "skills/swarm-hypothesis/SKILL.md",
+            "skills/modularize/SKILL.md",
+            "skills/dagify/SKILL.md",
+        ):
+            stext = (ROOT / swarm_path).read_text()
+            self.assertIn("astack-status", stext, f"{swarm_path} missing time-limit watch/swap via astack-status")
+            self.assertIn("check_in_minutes", stext, f"{swarm_path} missing check_in_minutes clock check")
+            self.assertIn("fresh successor", stext, f"{swarm_path} missing fresh-successor swap rule")
+
+        prove_it = (ROOT / "skills/prove-it/SKILL.md").read_text()
+        self.assertIn("Deterministic reproduction", prove_it)
+        self.assertIn("usage analytics", prove_it)
+
+        self.assertIn("correlated real data", find_it)
+        self.assertIn("whole failure environment", find_it)
+        self.assertIn("CPU architecture", find_it)
 
         self.assertTrue((ROOT / "evals/find-it-and-fix-it-bug/verify.py").is_file())
         self.assertTrue((ROOT / "evals/bugbash-investigates-and-proves-fix/verify.py").is_file())

@@ -1,18 +1,19 @@
 ---
 name: find-it
-description: "Confirm bugs on realistic user scenarios, collect runtime evidence via logs, stdout/stderr, screenshots, OTel-traced HTTP/2/3, Playwright, metrics, traces, and profiles (<file>_DEBUG_<shorthash>.<type>) preferring built-in language debuggers then astack tools then third-party tools, shrink the repro before narrowing root causes (binary search/bisect, live dumps, profile pairs), and clean all debug artifacts once fixed. Use for suspected bugs, failing tests, flakes, hangs, leaks, or slowdowns."
+description: "Replicate bugs deterministically from provided or correlated real data (logs, traces, metrics, monitoring, usage analytics) and full failure-environment conditions across the end-to-end path, collect runtime evidence (<file>_DEBUG_<shorthash>.<type>) preferring built-in language debuggers then astack tools then third-party tools, shrink the repro before narrowing root causes (binary search/bisect, live dumps, profile pairs), and clean all debug artifacts once fixed. Use for suspected bugs, failing tests, flakes, hangs, leaks, or slowdowns."
 disable-model-invocation: true
 ---
 
 # Find it
 
-Confirm a bug on a real user scenario, collect targeted runtime evidence, shrink the reproduction to the smallest failing case **before** diagnosing, narrow its root cause with runtime evidence, and leave zero debug artifacts behind once fixed.
+Replicate a bug from real correlated data and the full environment of conditions that produced it, collect targeted runtime evidence, shrink the reproduction to the smallest deterministic failing case **before** diagnosing, narrow its root cause with runtime evidence, and leave zero debug artifacts behind once fixed.
 
-## 1. Confirm on a real scenario first
+## 1. Replicate the real scenario, data, and environment first
 
-- Run the realistic user scenario (workflow, query, workload, or benchmark) before spending time fixing. If the real scenario works fine, log one line and move on.
-- Test `main` first. If `main` already fails, note that it isn't caused by your change and fix it separately (**leave-it-better**) only if it blocks your work.
-- A list of failing tests is never a deliverable, and "hard to test" isn't an excuse—make the behavior observable.
+- **Never guess inputs—use correlated real data:** build the repro from inputs, payloads, queries, and cases provided by the user/lead or extracted from logs, traces, metrics, monitoring, telemetry, and usage analytics scoped to the bug path.
+- **Replicate the whole failure environment across the full path:** recreate the exact conditions correlated with the error—not just function arguments or SQL rows—including runtime versions, OS and CPU architecture, memory/CPU/disk/FD pressure, network behavior (latency, loss, resets, protocol/HTTP version), config/flags, load/concurrency, and correlated upstream/downstream systems (not exhaustive; match reality first, then strip variables in Section 4).
+- **Measure frequency & test `main`:** record the real failure rate (source, window, sample count) for **prove-it** and flaky bisects. Run the scenario on `main` first: if it behaves, log one line and stop; if `main` already fails, isolate it separately (**leave-it-better**) only when it blocks your work.
+- Failing test lists are not deliverables, and "hard to test" is not an excuse—make the failure observable.
 
 ## 2. Tool preference order & capture naming
 
@@ -57,6 +58,6 @@ Before narrowing the root cause or proposing a fix, reduce the confirmed failure
 
 Hand the shrunk repro, root cause (`file:line`), evidence trail, and all **rejected theories** (what was tested and what disproved each) to **fix-it** and the lead (so they are logged as `decided:` entries and never re-tested; never leave speculative changes behind). Prune stale `<file>_DEBUG_<shorthash>.<type>` files mid-investigation as needed, and **always** run **cleanup** once the issue is fixed so every `<file>_DEBUG_<shorthash>.<type>` capture and temporary debug hook is removed.
 
-Referenced skills: `leave-it-better` (`${CLAUDE_SKILL_DIR}/../leave-it-better/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`), `test-drive` (`${CLAUDE_SKILL_DIR}/../test-drive/SKILL.md`), `show-the-states` (`${CLAUDE_SKILL_DIR}/../show-the-states/SKILL.md`), `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`), `no-leaked-secrets` (`${CLAUDE_SKILL_DIR}/../no-leaked-secrets/SKILL.md`), `challenge` (`${CLAUDE_SKILL_DIR}/../challenge/SKILL.md`), `fix-it` (`${CLAUDE_SKILL_DIR}/../fix-it/SKILL.md`), `cleanup` (`${CLAUDE_SKILL_DIR}/../cleanup/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`), `leave-it-better` (`${CLAUDE_SKILL_DIR}/../leave-it-better/SKILL.md`), `test-drive` (`${CLAUDE_SKILL_DIR}/../test-drive/SKILL.md`), `show-the-states` (`${CLAUDE_SKILL_DIR}/../show-the-states/SKILL.md`), `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`), `no-leaked-secrets` (`${CLAUDE_SKILL_DIR}/../no-leaked-secrets/SKILL.md`), `challenge` (`${CLAUDE_SKILL_DIR}/../challenge/SKILL.md`), `fix-it` (`${CLAUDE_SKILL_DIR}/../fix-it/SKILL.md`), `cleanup` (`${CLAUDE_SKILL_DIR}/../cleanup/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's bug-fix, live-symptom, and profile diagnosis playbooks (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

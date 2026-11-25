@@ -1,6 +1,6 @@
 # astack
 
-A multi-harness agent toolkit for Claude Code, Codex, Cursor / Cursor CLI, Antigravity (`agy`), Pi, Devin, and other Agent Skills hosts with one entry point (`go`) that routes on demand to 70 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, root-cause diagnosis, cross-harness vectored review, σ-grounded benchmarking, graded research, and coding rules.
+A multi-harness agent toolkit for Claude Code, Codex, Cursor / Cursor CLI, Antigravity (`agy`), Pi, Devin, and other Agent Skills hosts with one entry point (`go`) that routes on demand to 71 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, root-cause diagnosis, cross-harness vectored review, σ-grounded benchmarking, graded research, and coding rules.
 
 Only `go` stays in the model catalog, so idle sessions cost one skill's worth of context instead of thousands of tokens. Adapted in part from [pstack](https://github.com/cursor/plugins/tree/main/pstack) and [mattpocock/skills](https://github.com/mattpocock/skills).
 
@@ -32,7 +32,7 @@ Start a new session and run `$astack-go setup` (installs `astack-worker.toml` pl
 agy plugin install ./harness/antigravity
 ```
 
-Ships native `plugin.json`, root `hooks.json` (`PostToolUse` lane-log stamper), all 71 skills, `bin/astack-*`, and all four native agents (`astack-lead`, `astack-worker`, `astack-reviewer`, `astack-researcher`). Validate anytime with `agy plugin validate harness/antigravity --strict`.
+Ships native `plugin.json`, root `hooks.json` (`PostToolUse` lane-log stamper), all 72 skills, `bin/astack-*`, and all four native agents (`astack-lead`, `astack-worker`, `astack-reviewer`, `astack-researcher`). Validate anytime with `agy plugin validate harness/antigravity --strict`.
 
 **Pi, Devin, Cursor CLI (`agent`), and other Agent Skills hosts**
 
@@ -64,14 +64,15 @@ measured against the current release on the same machine. Merges go to main afte
 
 ## Skills
 
-71 skills total (`go` + 70 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
+72 skills total (`go` + 71 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
 
 ### Entry point, planning, and catch-up
 
 - `go`: single catalog-visible entry point routing to every skill and coding rule by path.
 - `dagify`: breaks a goal into a reviewed dependency DAG of small, parallelizable tasks.
 - `workflow-this`: turns a `dagify` graph into a resumable automated workflow with explicit task states.
-- `lead`: executes a task DAG with parallel time-boxed workers in git worktrees, verified merges, and durable logs.
+- `lead`: executes a task DAG with parallel time-boxed workers in isolated [Slates](https://github.com/hyper-light/slates) in-memory VFS volumes (preferred when available) or git worktrees, verified merges, and durable logs.
+- `slates`: provisions, mounts, snapshots, clones, merges (`green`/`work`/`submit`), lands (human-gated `grant`), and cleans up RAM-backed copy-on-write VFS agent workspaces with [Slates](https://github.com/hyper-light/slates) (preferred over git worktrees when `slates status` succeeds or Slates MCP is attached).
 - `setup`: configures timing, per-role model/provider/effort, the approved `reviewer_pool`, the `autonomy` grant (`supervised` vs `unattended` with explicit `allow`/`deny`), CLI `PATH` links, and optional `astack-tools` packages.
 - `status`: shows active workers, timers, latest branch commits, open tasks, and waiting questions.
 - `whatsup`: catch-up brief and post-break context rebuild (waiting calls, bugs, milestones, experiments, research).
@@ -100,12 +101,12 @@ measured against the current release on the same machine. Merges go to main afte
 
 ### Testing and verification
 
-- `prove-it`: verifies claims on the real build (not proxies) with runnable proof and a trust ladder.
+- `prove-it`: verifies claims on the real build (not proxies) with deterministic reproduction, empirically measured occurrence frequency (logs/traces/telemetry/monitoring/usage analytics), runnable proof, and a trust ladder.
 - `test-drive`: builds and maintains a `drive-<app>` skill that exercises real user flows and captures evidence.
 - `formal-validate`: sets up and maintains formal verification (TLA+, code verifiers, property checks) for critical invariants.
 - `tests-assert-behaviour`: keeps tests checking observable behavior rather than internals, mocks, or wall-clock timing.
 - `full-spectrum-testing`: writes acceptance tests across unit/integration/E2E layers including failures, races, fuzzing, and faults.
-- `find-it`: confirms bugs on realistic user scenarios, collects runtime evidence (logs, `stdout`/`stderr`, screenshots, OTel-traced HTTP/2/3, Playwright, telemetry, metrics, traces, profiles as `<file>_DEBUG_<shorthash>.<type>` using built-in -> astack -> third-party tools), shrinks repros before diagnosing, narrows root causes (binary search/bisect, live dumps, profile pairs), and cleans debug artifacts once fixed.
+- `find-it`: replicates bugs from provided or correlated real data (logs, traces, metrics, monitoring, usage analytics) and full failure-environment conditions (OS/arch, memory/CPU/disk, network, correlated services) across the end-to-end path, collects runtime evidence (`<file>_DEBUG_<shorthash>.<type>`, built-in -> astack -> third-party tools), shrinks repros before diagnosing, narrows root causes (bisect, live dumps, profile pairs), and cleans debug artifacts once fixed.
 - `fix-it`: applies disciplined, minimal, behavior-proven bug fixes using the desired/expected behavior matrix, strict state/concurrency/scope/system-impact rules, tests hardened against lead review, and before/after proof.
 - `bugbash`: lead-only multi-reviewer bug investigation and fix workflow—gathers full bug/linked context, swarms read-only reviewers with `find-it` (shrinking repros first, testing candidate fixes in Slates VFS volumes or throwaway scratch worktrees) and peer `challenge` (with fresh runs, reset timers, and convergence fallback) logging rejected theories (`decided:`), dispatches workers with `fix-it` in isolated Slates VFS volumes/worktrees, passes original bug docs plus rejected theories and failed fix attempts to post-fix reviewers instructed to apply `prove-it` and attach PR proof, and turns fixes, rejected theories, and failed attempts into durable lessons via `make-it-stick`.
 

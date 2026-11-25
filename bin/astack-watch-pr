@@ -1658,7 +1658,7 @@ def build_remediation_brief(
         "",
         "## Role & Separation of Duties",
         "- You are running as the **lead** (`--role lead`), coordinating this remediation end-to-end.",
-        "- Delegate isolated code/test edits and rebases to a fresh `astack:worker` (or `astack-dispatch run --role worker`). **Workers NEVER spawn subagents, run vectored review, or run `/leave-feedback` audits.**",
+        "- Delegate isolated code/test edits and rebases to a fresh `astack:worker` (or `astack-dispatch run --role worker`) in an isolated Slates in-memory VFS volume (`slates`, https://github.com/hyper-light/slates — preferred when `slates status` succeeds or Slates MCP is attached; see `slates/SKILL.md`) or git worktree. **Workers NEVER spawn subagents, run vectored review, or run `/leave-feedback` audits.**",
         "- **You (the lead)** run `astack-check-gates`, `diff-guard`, vectored **review** (`astack:reviewer` / `astack-dispatch run --role reviewer` + `astack-review-ledger`), and independent second-agent `/leave-feedback` audits before pushing or posting any PR reply.",
         "",
         "## Context",
