@@ -1,42 +1,40 @@
 ---
 name: treeify
-description: "Decompose a task or work into a tree of sub-component work tasks down to the smallest testable, verifiable, documentable units, then build, vectored-review, and merge bottom-up in waves (leaves -> subsystems -> root) with escalating testing, review rigor, and documentation. Use for greenfield features, subsystems, UI trees, or IaC stacks built bottom-up."
+description: "Decompose work top-down into a tree of sub-component tasks down to the smallest testable, verifiable, documentable units, then build, vectored-review, and merge bottom-up in waves (leaves -> subsystems -> root). Use for greenfield features, subsystems, UI trees, or IaC stacks."
 disable-model-invocation: true
 ---
 
 # Treeify
 
-Decompose a task or work top-down into a tree of sub-component work tasks, then build, vectored-review, and merge bottom-up in waves—from atomic leaf components to integrated subsystems to the complete root solution.
-
-Use **treeify** when work composes naturally into nested components; use **dagify** for bug fixes, migrations, perf experiments, or irregular task graphs.
+Decompose work top-down into nested components, then build, vectored-review, and merge bottom-up in waves—from atomic leaves to subsystems to root. Use **dagify** for bug fixes, migrations, perf experiments, or irregular graphs.
 
 ## 1. Decompose top-down into a component tree
 
-1. **Align on the goal** (**run-it-back**): state what the root delivers, how it is verified, and what is out of scope. Inspect existing code and environment first (**rtfm**, **how-it-works**, **analyze-environment**).
-2. **Recursively split by component** with read-only `astack:researcher` subagents (under **lead**'s timers): start at the root deliverable and split each component into child components until every leaf hits the **stopping criterion**:
-   - **Stopping criterion:** the smallest tangible unit of formally verifiable, testable, documentable functionality deliverable rapidly on its own (e.g., a class, method, pure function, single UI control, or single Terraform module with its variables and data).
-   - **Don't over-split:** stop when splitting further produces code that cannot stand, be tested, or be documented meaningfully on its own.
-3. **Define contracts before building:** every parent node specifies the interfaces, data shapes, and non-overlapping writable paths its children implement (**data-structures-first**, **no-shared-writes**). Place shared types, interfaces, or schemas used by sibling leaves in a **Wave 0 foundation leaf** that lands before parallel sibling leaves start.
-4. **Write and review the tree:** save the tree in the program folder as a Mermaid diagram plus one self-contained task spec per node (component contract, children to integrate, writable paths, tests, docs, and done-when). Audit the tree with `astack:reviewer` (**review**) for completeness, tight leaf boundaries, acyclic non-overlapping paths, and reachable contracts before Wave 0 starts.
+1. **Align on the goal (**run-it-back**):** state what the root delivers, how it is verified, and what is out of scope. Inspect existing code and tooling first (**rtfm**, **how-it-works**, **analyze-environment**).
+2. **Split recursively by component** using read-only `astack:researcher` subagents until each leaf hits the **Stopping criterion:**
+   - **Stopping criterion:** the smallest tangible unit of verifiable, testable, documentable functionality deliverable rapidly on its own (a class, pure function, UI control, or single IaC module).
+   - **Don't over-split:** stop when splitting further produces code that cannot stand, be tested, or be documented on its own.
+3. **Define contracts before building:** every parent specifies interfaces, data shapes, and disjoint writable paths for its children (**data-structures-first**, **no-shared-writes**). Put shared types or schemas in a **Wave 0 foundation leaf** that lands before parallel siblings start.
+4. **Write and review the tree:** save a Mermaid diagram plus one self-contained task spec per node in the program folder. Audit the tree with `astack:reviewer` (**review**) for completeness, tight leaf boundaries, acyclic disjoint paths, and reachable contracts before Wave 0 starts.
 
 ## 2. Build, review, and merge bottom-up in waves
 
-Each tree layer is one wave of parallel tasks. Execute waves bottom-up through **lead**: workers implement in isolated **slates** volumes (`https://github.com/hyper-light/slates`, preferred when available) or git worktrees; read-only `astack:reviewer` subagents verify worker-submitted changes in **slates** volumes or review worktrees (never writing fixes themselves—sending recommended fixes to workers to implement and resubmit); delegate external-harness agents via `astack-dispatch spawn` / `batch` / `wait` ("agents as tools"—never halt a wave when native agents finish while cross-harness runs are still active); enforce watch/swap clocks across every worker, reviewer, and researcher (`LANES.md` + `astack-status` every `check_in_minutes`, wind-down reminder, fresh successor on overdue runs).
+Each tree layer is one wave of parallel tasks. Execute waves through **lead** (isolated **slates** volumes or git worktrees, strict read-only reviewers never writing fixes themselves, watch-and-swap clocks, and cross-harness delegation via `astack-dispatch`).
 
-1. **Dispatch subtree-ready waves in parallel:** start Wave 0 foundation leaves (if any), then leaf components, then each parent component as soon as **all of its own children** clear vectored **review** and land. Leaf workers build atomic components; parent workers compose and wire already-merged children without re-implementing them.
-2. **Gate every node before its parent starts:** match the program's merge mode—local target-branch merges verified with `astack-verify-merge` / `astack-check-gates` for local programs, or one PR per node via **watch-pr** when shipping via PRs. Scope every reviewer's brief to that node's component and layer depth (below).
-3. **Escalate testing, review, and documentation from leaves to root:**
+1. **Dispatch subtree-ready waves in parallel:** run Wave 0 foundation leaves first, then leaves, then each parent once **all of its own children** clear vectored **review** and land. Parents wire merged children without re-implementing them.
+2. **Gate every node before its parent starts:** verify local merges via `astack-verify-merge` and `astack-check-gates`, or shepherd per-node PRs via **watch-pr**.
+3. **Escalate testing, review, and docs from leaves to root:**
 
 | Layer | Worker focus | Testing & verification | Vectored review scope | Documentation (**technical-writing**) |
 |---|---|---|---|---|
-| **Leaves** | Build one atomic component to contract | Isolated unit, edge/failure, property/formal checks (**tests-assert-behaviour**, **formal-validate**) | Isolated behavior, boundary handling, coding rules, contract fit | Concise contract/interface docs (docstrings, schema/variable docs) |
-| **Middle layers** | Compose and integrate merged children | Integration tests across child seams, state, concurrency, faults (**full-spectrum-testing**, **blast-radius**) | Cross-child seams, error/state propagation, integration invariants | Subsystem docs cataloging child components, wiring, and config |
-| **Root** | Finalize and integrate top-level subsystems | End-to-end verification on the real system (**prove-it**, **full-spectrum-testing**) | Whole-system behavior, acceptance criteria, regressions, doc accuracy | Complete feature/system docs (README, architecture/Mermaid, usage) |
+| **Leaves** | Build one atomic component to contract | Isolated unit, edge/failure, property/formal checks (**tests-assert-behaviour**, **formal-validate**) | Isolated behavior, boundaries, coding rules, contract fit | Concise interface/schema docs |
+| **Middle layers** | Compose and wire merged children | Integration tests across seams, state, concurrency, faults (**full-spectrum-testing**, **blast-radius**) | Cross-child seams, error/state propagation, invariants | Subsystem wiring and config docs |
+| **Root** | Finalize top-level subsystems | End-to-end proof on real system (**prove-it**, **full-spectrum-testing**) | Whole-system behavior, acceptance criteria, doc accuracy | Full README, Mermaid architecture, usage |
 
 ## 3. Re-tree when reality disagrees
 
-If a leaf proves too large, a contract mismatches during composition, or a missing sibling emerges, update the tree and re-review the affected subtree before dispatching—never silently balloon a worker's scope or weaken a gate.
+If a leaf proves too large, a contract mismatches during composition, or a missing sibling emerges, update the tree and re-review the affected subtree before dispatching. Never silently balloon worker scope or weaken a gate.
 
-## 4. Squish and close with lookback
+## 4. Squish and close with **lookback**
 
-Once the root wave clears review, run **squish** to examine the leaf/subsystem/root commits and any generated per-node PRs—rebasing, squashing, or combining fragmented history/PRs cleanly when appropriate before final handoff/merge. Once landed (or if stopped on an unrecoverable failure), run **lookback** over the completed component tree, contract revisions, wave failures, and reviews to distill focused `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md` lessons, paired with **make-it-stick** for recurring structural guards.
+Once the root clears review, run **squish** to rebase, squash, or combine fragmented commits or per-node PRs when justified. Then (or on unrecoverable failure) run **lookback** into `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md`, paired with **make-it-stick** for recurring structural guards.

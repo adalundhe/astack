@@ -1,33 +1,61 @@
 ---
 name: bugbash
-description: "Default lead-only bug workflow for any reported issue, error, crash, failure, regression, or unexpected behavior: gather full bug/linked context, swarm read-only reviewers split by reproduction method with find-it, converge via peer challenge logging rejected theories (decided:), route fixes to workers (fix-it) who resubmit to post-fix reviewers (prove-it + PR proof), and run make-it-stick (dispatching workers + review for structural guards). Use whenever a user reports an issue, error, crash, failure, or regression (fall back directly to find-it -> fix-it only when subagents are unavailable or for an already-isolated trivial typo)."
+description: "Default lead-only vectored bug workflow for any reported issue, error, crash, failure, regression, or unexpected behavior: assemble the dossier, classify bug risk, run 1 blind read-only reviewer for isolated low-risk bugs or swarm >=2 across complementary reproduction vectors for risky/ambiguous bugs (find-it), converge via peer challenge, fix via worker (fix-it), verify via post-fix review (prove-it + PR proof), and close with lookback + make-it-stick."
 disable-model-invocation: true
 ---
 
 # Bugbash
 
-Lead-only default bug workflow: use whenever a person reports an issue, error, crash, failure, regression, or unexpected behavior (skip straight to single-agent **find-it** -> **fix-it** only when subagents are unavailable or the root cause is an already-isolated trivial typo; for proactive review-first auditing and iterative hardening of an existing codebase with no specific bug report, use **redteam** instead). Swarm read-only reviewers before writing fix code, converge via peer **challenge**, implement cleanly with **fix-it**, verify with **prove-it**, and capture lessons via **make-it-stick**.
+Lead-only **vectored debugging** workflow for any reported issue, error, crash, failure, regression, or unexpected behavior. For proactive auditing of an existing codebase with no specific bug report, use **redteam** instead.
 
-- **Watch & swap (all phases, per **lead**):** enforce `settings.json` clocks (`reviewer_minutes`, `worker_minutes`, `wind_down_minutes`, `check_in_minutes`) on every reviewer and worker. Stamp UTC `Started / Wind down at / End by` into briefs (pass `--settings`/`--timeout` to `astack-dispatch run`), log starts in `LANES.md`, check `astack-status` every `check_in_minutes`, remind at wind-down, and stop/swap overdue runs with a fresh successor carrying harvested artifacts/branch SHA and reset timers.
-- **Isolated workspaces & strict role split:** workers implement all code changes (fixes, competing prototypes, and structural guards) in **slates** in-memory VFS volumes (`https://github.com/hyper-light/slates`, preferred when available) or git worktrees. Reviewers stay strictly read-only—they run reproductions and verify submitted changes in isolated **slates** volumes or read-only review worktrees, **never writing or applying fixes themselves**; they send findings and recommended fixes to workers (via the lead), who implement them and resubmit the changes to the reviewers.
-- **Cross-harness delegation ("agents as tools" — never halt between harnesses):** treat every external-harness reviewer, worker, or researcher (`codex`, `claude`, `agy`, `cursor`, `devin`, `pi`, `gemini`, custom CLI) as a delegated tool owned by the Lead via `astack-dispatch spawn` / `batch` / `status` / `wait` / `kill` (never raw shell `&` or `nohup`). Never stop a bugbash or yield control back to the user simply because your own harness's native agent(s) finished while external-harness agents are still running—check `astack-dispatch status --active-only`, join all live runs with `astack-dispatch wait --all --json`, harvest every report (native + cross-harness), and immediately advance to the next step (`challenge` -> worker `fix-it` -> post-fix `review` -> `lookback`).
+Core rules:
 
-1. **Assemble the bug dossier fast—never investigate the bug yourself:** collect the user's report and directly linked issues, PRs, docs, logs, traces, metrics, or screenshots (dispatching `astack:researcher` with **rtfm** / **analyze-environment** if gathering is wide). Never run **find-it**, trace code, or form root-cause theories yourself before swarming reviewers—keep reviewers blind and reuse this dossier for **both** investigation and post-fix review.
-2. **Swarm read-only reviewers across reproduction methods:** dispatch blind `astack:reviewer` runs (or `astack-dispatch run --role reviewer` from `reviewer_pool`) with the full dossier, split across **complementary reproduction and investigation methods** rather than code areas (e.g., end-to-end correlated-data and full-environment replay; boundary, state-transition, and concurrency stress; history/config/env bisection; runtime profiling, tracing, and telemetry). Instruct each reviewer to:
-   - follow **find-it** in order—replicate from correlated real data and full environment conditions, **shrink the repro first**, then narrow and prove root causes—strictly read-only;
-   - return runnable repros, evidence, and concrete minimal fix proposals with trade-offs and **blast-radius** (never applying fixes themselves).
-3. **Peer **challenge** with fresh runs and a stop rule:**
-   - **Fresh runs, reset timers:** finished reviewers (especially one-shot `astack-dispatch` runs) cannot be messaged in place. Spawn fresh read-only reviewer runs per round with all peer reports (shrunk repros, evidence, diagnoses, fix proposals) and reset timers (`reviewer_minutes`, logged in `LANES.md`), instructing them to use **challenge** to disprove weak hypotheses. If competing fix proposals need runtime comparison before converging, the lead dispatches workers in isolated **slates** volumes or scratch worktrees to implement them and **resubmits** those workspaces to the reviewers to verify against the shrunk repro.
-   - **Stop rule (**no-picked-constants**, **decisions-in-plain-words**):**
-     - **Converged:** competing hypotheses are disproved or conceded with runnable proof, leaving one verified root cause and minimal fix. Log every **rejected root-cause theory** and **rejected fix approach** (with disproving evidence) as `decided:` entries in `LANES.md` (`astack-decisions`), then go to Step 4.
-     - **No convergence / stalled:** if a round produces **no new runnable evidence**, hits a genuine product/architectural trade-off, or exhausts approved models/budgets, **stop immediately**. Escalate to the person in plain language with each surviving hypothesis (evidence + gaps), candidate fixes with **blast-radius**, and the lead's recommendation before any worker edits code.
-4. **Implement via worker (**fix-it**) and resubmit:** dispatch `astack:worker` (or `astack-dispatch run --role worker`) in an isolated **slates** volume or git worktree with the converged root cause, shrunk repro, chosen fix proposal, and **rejected theories (`decided:` entries)**. Require **fix-it** discipline and a report of any **failed fix approaches/attempts** (workers never spawn subagents), then resubmit the worker's workspace/branch to the post-fix reviewers.
-5. **Post-fix vectored **review** with **prove-it**:** log worker-reported failed fix approaches/attempts as `decided:` entries, then run vectored **review** (`astack-review-ledger` + `astack-check-gates`):
-   - Pass post-fix reviewers the **original bug dossier, shrunk repro, rejected theories (`decided:` entries), and failed fix approaches/attempts**.
-   - Instruct them to apply **prove-it** (deterministic before/after verification on the real artifact, empirical frequency from telemetry/analytics where relevant) and return concise runnable proof.
-   - Send any proven gaps or follow-up fixes back to a fresh worker to implement in an isolated workspace and **resubmit** to the reviewers until clear.
-   - **Attach proof to the PR:** summarize and attach the **prove-it** verification and runnable evidence (commands, outputs, traces, screenshots, benchmarks) to any PR generated for the fix (**watch-pr**).
-6. **Sweep and clean up:** check **no-leaked-secrets** on diff and PR evidence; run **cleanup** to delete `<file>_DEBUG_<shorthash>.<type>` captures and ephemeral volumes/worktrees while preserving final PR evidence.
-7. **Capture lessons (**lookback** + **make-it-stick**):** once post-fix review clears, **the lead** runs **lookback** over the bug dossier, shrunk repro, rejected root-cause theories (`decided:` entries), failed fix approaches/attempts, and final verified fix to save focused `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md` documents, paired with **make-it-stick** for scoped `LESSONS.md` reminders and structural guards. Whenever a structural guard on the fix ladder (architecture, types, lint/hook, or regression test) requires code edits, **the lead dispatches a fresh `astack:worker`** (in an isolated **slates** volume or git worktree) to implement the guard and **resubmits it to a reviewer (**review**)** before landing.
+- **Scale investigation to bug risk,** just like **review**. Don't pay multi-reviewer swarm overhead on an isolated, reproducible bug; don't solo-debug an ambiguous, concurrent, or multi-layer failure.
+- **Keep investigators strictly read-only.** Reviewers never write or apply fixes themselves, because mixing guesses with code edits hides the root cause.
+- **Shrink the repro first,** because large inputs bury the real trigger in noise.
+- **Stop when evidence stalls,** because guessing burns rounds without narrowing the cause.
 
-Referenced skills: `find-it` (`${CLAUDE_SKILL_DIR}/../find-it/SKILL.md`), `fix-it` (`${CLAUDE_SKILL_DIR}/../fix-it/SKILL.md`), `redteam` (`${CLAUDE_SKILL_DIR}/../redteam/SKILL.md`), `challenge` (`${CLAUDE_SKILL_DIR}/../challenge/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`), `make-it-stick` (`${CLAUDE_SKILL_DIR}/../make-it-stick/SKILL.md`), `lead` (`${CLAUDE_SKILL_DIR}/../lead/SKILL.md`), `slates` (`${CLAUDE_SKILL_DIR}/../slates/SKILL.md`), `rtfm` (`${CLAUDE_SKILL_DIR}/../rtfm/SKILL.md`), `analyze-environment` (`${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`), `blast-radius` (`${CLAUDE_SKILL_DIR}/../blast-radius/SKILL.md`), `no-picked-constants` (`${CLAUDE_SKILL_DIR}/../no-picked-constants/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`), `review` (`${CLAUDE_SKILL_DIR}/../review/SKILL.md`), `watch-pr` (`${CLAUDE_SKILL_DIR}/../watch-pr/SKILL.md`), `no-leaked-secrets` (`${CLAUDE_SKILL_DIR}/../no-leaked-secrets/SKILL.md`), `cleanup` (`${CLAUDE_SKILL_DIR}/../cleanup/SKILL.md`), `lookback` (`${CLAUDE_SKILL_DIR}/../lookback/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Follow **lead** for isolated workspaces (**slates** or git worktrees), role timers, watch-and-swap check-ins, and cross-harness "agents as tools" delegation (`astack-dispatch`).
+
+## 1. Assemble the bug dossier fast—never investigate the bug yourself
+
+Collect the report and all linked issues, PRs, docs, logs, traces, metrics, or screenshots. Dispatch `astack:researcher` with **rtfm** or **analyze-environment** if gathering is wide. Don't trace code or form root-cause theories yourself before dispatching investigators, because lead theories bias blind reviewers. Reuse this dossier for both investigation and post-fix review.
+
+## 2. Classify bug risk and dispatch read-only investigation vectors
+
+- **Trivial typo** (already isolated to one obvious line) or **single-agent host:** skip straight to **find-it** -> **fix-it**.
+- **`low` bug** (narrow scope, single clear repro path, no concurrency, security, persistence, or cross-layer ambiguity): start with **one** blind read-only `astack:reviewer` running **find-it**. Escalate to multiple vectors below if it cannot reproduce cleanly or surfaces competing causes.
+- **`risky` or ambiguous bug** (intermittent, multi-layer, concurrent, persistence/auth/security, or unclear root cause): swarm **at least two** blind read-only reviewers from `reviewer_pool`, split across **complementary reproduction and investigation methods** rather than code folders:
+  - end-to-end correlated-data and full-environment replay;
+  - boundary, state-transition, and concurrency stress;
+  - history, config, and environment bisection;
+  - runtime profiling, tracing, and telemetry.
+
+Instruct every investigator to follow **find-it** in order—replicate from real data and environment, **shrink the repro first**, then prove the root cause—and return runnable repros, evidence, and minimal fix proposals with **blast-radius**.
+
+## 3. Converge via peer **challenge** (when multiple vectors ran)
+
+1. **Fresh runs, reset timers:** finished reviewers cannot be messaged in place. Spawn fresh read-only reviewers with reset timers (`reviewer_minutes`) and all peer reports so they try to disprove weak theories (**challenge**). If competing fixes need runtime comparison, dispatch workers in isolated workspaces and resubmit those workspaces to the reviewers.
+2. **Stop rule (**no-picked-constants**, **decisions-in-plain-words**):**
+   - **Converged:** one verified root cause and minimal fix survives. Log every **rejected root-cause theory** and **rejected fix approach** with its disproving evidence as `decided:` in `LANES.md` (`astack-decisions`), then go to Step 4.
+   - **No convergence / stalled:** if a round produces no new runnable evidence, hits a genuine product trade-off, or runs out of approved models, stop immediately. Escalate plainly to the person with surviving hypotheses, candidate fixes, **blast-radius**, and your recommendation before any worker edits code.
+
+## 4. Implement via worker (**fix-it**) and resubmit
+
+Dispatch `astack:worker` in an isolated workspace with the converged root cause, shrunk repro, chosen fix, and rejected theories (`decided:`). Require **fix-it** discipline and a report of any **failed fix approaches** (workers never spawn subagents). Resubmit the worker's workspace to the post-fix reviewers.
+
+## 5. Post-fix vectored **review** with **prove-it**
+
+1. Log any worker-reported failed fix approaches as `decided:`.
+2. Run vectored **review** (`astack-review-ledger` + `astack-check-gates`), passing the bug dossier, shrunk repro, rejected theories, and failed fix approaches.
+3. Require deterministic **prove-it** verification on the real artifact (plus telemetry frequency where relevant) and concise runnable proof.
+4. Route any proven gap back to a fresh worker and resubmit to reviewers until clear.
+5. Attach the **prove-it** verification summary and runnable evidence to any PR generated for the fix (**watch-pr**).
+
+## 6. Clean up and close with **lookback** + **make-it-stick**
+
+1. Sweep **no-leaked-secrets** on the diff and PR evidence. Run **cleanup** on `<file>_DEBUG_<shorthash>.<type>` captures and scratch workspaces while preserving PR proof.
+2. Run **lookback** over the dossier, shrunk repro, rejected theories, failed fix approaches, and final fix to save or update `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md`.
+3. Pair with **make-it-stick** for structural guards. Whenever a guard on the fix ladder needs code edits, the lead dispatches a fresh `astack:worker` in an isolated workspace and resubmits it to **review** before landing.
+
+Referenced skills: `redteam` (`${CLAUDE_SKILL_DIR}/../redteam/SKILL.md`), `review` (`${CLAUDE_SKILL_DIR}/../review/SKILL.md`), `lead` (`${CLAUDE_SKILL_DIR}/../lead/SKILL.md`), `slates` (`${CLAUDE_SKILL_DIR}/../slates/SKILL.md`), `rtfm` (`${CLAUDE_SKILL_DIR}/../rtfm/SKILL.md`), `analyze-environment` (`${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`), `find-it` (`${CLAUDE_SKILL_DIR}/../find-it/SKILL.md`), `fix-it` (`${CLAUDE_SKILL_DIR}/../fix-it/SKILL.md`), `blast-radius` (`${CLAUDE_SKILL_DIR}/../blast-radius/SKILL.md`), `challenge` (`${CLAUDE_SKILL_DIR}/../challenge/SKILL.md`), `no-picked-constants` (`${CLAUDE_SKILL_DIR}/../no-picked-constants/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`), `watch-pr` (`${CLAUDE_SKILL_DIR}/../watch-pr/SKILL.md`), `lookback` (`${CLAUDE_SKILL_DIR}/../lookback/SKILL.md`), `make-it-stick` (`${CLAUDE_SKILL_DIR}/../make-it-stick/SKILL.md`), `no-leaked-secrets` (`${CLAUDE_SKILL_DIR}/../no-leaked-secrets/SKILL.md`), `cleanup` (`${CLAUDE_SKILL_DIR}/../cleanup/SKILL.md`). Read any cited skill file before acting when its trigger applies.

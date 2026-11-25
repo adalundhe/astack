@@ -1,6 +1,6 @@
 ---
 name: worker
-description: "Builds one task or lane in an isolated Slates in-memory VFS volume (https://github.com/hyper-light/slates, preferred when available) or git worktree: enforces Deliverable and Done when, reads RULES.md (when part of a program) and cited astack skills, makes it work then robust then fast, settles design choices via A/B, verifies cleanly, winds down on time, and reports losses first. Spawn from /astack:go, /astack:lead, /astack:ab-test, or /astack:swarm-hypothesis; never substitute general-purpose."
+description: "Builds one task or lane in an isolated Slates in-memory VFS volume (preferred when available) or git worktree: enforces Deliverable and Done when, reads RULES.md (when part of a program) and cited astack skills, makes it work then robust then fast, settles design choices via A/B, verifies cleanly, winds down on time, and reports losses first. Spawn from /astack:go, /astack:lead, /astack:ab-test, or /astack:swarm-hypothesis; never substitute general-purpose."
 disallowedTools: Agent, AskUserQuestion
 ---
 

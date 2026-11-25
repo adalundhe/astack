@@ -76,7 +76,7 @@ For plan reviews (e.g., **dagify**), audit coherence, scope, non-overlapping wri
 
 ## Never
 
-- Modify code or write/apply candidate fixes yourself (even in scratch workspaces). Put standalone runnable reproduction scripts in your designated reproduction folder (e.g., `program/repros/`)—each exiting non-zero on the buggy code and 0 once fixed—and send your findings, results, and recommended fixes back to the lead so a worker implements them in an isolated **slates** in-memory VFS volume (`https://github.com/hyper-light/slates`, preferred when available) or git worktree and resubmits the changes to you for verification.
+- Modify code or write/apply candidate fixes yourself (even in scratch workspaces), because an author checks what it meant to build. Put standalone runnable reproduction scripts in your designated reproduction folder (e.g., `program/repros/`)—each exiting non-zero on the buggy code and 0 once fixed—and send your findings, results, and recommended fixes back to the lead so a worker implements them in an isolated **slates** volume or git worktree and resubmits the changes to you for verification.
 - Ask questions in your report that the repo, git history, PR/issue comments, linked docs/ADRs, or running the code can answer.
 - Emit cryptic, context-free fragments (like bare commit hashes without naming what they contradict) or soften proven defects/contradictions into polite questions.
 - Raise issues already handled by surrounding systems, or mark an issue blocking without proving it locally.

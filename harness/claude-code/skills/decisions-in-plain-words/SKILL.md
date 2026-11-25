@@ -1,6 +1,6 @@
 ---
 name: decisions-in-plain-words
-description: "Resolve what you can yourself, log every decision, and only escalate genuine human choices as plain options with a recommendation. Use before asking the person anything or writing a report."
+description: "Resolve what you can yourself, log every decision, honor the autonomy grant, and escalate only genuine human choices as plain options with a recommendation. Use before asking the person anything or writing a report."
 disable-model-invocation: true
 ---
 
@@ -8,49 +8,52 @@ disable-model-invocation: true
 
 Settle what you can on your own, record every decision, and ask the person only what nothing else can resolve.
 
-Explore, research, prototype (**play-with-me**), and benchmark (**ab-test**) to answer technical questions from earlier decisions, the repo, docs, or data. Escalate only what none of those can settle—directly, in plain words, with your recommendation.
+Explore, research, prototype (**play-with-me**), and benchmark (**ab-test**) to settle technical questions from prior decisions, the repo, docs, or data. Escalate only what none of those settles—in plain words, with your recommendation.
 
 **Escalate to the person:**
-- actions only they can take (interactive login/SSO/MFA, `sudo`/root installs, spending money)—for system access, finish discovery (**analyze-environment**), user-space tool installation (when authorized), `TOOLS.md` cataloging, and all unblocked work first so only the single human auth command remains;
+
+- actions only they can take (interactive login/SSO/MFA, `sudo`, spending money)—finish discovery (**analyze-environment**), user-space installs, `TOOLS.md`, and all unblocked work first so only the single human command remains;
 - trade-offs of functionality, durability, cost, or schedule;
-- irreversible or mutating external actions not covered by `autonomy.allow` or per-task authorization;
-- product or taste calls not covered by earlier decisions.
+- mutating or irreversible external actions outside `autonomy.allow`;
+- product or taste calls not settled by earlier decisions.
 
 **Handle yourself (always allowed—supervised and unattended):**
-- **read-only and dry-run external probes:** `--dry-run`, `plan`/`diff`, `auth status`, read-only `GET` queries, log/trace/metric reads, and **analyze-environment** checks—never balk at safe read-only inspection;
-- asking for confirmation of what you're about to do, or re-asking approval already given;
-- anything an A/B test or prototype can answer;
-- retries, flakes, machine issues, merge mechanics, or asking whether to continue;
-- pure improvements that preserve behavior—ship them and report the numbers.
+
+- **read-only and dry-run external probes:** `--dry-run`, `plan`/`diff`, `auth status`, read-only `GET`, log/trace/metric reads, and **analyze-environment** checks;
+- confirmation of what you are about to do, or re-asking approval already given;
+- anything an A/B test or prototype can settle;
+- retries, flakes, machine issues, merge mechanics, or asking whether to keep going;
+- pure improvements that keep behavior identical—ship them and report the numbers.
 
 ## Autonomy grant (`settings.json` `autonomy`, configured in **setup**)
 
-Read `autonomy` (`mode`: `"supervised"` default vs `"unattended"`, plus explicit `allow` and `deny` lists) from `~/.config/astack/settings.json` (or `$XDG_CONFIG_HOME/astack/settings.json`). Explicit per-task instructions from the person may narrow or extend the grant for that run; anything in `autonomy.deny` always requires explicit per-action approval. **When `autonomy.mode` is `"unattended"`, execute every action in `autonomy.allow` (and not in `autonomy.deny`) directly without pausing to ask confirmation**—log `decided:` and report what you did.
+Read `autonomy` (`mode`, `allow`, `deny`) from `~/.config/astack/settings.json`. Per-task instructions may narrow or extend the grant; anything in `autonomy.deny` always requires explicit per-action approval. When `autonomy.mode` is `"unattended"`, execute every action in `autonomy.allow` (not in `deny`) without asking—log `decided:` and report what you did.
 
-- **What an `"unattended"` ("go ahead unattended") grant permits without pausing:**
-  - `local_worktrees_and_experiments`: read, research, prototype, benchmark, edit scoped files, run builds/tests/linters, create **slates** volumes/worktrees and feature branches, and settle technical decisions with evidence (`decided:`).
-  - `out_of_dir_work`: create and manage scratch, cache, program, tool, and sibling checkout directories outside the active repo (`~/.cache/astack/`, `/tmp`, `~/.local/bin`, user-space virtualenvs, or sibling repos needed for the task) without touching unrelated user data.
-  - `user_space_tool_install`: install or upgrade non-root CLIs, SDKs, and packages relevant to the task (`uv`, `brew`, `pipx`, `npm`, `cargo`, release binaries into `~/.local/bin` or isolated venvs—never `sudo`/root or paid accounts) and catalog them in `TOOLS.md` (**analyze-environment**).
-  - `feature_branch_push`: commit and push verified changes to your own feature/PR branch.
-  - `feature_branch_rebase_force_with_lease`: fetch target, rebase your feature branch, verify with `git range-diff` + `astack-watch-pr patch-id-check`, and push with `--force-with-lease` on the feature branch only.
-  - `open_and_update_pr`: open or update the PR/MR once review clears—never ask whether you may open the PR.
-  - `watch_pr_and_fix_ci`: run `astack-watch-pr`, dispatch remediation leads/workers for CI failures and review feedback, and re-verify via vectored **review**.
-  - `post_audited_pr_replies`: post PR replies only after an independent second-agent **leave-feedback** audit returns `CLEAR` (enforced by `astack-watch-pr reply`).
-- **What an unattended grant NEVER permits unless explicitly authorized for that specific action:**
-  - `merge_pr`: merging a PR/MR into the target branch—never self-merge, never auto-merge on approval, never enable forge auto-merge on gated PRs, and never merge while any external hold or guard (**watch-pr**, **cross-repo**) is unmet.
-  - `push_protected_branch`: pushing directly or force-pushing to shared/protected branches (`main`, `master`, release branches).
-  - `close_or_delete_others_pr`: closing/deleting another person's PR or branch, or discarding uncommitted changes you did not create.
-  - `prod_deploy_or_destructive_migration`: production deploys, destructive schema/data migrations, or IAM/credential changes.
-  - `spend_money_or_billing_changes`: spending money, provisioning paid resources, or changing billing/subscriptions.
-  - `publish_external_release`: publishing packages, tags/releases, public posts, emails, or external customer comms.
-  - `weaken_verification_gates`: skipping tests, relaxing assertions, muting linters, lowering review/security bars, trading away requested functionality/durability, or landing non-saturated risky changes without sign-off.
+- **Allowed under `"unattended"` without pausing:**
+  - `local_worktrees_and_experiments`: read, research, prototype, benchmark, edit scoped files, run tests/linters, use **slates** volumes or worktrees, and log `decided:` choices.
+  - `out_of_dir_work`: manage scratch, cache, program, tool, and sibling checkouts outside the active repo without touching unrelated user data.
+  - `user_space_tool_install`: install non-root CLIs and packages into user-owned paths (`~/.local/bin`, `uv` venv, Homebrew—never `sudo` or paid accounts) and catalog them in `TOOLS.md`.
+  - `feature_branch_push`: commit and push verified changes to your own feature branch.
+  - `feature_branch_rebase_force_with_lease`: rebase your feature branch, verify with `git range-diff` and `astack-watch-pr patch-id-check`, and push with `--force-with-lease`.
+  - `open_and_update_pr`: open or update the PR/MR once review clears.
+  - `watch_pr_and_fix_ci`: run `astack-watch-pr`, fix CI and review feedback, and re-verify via vectored **review**.
+  - `post_audited_pr_replies`: post PR replies after an independent **leave-feedback** audit returns `CLEAR` (`astack-watch-pr reply`).
+- **Denied unless explicitly authorized for that specific action:**
+  - `merge_pr`: never self-merge, never auto-merge on approval, never enable forge auto-merge on gated PRs, and never merge with unmet holds (**watch-pr**, **cross-repo**).
+  - `push_protected_branch`: pushing or force-pushing directly to shared/protected branches (`main`, release branches).
+  - `close_or_delete_others_pr`: closing or deleting another person's PR, branch, or uncommitted work.
+  - `prod_deploy_or_destructive_migration`: production deploys, destructive migrations, or IAM/credential changes.
+  - `spend_money_or_billing_changes`: spending money, paid resources, or billing changes.
+  - `publish_external_release`: publishing packages, tags/releases, public posts, or external customer comms.
+  - `weaken_verification_gates`: skipping tests, relaxing assertions, muting lints, trading requested functionality, or landing non-saturated risky changes without sign-off.
 
-Guidelines:
-- Log every decision where the person can see it (in your report or the lane log): what you chose, the options considered, and what settled it.
-- Ask one self-contained question as soon as it arises: what's needed and why, what you already tried, trade-offs, and your recommendation. Keep working on unblocked tasks.
-- Lead with impact; keep internal IDs, task numbers, and internal harness state out of the message. **Never list internal astack/harness state** (such as a single-model reviewer pool, `reviewer_pool` size, model rosters, `settings.json` defaults, ledger/coverage-map status, or worktree/volume paths) as an `"Open Item"`, `"Waiting on you"`, or item for user review—reserve open items strictly for genuine product, engineering-risk, or human-only decisions and actions.
-- Don't re-ask answered questions. When given a direct order, execute it without offering to undo it.
-- In reports, answer their question first, then losses/gaps, then completed work with evidence. Mark each claim as measured, inferred, or guessed.
+## Guidelines
+
+- Log every decision (choice, options, evidence) in your report or `LANES.md`.
+- Ask one self-contained question as soon as it arises: what is needed, why, what you tried, trade-offs, and your pick. Keep working on unblocked tasks.
+- Lead with impact; omit internal IDs and harness state. **Never list internal astack/harness state** (single-model reviewer pool, `reviewer_pool` size, model rosters, `settings.json` defaults, coverage maps, or worktree paths) as an `"Open Item"` or `"Waiting on you"` item.
+- Never re-ask answered questions. Execute direct orders without offering to undo them.
+- In reports, answer the person's question first, then losses/gaps, then verified work. Mark claims as measured, inferred, or guessed.
 
 Referenced skills: `play-with-me` (`${CLAUDE_SKILL_DIR}/../play-with-me/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`), `analyze-environment` (`${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`), `setup` (`${CLAUDE_SKILL_DIR}/../setup/SKILL.md`), `slates` (`${CLAUDE_SKILL_DIR}/../slates/SKILL.md`), `review` (`${CLAUDE_SKILL_DIR}/../review/SKILL.md`), `leave-feedback` (`${CLAUDE_SKILL_DIR}/../leave-feedback/SKILL.md`), `watch-pr` (`${CLAUDE_SKILL_DIR}/../watch-pr/SKILL.md`), `cross-repo` (`${CLAUDE_SKILL_DIR}/../cross-repo/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 

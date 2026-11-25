@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Keep documentation accurate on every change, and write it so an engineer can use, debug, or change the system on the first read.
 
-1. **Discover and audit impacted docs on every change:** inspect what documentation the repository actually maintains (guides, references, config/flag docs, runbooks, ADRs, inline diagrams—whatever exists in the repo, never assuming one fixed layout), identify everything rendered stale, incomplete, or contradicted by the change, and update or delete it in the same change (**yagni**, **no-hidden-config**). If nothing needs updating, verify that explicitly rather than skipping the check.
+1. **Discover and audit impacted docs on every change:** inspect what docs the repo maintains (guides, references, config docs, runbooks, ADRs, diagrams—never assume one layout). Update or delete anything rendered stale or contradicted in the same change (**yagni**, **no-hidden-config**). If nothing needs updating, verify that explicitly.
 2. **Start with who reads this and what they need to do:** state what the thing is and what problem it solves in the first two sentences. Put setup and common tasks near the top; push history and background to the bottom (or leave them out).
 3. **Be concrete, never vague:**
    - Replace slogans, marketing copy, and bare adjectives ("blazing fast", "seamless", "robust", "battle-tested") with specific behavior, constraints, defaults, and numbers.

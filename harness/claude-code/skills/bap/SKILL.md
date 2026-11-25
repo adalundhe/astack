@@ -1,6 +1,6 @@
 ---
 name: bap
-description: "Immediate mid-session course correction when the person has to repeat a reminder, rule, or correction: stop hollow apologies, audit why the miss happened, repair live session state and drifted workers, and lock in a structural guard so they never have to repeat it. Use on /astack:bap or whenever corrected on something already established."
+description: "Immediate mid-session course correction when the person has to repeat a reminder, rule, or correction: drop apologies, audit why it slipped, repair live state and drifted workers, and lock in a structural guard."
 disable-model-invocation: true
 ---
 
@@ -8,18 +8,18 @@ disable-model-invocation: true
 
 Stop immediately when the person has to repeat themselves. Don't apologize, patch the symptom, and forget again two turns later—fix **why** it slipped right now.
 
-1. **Full stop, zero fluff (**wat**):** drop sycophantic apologies and defensive explanations. State the missed rule or instruction in one plain sentence.
-2. **Audit why it slipped (not just what slipped):** run **lookup** first to check whether a saved `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md` (or prior `person:`/`decided:` note) already warned about this exact trap, and trace the real breakdown across the session—
-   - skipped or unloaded skill (`astack-tools skills list --role <role>` / `skills get <name>`) or skipped **lookup** before acting;
-   - dropped role (lead solo-coding or solo-debugging instead of delegating, or drifting out of Go mode);
-   - ignored prior decision or directive (`LANES.md` `person:` / `decided:`, `RULES.md`, repo docs via **rtfm**);
-   - drifted or stale worker/subagent that never received the directive;
-   - missing mechanical check, hook, test, or brief constraint letting the mistake slip through.
-3. **Repair both the immediate miss and live session state now:**
-   - load any skipped skill in full before touching anything else;
-   - undo or fix the immediate mistake cleanly (delegating code edits to a fresh worker if you are Lead, and re-running any skipped verification or **review**);
-   - pin the person's rule verbatim where live work sees it (`RULES.md` + `LANES.md` `person:` if in a program), and steer or replace any drifted subagent (**lead**).
-4. **Prevent repeat #3 (**lookback** + **make-it-stick**):** run **lookback** on the repeated failure trail (chats, actions, tool calls, results) to write or update a focused `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md`, and climb the **make-it-stick** structural fix ladder in order—architecture -> types -> lint/hook -> automated test -> scoped rule/skill update (only proposing rule/skill edits to the source repo with evidence when stronger rungs can't catch it).
-5. **Report cleanly in 3 bullets:** what slipped and why, what you just fixed (with verification), and the guard preventing it from recurring.
+1. **Full stop, zero fluff (**wat**):** skip apologies and defensive explanations. State the missed rule in one plain sentence.
+2. **Audit why it slipped, not just what slipped:** run **lookup** first to see if a saved `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md` or `LANES.md` entry already warned about this trap. Trace the real cause:
+   - skipped or unloaded skill (`astack-tools skills list` / `skills get`) or skipped **lookup**;
+   - dropped role (lead solo-coding, solo-debugging, or drifting out of Go mode);
+   - ignored directive (`LANES.md`, `RULES.md`, or repo docs via **rtfm**);
+   - stale or drifted subagent that never received the directive;
+   - missing mechanical check, hook, test, or brief constraint.
+3. **Repair the miss and live session state now:**
+   - load any skipped skill in full before acting;
+   - fix the immediate mistake (delegating code edits to a fresh worker if you are Lead) and run any skipped **review**;
+   - pin the rule verbatim in `RULES.md` and `LANES.md`, and steer or replace any drifted subagent (**lead**).
+4. **Prevent repeat #3 (**lookback** + **make-it-stick**):** run **lookback** on the failure trail to write or update `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md`. Then climb **make-it-stick**'s fix ladder (architecture -> types -> lint/hook -> test -> docs last), proposing source-repo rule edits with evidence only when stronger rungs cannot catch it.
+5. **Report in 3 bullets:** what slipped and why, what you just fixed (with proof), and the guard preventing a repeat.
 
 Referenced skills: `wat` (`${CLAUDE_SKILL_DIR}/../wat/SKILL.md`), `lookup` (`${CLAUDE_SKILL_DIR}/../lookup/SKILL.md`), `rtfm` (`${CLAUDE_SKILL_DIR}/../rtfm/SKILL.md`), `review` (`${CLAUDE_SKILL_DIR}/../review/SKILL.md`), `lead` (`${CLAUDE_SKILL_DIR}/../lead/SKILL.md`), `lookback` (`${CLAUDE_SKILL_DIR}/../lookback/SKILL.md`), `make-it-stick` (`${CLAUDE_SKILL_DIR}/../make-it-stick/SKILL.md`). Read any cited skill file before acting when its trigger applies.

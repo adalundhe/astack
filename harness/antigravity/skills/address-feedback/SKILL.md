@@ -6,20 +6,20 @@ disable-model-invocation: true
 
 # Address feedback
 
-Close every review finding and PR comment by fixing it, answering it, or disproving it, and reply on every thread.
+Close every review finding and PR comment by fixing, answering, or disproving it, and reply on every thread.
 
-1. **Collect everything:** all reviewer findings, or every comment and review on the PR from both humans and agents.
+1. **Collect everything:** gather all reviewer findings and every human or bot PR comment.
 2. **Work blockers first,** then suggestions, then nits. Don't skip nits.
-3. **Verify each item before acting.** Run its reproduction or set up the case it describes.
-   - **Real issue:** turn the reproduction into a failing test, then fix the cause (**find-it**, **fix-it**). For a coding-rule finding, either apply the rule's `Start with` guidance or show why this context warrants an exception (**worrywart**).
-   - **Question:** answer it clearly. If confusing code caused the question, clarify the code with better naming or a test rather than adding an explanatory comment.
-   - **Wrong or overstated:** refute it with evidence (**worrywart**).
-   - **Needs a human call** (such as a product trade-off or dropping functionality): ask the person directly with your recommendation, and keep working on the rest.
-4. **Diff-growth guard (**simplify-me**):** check the PR's diff size each review round (`astack-watch-pr diff-guard --base origin/<base> --head HEAD --json`). Review loops tend to grow a PR one cheap fix at a time: if review grew the diff, run **simplify-me** to cut, narrow, or delete before adding more code—prefer the fix that simplifies or deletes, and decline out-of-scope or non-bug requests with a clear written reason.
-5. **Preserve takeover credit:** if finishing or amending commits authored by someone else, keep original git authorship (`git rebase`/`git cherry-pick`/`--author`) or include `Co-authored-by: Name <email>` trailers (verify with `astack-watch-pr authorship-check`).
-6. **Reply on every thread plainly (**wat**, **leave-feedback**):** state the fix and context clearly, share concrete evidence, or give a direct answer with full context—never cryptic isolated fragments or unintroduced commit hashes. Before posting any human-facing PR reply, the **lead** runs **leave-feedback** so a second independent reviewer agent audits the draft until it returns `CLEAR`, then posts via `astack-watch-pr reply --body-file <reply.md> --audit-receipt <audit_clear.txt>` (or the matching forge CLI `astack-watch-github` / `astack-watch-gitlab` / `astack-watch-bitbucket`). Only resolve a thread after replying—never silently. (Workers draft replies and return them in their report; workers never spawn reviewers.)
-7. **Lead vectored review on code fixes (**review**) and re-request review:** whenever addressing feedback changed code or tests, the **lead** runs `astack-check-gates` and vectored **review** (`astack-review-ledger`) before pushing (passing the original PR/bug context and **prove-it** for bug fixes), routes any proven findings back to a fresh worker, then re-requests review and repeats until clear.
+3. **Verify each item before acting.** Run its reproduction or test the described case:
+   - **Real issue:** turn the repro into a failing test, then fix the root cause (**find-it**, **fix-it**). For coding-rule findings, follow `Start with` or justify the exception (**worrywart**).
+   - **Question:** answer clearly. If confusing code caused it, improve the naming or test rather than adding a narrating comment.
+   - **Wrong or overstated:** refute it with runnable evidence (**worrywart**).
+   - **Needs a human call:** escalate with your recommendation and keep working on the rest.
+4. **Guard against diff bloat (**simplify-me**):** run `astack-watch-pr diff-guard` each review round. Review loops tend to pile on cheap fixes: if the diff grew, cut or simplify before adding code, and decline out-of-scope requests with a written reason.
+5. **Preserve takeover credit:** when amending another contributor's commits, keep original authorship (`--author`) or `Co-authored-by` trailers and verify with `astack-watch-pr authorship-check`.
+6. **Reply on every thread plainly (**wat**, **leave-feedback**):** state the fix, evidence, or answer with full context—never bare commit hashes or cryptic fragments. Before posting any human-facing PR reply, the **lead** audits the draft with an independent second reviewer via **leave-feedback** until `CLEAR`, then posts via `astack-watch-pr reply`. Resolve threads only after replying. (Workers draft replies in their report and never spawn reviewers.)
+7. **Re-review code fixes (**review**):** if addressing feedback changed code or tests, the **lead** runs `astack-check-gates` and vectored **review** (`astack-review-ledger`) before pushing, routes any new findings to a fresh worker, then re-requests review.
 
-If the same work keeps coming back with new rounds of feedback, escalate to whoever assigned it (or the lead, in an astack program) so they can adjust the plan or add help.
+If the same work keeps bouncing across rounds, escalate to the lead so they can adjust the plan or add help.
 
-Referenced skills: `find-it` (`../find-it/SKILL.md`), `fix-it` (`../fix-it/SKILL.md`), `worrywart` (`../worrywart/SKILL.md`), `simplify-me` (`../simplify-me/SKILL.md`), `wat` (`../wat/SKILL.md`), `leave-feedback` (`../leave-feedback/SKILL.md`), `lead` (`../astack-lead/SKILL.md`), `review` (`../astack-review/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `find-it` (`../find-it/SKILL.md`), `fix-it` (`../fix-it/SKILL.md`), `worrywart` (`../worrywart/SKILL.md`), `simplify-me` (`../simplify-me/SKILL.md`), `wat` (`../wat/SKILL.md`), `leave-feedback` (`../leave-feedback/SKILL.md`), `lead` (`../astack-lead/SKILL.md`), `review` (`../astack-review/SKILL.md`). Read any cited skill file before acting when its trigger applies.

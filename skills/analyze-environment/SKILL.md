@@ -1,27 +1,25 @@
 ---
 name: analyze-environment
-description: "Inspect the machine, repo configs/infra/env-var names, installed CLIs, MCP servers, APIs, and services, run safe read-only/dry-run and auth-status probes, install user-space tooling when authorized (unattended), and publish a shared TOOLS.md catalog for all agents—isolating only human-only auth steps. Use for researcher, worker, reviewer, or lead environment and system-access discovery."
+description: "Discover local runtimes, repo configs, CLIs, MCP servers, APIs, and services, run safe read-only/dry-run probes, install user-space tooling under unattended autonomy, and publish a shared TOOLS.md catalog isolating only human-only auth steps."
 disable-model-invocation: true
 ---
 
 # Analyze environment
 
-Map the local runtime, external systems, CLIs, APIs, MCP servers, and access paths relevant to the task, publish a shared `TOOLS.md` catalog for all agents, install missing user-space tooling when authorized, and isolate **only** genuine human-only auth steps.
+Map the local runtime, CLIs, APIs, MCP servers, and access paths for the task, publish a shared `TOOLS.md` catalog, install missing user-space tools when authorized, and isolate **only** human-only auth steps.
 
-1. **Discover what the task touches (**rtfm**):** inspect the prompt/brief, repo configs, CI/CD workflows, IaC/infra manifests, scripts, and environment-variable *names* (never print or log secret values—**no-leaked-secrets**) to list every runtime, CLI, API, SDK, MCP server, and external service correlated with the problem.
-2. **Probe safely (read-only & dry-run are always allowed):**
-   - Check OS, CPU architecture, language runtimes/toolchains, attached MCP tools, and available CLIs across `PATH` and standard user/system directories (`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `~/.cargo/bin`, etc.).
-   - Verify active target contexts for every cloud, edge/DNS/CDN, cluster/orchestrator, or IaC tool the repo touches—discover the exact CLIs/APIs from repo configs and env-var names (e.g., cloud account/project/subscription, edge zone, cluster/namespace, IaC workspace/stack—illustrative, never exhaustive) and record them in `TOOLS.md` so agents never silently target the wrong environment (dev vs. staging vs. prod).
-   - Run read-only, dry-run, and auth-status checks against relevant systems (e.g., forge `auth status`, cloud identity/context check, cluster/orchestrator `diff` or permission check, IaC `plan`/`preview`/`what-if`/`--dry-run`, read-only `GET`)—never balk at safe read-only inspection or dry-run probes.
-   - Classify each tool or interface:
-     - **`ready`**: installed/reachable and read-only/auth probe succeeds.
-     - **`needs-install`**: missing locally, with an exact non-root user-space install command (`uv`, `brew`, `pipx`, `npm`, `cargo`, or release binary to `~/.local/bin`).
-     - **`needs-human-auth`**: CLI/API is ready or installable, but requires interactive human login, SSO, MFA, or credential entry—record the exact single command the person must run (e.g., `gh auth login`, `aws sso login --profile <name>`).
-     - **`unreachable`**: network, host, or permission wall blocking access, with exact error.
-3. **Publish a shared `TOOLS.md` catalog:**
-   - Write (or return under `TOOLS & ACCESS CATALOG` in your report for the lead to merge into `<program>/TOOLS.md`) each tool/service's purpose, status, path/endpoint/MCP name, non-root install command, auth-check command, verified read-only/dry-run commands, and human login command if `needs-human-auth`.
-   - Record key runtime/environment facts (OS/arch, versions, active local services, base paths) so downstream **find-it** repros and **prove-it** checks match reality without re-probing.
-4. **Install & wield missing user-space tooling when authorized (**decisions-in-plain-words**, **automate-this**):**
-   - **Researchers and reviewers** stay read-only: discover, run read-only/dry-run probes, and emit the `TOOLS & ACCESS CATALOG` for the lead and workers.
-   - **Lead and workers** under `autonomy.mode: "unattended"` (never using `sudo`/root or paid signups): install `needs-install` CLIs/SDKs into user-owned locations (`~/.local/bin`, isolated `uv` venv, Homebrew), verify read-only/dry-run behavior, wrap repeated queries into secret-safe scripts (**automate-this**), and update `<program>/TOOLS.md` to `ready` so every agent can wield them immediately.
-5. **Isolate only the human auth step:** never block on a missing CLI or unfamiliar API. Finish discovery, user-space installation, cataloging, and all unblocked work first; escalate **only** the single human-only auth action (exact command + what it unlocks) while continuing unblocked work.
+1. **Discover what the task touches (**rtfm**):** inspect the brief, repo configs, CI workflows, IaC manifests, scripts, and env-var *names* (never print secret values—**no-leaked-secrets**). List every relevant runtime, CLI, API, SDK, MCP server, and service.
+2. **Probe safely—read-only and dry-run checks are always allowed:**
+   - Check OS, CPU architecture, runtimes, MCP tools, and CLIs across `PATH` and standard user dirs (`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `~/.cargo/bin`).
+   - Verify active target contexts for every cloud, edge/DNS/CDN, cluster, or IaC tool from repo configs (account, zone, cluster/namespace, workspace—illustrative, never exhaustive). Record them in `TOOLS.md` so no agent targets the wrong environment.
+   - Run read-only, dry-run, and auth-status checks (forge `auth status`, identity check, cluster `diff`, IaC `plan`/`--dry-run`, read-only `GET`).
+   - Classify each tool:
+     - **`ready`:** installed/reachable and read-only probe succeeds.
+     - **`needs-install`:** missing locally, with an exact non-root user-space install command.
+     - **`needs-human-auth`:** ready or installable, but needs interactive login, SSO, or MFA—record the exact command for the person (e.g., `gh auth login`).
+     - **`unreachable`:** network, host, or permission wall, with the exact error.
+3. **Publish a shared `TOOLS.md` catalog:** write (or return under `TOOLS & ACCESS CATALOG` for the lead) each tool's purpose, status, path/MCP name, non-root install command, auth probe, verified read-only commands, and human login command if `needs-human-auth`. Include OS/arch and runtime versions so **find-it** and **prove-it** match reality without re-probing.
+4. **Install missing user-space tooling when authorized (**decisions-in-plain-words**, **automate-this**):**
+   - **Researchers and reviewers** stay read-only and emit the catalog for the lead and workers.
+   - **Lead and workers** under `unattended` (never `sudo` or paid signups): install `needs-install` tools into user-owned paths (`~/.local/bin`, `uv` venv, Homebrew), verify read-only probes, wrap repeated queries in secret-safe scripts, and mark `TOOLS.md` `ready`.
+5. **Isolate only the human auth step:** never block on a missing CLI or unfamiliar API. Finish discovery, installation, cataloging, and unblocked work first, then escalate only the exact human auth command and what it unlocks.

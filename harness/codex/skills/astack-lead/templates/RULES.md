@@ -27,7 +27,7 @@ Astack skills: <path to astack skills/ directory, for reading hidden skills by p
    - Autonomy grant (from `settings.json`): mode `<supervised|unattended>`, allow `<list>`, deny `<list>`. Read-only/dry-run external probes are always allowed; under `unattended`, execute every action in `allow` (including out-of-dir work, user-space tool installs, feature-branch pushes, and opening PRs) without asking confirmation. Never take any action in `deny` without explicit per-action approval.
    - No worker may loosen a gate unilaterally—every gate relaxation requires the lead's countersign in `## Revisions`.
 
-3. WHERE: your isolated Slates in-memory VFS volume (`slates`, https://github.com/hyper-light/slates, preferred when available) or git worktree (<path>), on branch <prefix>/<lane>. Write only the paths your brief names. Builds and
+3. WHERE: your isolated **slates** volume (preferred when available) or git worktree (<path>), on branch <prefix>/<lane>. Write only the paths your brief names. Builds and
    tests run <where, and with what resources>.
 
 4. DECIDE YOURSELF, AND RECORD IT: you're free to explore, research, form hypotheses, try things, succeed, fail,

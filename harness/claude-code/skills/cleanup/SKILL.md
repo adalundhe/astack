@@ -1,26 +1,26 @@
 ---
 name: cleanup
-description: "Remove temporary files, debug logs/captures (<file>_DEBUG_<shorthash>.<type>), build artifacts, caches, test data, and processes created by your work without touching anything else or still needed. Always invoke post-review, when finishing/handing off, and during or right after debugging."
+description: "Remove temporary files, debug logs/captures (<file>_DEBUG_<shorthash>.<type>), build artifacts, caches, scratch workspaces, and processes you created without touching anything else. Run post-review, at handoff, and right after debugging."
 disable-model-invocation: true
 ---
 
 # Cleanup
 
-Remove artifacts left behind by your work—temp files, debug logs/data, build outputs, caches, scratch worktrees, test state, and leftover processes—without touching anything you didn't create.
+Remove temporary artifacts created by your work without touching anything you did not create, because leftover files and processes pollute diffs and leak stale state into later runs.
 
 ## When to invoke
 
-- **Post-review (mandatory):** run after **review** finishes (before declaring work done or a PR merge-ready) to clear review worktrees, throwaway worker scratch worktrees, ephemeral **slates** VFS volumes (`slates unmount` + `slates volume destroy`), stray repo-side repros, audit drafts, and leftover processes while preserving program records.
-- **During debugging and right after a fix:** invoke during active **find-it** sessions to prune stale debug logs, captures, traces, and profiles—and always once the issue is fixed so every `<file>_DEBUG_<shorthash>.<type>` file and temporary debug print/instrumentation is removed.
+- **Post-review (mandatory):** run after **review** clears to tear down review worktrees, scratch workspaces, ephemeral **slates** volumes (`slates unmount` + `slates volume destroy`), stray repros, and leftover processes. Keep durable program records.
+- **During and right after debugging:** prune stale captures mid-session during **find-it**, and delete every `<file>_DEBUG_<shorthash>.<type>` file and temporary debug hook once fixed.
 - **At handoff or after experiments:** clear throwaway prototypes, benchmark temp data, and background jobs you started.
 
 ## Steps
 
-1. **Inventory what you created:** `<file>_DEBUG_<shorthash>.<type>` captures and debug logs, temporary print/trace instrumentation, temp files/directories, build artifacts, caches, test databases/tables, containers/volumes, background processes/ports, downloaded files, finished git worktrees, and merged branches.
-2. **Keep what's still needed:** evidence for your report (final test output, screenshots, benchmark results), program records (`RULES.md`, `LANES.md`, coverage maps, watch markers, reports), anything explicitly requested to stay, anything still in use, and standard project tool caches.
-3. **Remove only verified leftovers:** confirm each item is untracked by git, unreferenced, and not held by a running process (and revert temporary debug instrumentation cleanly). Leave other people's and other agents' files, data, and processes untouched.
-4. **Use project clean commands first** (`make clean`, build-tool clean, test teardown). Delete remaining leftovers by exact path or PID—never with broad globs or generic process names.
-5. **Verify cleanup:** confirm no leftovers or `*_DEBUG_*.*` files remain in `git status`, no sensitive captures were left behind (**no-leaked-secrets**), disk space is reclaimed, and builds/tests still run cleanly.
+1. **Inventory what you created:** `<file>_DEBUG_<shorthash>.<type>` captures, temporary debug hooks, temp directories, build outputs, caches, test DBs, containers, background PIDs, finished worktrees, and merged branches.
+2. **Keep what is still needed:** report evidence (final test output, screenshots, benchmarks), program records (`RULES.md`, `LANES.md`, coverage maps, watch markers, reports), requested artifacts, and standard project caches.
+3. **Remove only verified leftovers:** confirm each item is untracked, unreferenced, and not held by a live process, and revert temporary instrumentation. Never touch other people's or other agents' files or processes.
+4. **Use project clean commands first** (`make clean`, test teardown). Delete remaining items by exact path or PID—never broad globs or process names.
+5. **Verify cleanup:** confirm `git status` is clean of `*_DEBUG_*.*` or sensitive captures (**no-leaked-secrets**), and verify builds and tests still pass.
 6. **Report** concisely what you removed and what you intentionally kept.
 
 Referenced skills: `review` (`${CLAUDE_SKILL_DIR}/../review/SKILL.md`), `slates` (`${CLAUDE_SKILL_DIR}/../slates/SKILL.md`), `find-it` (`${CLAUDE_SKILL_DIR}/../find-it/SKILL.md`), `no-leaked-secrets` (`${CLAUDE_SKILL_DIR}/../no-leaked-secrets/SKILL.md`). Read any cited skill file before acting when its trigger applies.

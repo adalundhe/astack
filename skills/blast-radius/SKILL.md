@@ -8,10 +8,15 @@ disable-model-invocation: true
 
 Find what a change could break beyond its diff before it ships.
 
-1. **Read the full behavior change:** what is added, modified, or removed—including subtle behavioral shifts the diff doesn't spell out.
-2. **Isolate the core safety assumption.** Most risky-looking changes depend on one key invariant (for example, "this only drops entries that are already dead"). Identify it explicitly so you can test it directly.
-3. **Look past grep.** Inspect the pinned source of called libraries; lifecycle edges (startup, shutdown, retries, concurrency); live in-flight versions during rollout and rollback (old pods, CronJobs, Jobs, pre-sync/sync-wave migration ordering, cross-repo infra order, rolled-back charts—**safe-to-deploy**); boundary data (APIs, persisted data, wire formats, config, other services or languages); repo documentation describing the changed behavior, interfaces, config, or operations (**technical-writing**); and callers several hops downstream.
-4. **Prove the assumption by running real code,** as high on the trust ladder (**prove-it**) as you can reach: run a script, test, or local reproduction against the real system.
-5. **Report clearly:** what the change does; the core safety assumption (marked proven or unproven); each concrete risk (how and where it breaks, likelihood, severity); what you checked and cleared; and the cheapest check that would catch real breakage.
+1. **Read the full behavior change:** list everything added, modified, or removed—including subtle behavioral shifts the diff never spells out.
+2. **Name the core safety assumption:** most risky changes rest on one key invariant (for example, "this only drops already-dead entries"). State it explicitly so you can attack it directly.
+3. **Look past grep.** Inspect every indirect seam:
+   - pinned source of called libraries and callers several hops downstream;
+   - lifecycle edges: startup, shutdown, retries, and concurrency;
+   - live mixed-version rollout and rollback: old pods, CronJobs, migration waves, cross-repo order, and rolled-back releases (**safe-to-deploy**);
+   - boundary data: APIs, persisted records, wire formats, config, and other services;
+   - repo docs describing changed behavior, interfaces, config, or operations (**technical-writing**).
+4. **Prove the assumption on real code:** run a script, test, or local repro as high on the trust ladder (**prove-it**) as you can reach.
+5. **Report clearly:** state what changed, whether the core assumption is proven or unproven, each concrete risk (where it breaks, likelihood, severity), what held, and the cheapest check that catches real breakage.
 
 <!-- Adapts pstack's blast-radius skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

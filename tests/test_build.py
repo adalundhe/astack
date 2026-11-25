@@ -534,15 +534,18 @@ class BuildTest(unittest.TestCase):
 
         lead_src = (ROOT / "skills/lead/SKILL.md").read_text()
         self.assertNotIn("may land directly", lead_src, "lead must never land worker lanes without a reviewer")
-        self.assertIn("never land code without a reviewer", lead_src)
+        self.assertIn("never land code without a reviewer", lead_src.lower())
 
         bugbash = (ROOT / "skills/bugbash/SKILL.md").read_text()
         self.assertIn("shrink the repro first", bugbash)
         self.assertIn("reset timers", bugbash)
         self.assertIn("No convergence / stalled", bugbash)
         self.assertIn("prove-it", bugbash)
+        self.assertIn("vectored debugging", bugbash.lower())
+        self.assertIn("`low` bug", bugbash)
+        self.assertIn("`risky` or ambiguous bug", bugbash)
         self.assertIn("complementary reproduction and investigation methods", bugbash)
-        self.assertIn("never writing or applying fixes themselves", bugbash)
+        self.assertIn("never write or apply fixes themselves", bugbash)
         self.assertIn("dispatches a fresh `astack:worker`", bugbash)
         self.assertIn("**slates**", bugbash)
         self.assertIn("reported issue, error, crash, failure, regression", bugbash)
@@ -550,13 +553,27 @@ class BuildTest(unittest.TestCase):
         self.assertIn("route to **bugbash**", find_it)
         self.assertIn("default to **bugbash** immediately", (ROOT / "skills/go/SKILL.md").read_text())
 
+        # Proportion & inline "why" guards
+        dagify_src = (ROOT / "skills/dagify/SKILL.md").read_text()
+        self.assertIn("Skip if small", dagify_src)
+        make_stick_src = (ROOT / "skills/make-it-stick/SKILL.md").read_text()
+        self.assertIn("nothing fails when an agent skips them", make_stick_src)
+
+        # Single source of truth for Slates URL: owned by skills/slates/SKILL.md and README.md only
         slates_skill = (ROOT / "skills/slates/SKILL.md").read_text()
         self.assertIn("https://github.com/hyper-light/slates", slates_skill)
         self.assertIn("slates status", slates_skill)
         self.assertIn("git worktree", slates_skill)
         self.assertIn("slates volume destroy", slates_skill)
         self.assertIn("never writing or applying fixes themselves", slates_skill)
-
+        for p in list((ROOT / "skills").rglob("*.md")) + list((ROOT / "agents").glob("*.md")):
+            if p == ROOT / "skills/slates/SKILL.md":
+                continue
+            self.assertNotIn(
+                "https://github.com/hyper-light/slates",
+                p.read_text(),
+                f"{p.relative_to(ROOT)} duplicates Slates URL (belongs only in skills/slates/SKILL.md)",
+            )
         for path in (
             "skills/dagify/SKILL.md",
             "skills/treeify/SKILL.md",
@@ -569,12 +586,11 @@ class BuildTest(unittest.TestCase):
             "skills/ab-test/SKILL.md",
             "skills/swarm-hypothesis/SKILL.md",
             "skills/modularize/SKILL.md",
-            "agents/worker.md",
             "agents/reviewer.md",
             "agents/lead.md",
         ):
             text = (ROOT / path).read_text()
-            self.assertIn("https://github.com/hyper-light/slates", text, f"{path} missing Slates definition/link")
+            self.assertIn("**slates**", text, f"{path} missing **slates** reference")
         reviewer_md = (ROOT / "agents/reviewer.md").read_text()
         self.assertIn("resubmits the changes to you for verification", reviewer_md)
         self.assertNotIn("When testing a proposed fix", reviewer_md)
@@ -584,14 +600,17 @@ class BuildTest(unittest.TestCase):
         self.assertIn("make-it-stick", lead_src)
         self.assertIn("rejected theories", lead_src)
         self.assertIn("failed fix approaches/attempts", (ROOT / "skills/review/SKILL.md").read_text())
-        self.assertIn("rejected root-cause theories", (ROOT / "skills/make-it-stick/SKILL.md").read_text())
+        self.assertIn("rejected root-cause theories", make_stick_src)
 
         bb_fm, _ = front_matter(ROOT / "evals/bugbash-investigates-and-proves-fix/prompt.md")
         self.assertGreaterEqual(int(bb_fm["timeout_seconds"]), 1200)
         bb_judge = (ROOT / "evals/bugbash-investigates-and-proves-fix/graders/judged.md").read_text()
         self.assertIn("not** require internal review-orchestration narration", bb_judge)
 
-        # Verify time-limit watch/swap across swarm flows, deterministic/data-backed prove-it, and whole-environment find-it
+        # Single source of truth for watch/swap clocks in lead/SKILL.md; swarm skills point to **lead**
+        self.assertIn("astack-status", lead_src)
+        self.assertIn("check_in_minutes", lead_src)
+        self.assertIn("fresh successor", lead_src)
         for swarm_path in (
             "skills/bugbash/SKILL.md",
             "skills/redteam/SKILL.md",
@@ -603,9 +622,8 @@ class BuildTest(unittest.TestCase):
             "skills/cross-repo/SKILL.md",
         ):
             stext = (ROOT / swarm_path).read_text()
-            self.assertIn("astack-status", stext, f"{swarm_path} missing time-limit watch/swap via astack-status")
-            self.assertIn("check_in_minutes", stext, f"{swarm_path} missing check_in_minutes clock check")
-            self.assertIn("fresh successor", stext, f"{swarm_path} missing fresh-successor swap rule")
+            self.assertIn("**lead**", stext, f"{swarm_path} missing pointer to **lead** orchestration")
+            self.assertIn("watch-and-swap", stext, f"{swarm_path} missing watch-and-swap pointer to lead")
 
         treeify = (ROOT / "skills/treeify/SKILL.md").read_text()
         self.assertIn("Stopping criterion:", treeify)
@@ -762,7 +780,7 @@ class BuildTest(unittest.TestCase):
 
         lookup_src = (ROOT / "skills/lookup/SKILL.md").read_text()
         self.assertIn("~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md", lookup_src)
-        self.assertIn("cross-repo or cross-project", lookup_src)
+        self.assertIn("cross-repo or cross-project", lookup_src.lower())
         self.assertIn("determine which other repos or projects might be relevant", lookup_src)
         self.assertIn("related_projects", lookup_src)
         self.assertIn("**lookback**", lookup_src)
@@ -839,7 +857,7 @@ class BuildTest(unittest.TestCase):
         self.assertIn("**treeify**", redteam_src)
         self.assertIn("**clamber**", redteam_src)
         self.assertIn("**lookup**", redteam_src)
-        self.assertIn("never writing or applying fixes themselves", redteam_src)
+        self.assertIn("never write or apply fixes themselves", redteam_src)
         self.assertIn("no remaining proven issues", redteam_src)
         self.assertIn("break, disrupt, and limit-test", redteam_src)
         self.assertIn("hosted dev/staging", redteam_src)
@@ -847,12 +865,36 @@ class BuildTest(unittest.TestCase):
         self.assertIn("**redteam**", (ROOT / "skills/clamber/SKILL.md").read_text())
         self.assertIn("**redteam**", bugbash)
 
-        # Guard against ever reverting to in-repo or ~/.config/astack/lessons storage
-        for skill_md in (ROOT / "skills").glob("*/SKILL.md"):
-            stext = skill_md.read_text()
-            self.assertNotIn("~/.config/astack/lessons/", stext, f"{skill_md} still references old ~/.config/astack/lessons/ path")
-            if skill_md.parent.name not in ("lookback", "lookup"):
-                self.assertNotIn("<repo>/lessons/", stext, f"{skill_md} still references forbidden <repo>/lessons/ path")
+        # Guard against ever reverting to in-repo, ~/.config/astack/lessons, or LESSONS.md storage
+        for md_file in list((ROOT / "skills").glob("*/SKILL.md")) + list((ROOT / "agents").glob("*.md")):
+            stext = md_file.read_text()
+            self.assertNotIn("~/.config/astack/lessons/", stext, f"{md_file} references old ~/.config/astack/lessons/ path")
+            self.assertNotIn("LESSONS.md", stext, f"{md_file} references retired LESSONS.md instead of ~/.astack/.../LESSON.md")
+            if md_file.parent.name not in ("lookback", "lookup"):
+                self.assertNotIn("<repo>/lessons/", stext, f"{md_file} references forbidden <repo>/lessons/ path")
+
+        # Readability guard: keep prose concise across all 88 skills (prevent 30+ word/sentence bloat from creeping back)
+        for skill_md in sorted((ROOT / "skills").glob("*/SKILL.md")):
+            _, body = front_matter(skill_md)
+            clean = re.sub(r"```.*?```", "", body, flags=re.S)
+            clean = re.sub(r"<!--.*?-->", "", clean, flags=re.S)
+            sents = []
+            for line in clean.splitlines():
+                s = line.strip()
+                if not s or s.startswith("#") or s.startswith("|"):
+                    continue
+                s = re.sub(r"^([-*]|\d+\.)\s+", "", s)
+                for part in re.split(r"(?<=[.!?])\s+", s):
+                    words = re.findall(r"[A-Za-z0-9_/`-]+", part)
+                    if len(words) >= 3:
+                        sents.append(len(words))
+            if sents:
+                avg = sum(sents) / len(sents)
+                self.assertLessEqual(
+                    avg,
+                    20.0,
+                    f"{skill_md.relative_to(ROOT)} avg words/sentence too dense ({avg:.1f} > 20.0); keep one idea per sentence",
+                )
 
         self.assertTrue((ROOT / "evals/find-it-and-fix-it-bug/verify.py").is_file())
         self.assertTrue((ROOT / "evals/bugbash-investigates-and-proves-fix/verify.py").is_file())

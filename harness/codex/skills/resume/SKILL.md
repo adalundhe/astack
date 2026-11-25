@@ -9,8 +9,8 @@ Unpause live `PAUSED` runs, schedules, steps, or workflows in place—or recover
 
 ## 1. Choose live unpause vs. checkpoint recovery
 
-- **Live unpause (same runner/orchestrator, `RunStatus.PAUSED` / `WorkflowStatus.PAUSED`):** continues the exact same run/workflow in place and unfreezes pause-aware timeout budgets.
-- **Restart-from-checkpoint (failed, cancelled, or a fresh process backed by `SQLiteCheckpointStore`):** loads saved checkpoints so already-completed workflow steps are skipped and incomplete steps start with `last_checkpoint()` populated immediately.
+- **Live unpause (same runner, `PAUSED`):** continues the exact run or workflow in place and unfreezes pause-aware timeouts.
+- **Restart-from-checkpoint (failed, cancelled, or fresh process with `SQLiteCheckpointStore`):** loads saved checkpoints so completed steps skip and incomplete steps start with `last_checkpoint()` populated.
 
 ## 2. Resume `taskex` runs and schedules
 

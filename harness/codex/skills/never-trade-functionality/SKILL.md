@@ -13,8 +13,8 @@ A faster implementation must still do everything the slower one did: same accura
 2. **Keep robustness intact:** don't introduce new ways to stall, lose data, or crash.
 3. **Speed up the uncached path first** before reaching for a cache (**minimize-state-stores**).
 4. **Prove unused work is actually unused** before removing it—never assume.
-5. **Research before accepting a trade-off:** if you seem unable to hit the target without dropping functionality or guarantees, run **research-this** first to find how other systems, algorithms, or architectures achieve the goal *without* compromising, and test viable candidates (**swarm-hypothesis**, **ab-test**).
-6. **Escalate only proven limits:** if **research-this** and measurement confirm no compliant design can hit the target, report the best compliant result, the concrete bottleneck or fundamental limit, what you researched and tested, and only then present the trade-off with numbers to the person (**decisions-in-plain-words**).
+5. **Research before accepting a trade-off:** run **research-this** first to see how other systems hit the target without dropping guarantees. Test viable candidates (**swarm-hypothesis**, **ab-test**).
+6. **Escalate only proven limits:** if **research-this** and measurement prove no compliant design hits the target, report the best compliant result, the concrete bottleneck, and what you tested. Only then present the trade-off with numbers (**decisions-in-plain-words**).
 
 ## Watch for
 
