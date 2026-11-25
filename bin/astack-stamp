@@ -4,6 +4,7 @@
 Usage:
   astack-stamp FILE...   stamp these lane logs
   astack-stamp --hook    read a hook event on stdin and stamp the lane logs it touched
+  astack-stamp --add FILE LINE...   append LINE to the lane log under `## Log`, stamped now (no hook needed)
 
 A lane log starts with the line `<!-- astack lane log -->`. Under its `## Log` heading every line starts
 with a UTC stamp such as 2026-11-23T14:02Z. A line without one gets the current time. Stamped lines are
@@ -51,6 +52,25 @@ def stamp(path, stamp_text):
     return changed
 
 
+def add(path, line):
+    path = Path(path)
+    try:
+        text = path.read_text()
+    except (FileNotFoundError, IsADirectoryError, UnicodeDecodeError) as why:
+        print(f"astack-stamp: cannot read {path}: {why}", file=sys.stderr)
+        return 1
+    if not text.startswith(MARKER) or "\n## Log" not in text:
+        print(f"astack-stamp: {path} is not an astack lane log", file=sys.stderr)
+        return 1
+    line = " ".join(line.split())
+    if not line:
+        print("astack-stamp: nothing to add", file=sys.stderr)
+        return 2
+    with open(path, "a") as handle:
+        handle.write(("" if text.endswith("\n") else "\n") + f"{now()} {line}\n")
+    return 0
+
+
 def paths_from_hook(event):
     """The files a hook event touched: an edited file's path, or LANES.md paths named in a shell command."""
     tool_input = event.get("tool_input") or {}
@@ -82,6 +102,11 @@ def paths_from_hook(event):
 
 
 def main(argv):
+    if argv[1:2] == ["--add"]:
+        if len(argv) < 4:
+            print(__doc__.strip(), file=sys.stderr)
+            return 2
+        return add(argv[2], " ".join(argv[3:]))
     if argv[1:] == ["--hook"]:
         try:
             event = json.load(sys.stdin)

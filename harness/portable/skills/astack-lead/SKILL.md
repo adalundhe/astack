@@ -69,7 +69,7 @@ Keep the same task, deliverable, and scope. Build the successor's brief from the
 
 ## The lane log
 
-`LANES.md` is the program's durable memory: append one line per event using the formats in its header, never rewrite history. Run `astack-stamp <LANES.md>` after appending lines (or let your host's post-edit hook invoke `astack-stamp-hook` when configured), so never write a time from memory. Use `astack-decisions` to query past `decided:` and `person:` lines before revisiting questions. If `RULES.md` changes, record a revision line in `LANES.md` and notify every running worker.
+`LANES.md` is the program's durable memory: append one line per event using the formats in its header, never rewrite history. Append each line with `astack-stamp --add <LANES.md> "<line>"`, which stamps it as it is written and needs no hook (your host's post-edit hook can also invoke `astack-stamp-hook` when configured). Never write a time from memory, and run `astack-stamp <LANES.md>` on any line that has none: `astack-status` does not count unstamped lines. Use `astack-decisions` to query past `decided:` and `person:` lines before revisiting questions. If `RULES.md` changes, record a revision line in `LANES.md` and notify every running worker.
 
 ## Decisions
 

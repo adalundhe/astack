@@ -37,8 +37,8 @@
       "Send it into the worker's running turn with your host's agent messaging tool (or stop it and pass the directive in a fresh successor brief if the host does not support live messaging), and log it as a directive, or its successor never sees it."
     ],
     [
-      "The astack hook stamps each line with the time as it is saved, so never write a time from memory.",
-      "Run `astack-stamp <LANES.md>` after appending lines (or let your host's post-edit hook invoke `astack-stamp-hook` when configured), so never write a time from memory."
+      "Append each line with `astack-stamp --add <LANES.md> \"<line>\"`, which stamps it as it is written and needs no hook; the astack hook (when on) also stamps lines written with the file tools or a shell command that names `LANES.md`. Never write a time from memory, and run `astack-stamp <LANES.md>` on any line that has none: `astack-status` does not count unstamped lines.",
+      "Append each line with `astack-stamp --add <LANES.md> \"<line>\"`, which stamps it as it is written and needs no hook (your host's post-edit hook can also invoke `astack-stamp-hook` when configured). Never write a time from memory, and run `astack-stamp <LANES.md>` on any line that has none: `astack-status` does not count unstamped lines."
     ],
     [
       "- Ask outright, as a plain choice with your pick (**decisions-in-plain-words**), using `AskUserQuestion`, and keep working on everything else.",

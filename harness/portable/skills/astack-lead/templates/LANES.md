@@ -5,9 +5,10 @@ Repository: <absolute path to the repository>
 Rules: <absolute path to RULES.md>
 
 One deliverable per lane, one time limit per worker. Write one line per event under Log: append, never rewrite,
-and fix a wrong line with a correction line. The astack hook stamps each line with the UTC time as it is saved,
-such as 2026-11-23T14:02Z. Without the hook, start each line with `date -u +%Y-%m-%dT%H:%MZ`; never with a
-time from memory.
+and fix a wrong line with a correction line. Add a line with `astack-stamp --add <this file> "<line>"`: it is stamped with the UTC time as it is written,
+such as 2026-11-23T14:02Z, with no hook needed. The astack hook, when on, stamps lines written with the file tools
+too. A line with no stamp is not counted by `astack-status`: run `astack-stamp <this file>`. Never write a time
+from memory.
 
 ## Line formats
 

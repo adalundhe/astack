@@ -46,6 +46,7 @@ def find_log(arg):
 
 def read_log(path):
     agents, lanes, asks, repository = {}, {}, [], None
+    unstamped = 0
     in_log = False
     for raw in path.read_text().splitlines():
         if raw.startswith("Repository:") and not in_log:
@@ -55,6 +56,8 @@ def read_log(path):
             continue
         match = LINE.match(raw) if in_log else None
         if not match:
+            if in_log and raw.strip():
+                unstamped += 1
             continue
         when, rest = parse_time(match["stamp"]), match["rest"]
         if started := STARTED.match(rest):
@@ -98,7 +101,7 @@ def read_log(path):
             asks.append((when, rest))
         elif rest.startswith("person:"):
             asks = []
-    return agents, lanes, asks, repository
+    return agents, lanes, asks, repository, unstamped
 
 
 def span(minutes):
@@ -144,7 +147,7 @@ def main():
     if not log or not log.is_file():
         print("astack: no lane log found" if args.line else "No astack lane log found.")
         return 1
-    agents, lanes, asks, repository = read_log(log)
+    agents, lanes, asks, repository, unstamped = read_log(log)
     repo = args.repo or repository or "."
     now = datetime.now(timezone.utc)
     running = {name: a for name, a in agents.items() if not a["ended"]}
@@ -175,10 +178,15 @@ def main():
             summary.append(f"{late} past limit")
         if asks:
             summary.append(f"{len(asks)} waiting on you")
+        if unstamped:
+            summary.append(f"{unstamped} log lines have no stamp (run astack-stamp {log})")
         print(" · ".join(summary))
         return 0
 
     print(f"astack status at {now:{STAMP_FORMAT}}: {program} ({log})")
+    if unstamped:
+        print(f"\n{unstamped} log line(s) have no UTC stamp, so they are not counted: run `astack-stamp {log}`, "
+              f"and append lines with `astack-stamp --add {log} \"<line>\"`.")
     if not running:
         print("\nNo active agents (workers, reviewers, or researchers).")
     if running_workers:

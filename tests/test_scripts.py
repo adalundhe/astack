@@ -53,6 +53,19 @@ class StampTest(Scratch):
         path.write_text(f"{MARKER}\n# p lane log\n\n## Line formats\n\nstarted <worker> on <lane>\n\n## Log\n\n{body}")
         return path
 
+    def test_add_appends_a_stamped_line_without_a_hook(self):
+        path = self.log("2026-11-23T14:02Z started a on x (1)\n")
+        added = run("astack-stamp", "--add", str(path), "steer", "a:", "stop  the A/B")
+        self.assertEqual(added.returncode, 0, added.stderr)
+        lines = path.read_text().splitlines()
+        self.assertRegex(lines[-1], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z steer a: stop the A/B$")
+        self.assertEqual(lines[-2], "2026-11-23T14:02Z started a on x (1)")
+        other = self.dir / "notes.md"
+        other.write_text("plain notes\n")
+        refused = run("astack-stamp", "--add", str(other), "x")
+        self.assertEqual(refused.returncode, 1)
+        self.assertEqual(other.read_text(), "plain notes\n")
+
     def test_stamps_only_new_log_lines(self):
         path = self.log("2026-11-23T14:02Z started a on x (1)\nsteer a: stop the A/B\n")
         self.assertEqual(run("astack-stamp", str(path)).returncode, 0)
@@ -138,6 +151,20 @@ class StatusTest(Scratch):
         path.parent.mkdir()
         path.write_text(f"{MARKER}\n# prog lane log\n\nRepository: {self.repo}\n\n## Log\n\n" + "\n".join(lines) + "\n")
         return path
+
+    def test_says_when_log_lines_have_no_stamp_instead_of_reporting_no_agents(self):
+        path = self.write_log([f"started search-1 on search (a1) | branch lane/search | wind-down {stamp_at(5)} | ends {stamp_at(10)} | deliverable: d | done when: e"])
+        result = run("astack-status", str(path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("1 log line(s) have no UTC stamp", result.stdout)
+        self.assertIn("astack-stamp", result.stdout)
+        line = run("astack-status", str(path), "--line")
+        self.assertIn("1 log lines have no stamp", line.stdout)
+        # Stamped, it counts.
+        self.assertEqual(run("astack-stamp", str(path)).returncode, 0)
+        stamped = run("astack-status", str(path))
+        self.assertNotIn("no UTC stamp", stamped.stdout)
+        self.assertIn("search-1", stamped.stdout)
 
     def test_shows_running_workers_with_their_clocks_and_commits(self):
         path = self.write_log([
