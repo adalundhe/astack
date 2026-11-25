@@ -460,7 +460,9 @@ class BuildTest(unittest.TestCase):
         self.assertIn("reset timers", bugbash)
         self.assertIn("No convergence / stalled", bugbash)
         self.assertIn("prove-it", bugbash)
-        self.assertIn("throwaway scratch worktree", bugbash)
+        self.assertIn("complementary reproduction and investigation methods", bugbash)
+        self.assertIn("never writing or applying fixes themselves", bugbash)
+        self.assertIn("dispatches a fresh `astack:worker`", bugbash)
         self.assertIn("**slates**", bugbash)
 
         slates_skill = (ROOT / "skills/slates/SKILL.md").read_text()
@@ -468,6 +470,7 @@ class BuildTest(unittest.TestCase):
         self.assertIn("slates status", slates_skill)
         self.assertIn("git worktree", slates_skill)
         self.assertIn("slates volume destroy", slates_skill)
+        self.assertIn("never writing or applying fixes themselves", slates_skill)
 
         for path in (
             "skills/dagify/SKILL.md",
@@ -483,7 +486,9 @@ class BuildTest(unittest.TestCase):
         ):
             text = (ROOT / path).read_text()
             self.assertIn("https://github.com/hyper-light/slates", text, f"{path} missing Slates definition/link")
-        self.assertIn("throwaway scratch worktree", (ROOT / "agents/reviewer.md").read_text())
+        reviewer_md = (ROOT / "agents/reviewer.md").read_text()
+        self.assertIn("resubmits the changes to you for verification", reviewer_md)
+        self.assertNotIn("When testing a proposed fix", reviewer_md)
         self.assertIn("make-it-stick", bugbash)
         self.assertIn("rejected root-cause theory", bugbash)
         self.assertIn("failed fix approaches", bugbash)
@@ -491,6 +496,11 @@ class BuildTest(unittest.TestCase):
         self.assertIn("rejected theories", lead_src)
         self.assertIn("failed fix approaches/attempts", (ROOT / "skills/review/SKILL.md").read_text())
         self.assertIn("rejected root-cause theories", (ROOT / "skills/make-it-stick/SKILL.md").read_text())
+
+        bb_fm, _ = front_matter(ROOT / "evals/bugbash-investigates-and-proves-fix/prompt.md")
+        self.assertGreaterEqual(int(bb_fm["timeout_seconds"]), 1200)
+        bb_judge = (ROOT / "evals/bugbash-investigates-and-proves-fix/graders/judged.md").read_text()
+        self.assertIn("not** require internal review-orchestration narration", bb_judge)
 
         # Verify time-limit watch/swap across swarm flows, deterministic/data-backed prove-it, and whole-environment find-it
         for swarm_path in (
@@ -510,6 +520,9 @@ class BuildTest(unittest.TestCase):
         self.assertIn("usage analytics", prove_it)
 
         self.assertIn("correlated real data", find_it)
+        self.assertIn("never block when unavailable", find_it)
+        self.assertIn("traffic emulation", find_it)
+        self.assertIn("Build missing acquisition tools or skills", find_it)
         self.assertIn("whole failure environment", find_it)
         self.assertIn("CPU architecture", find_it)
 

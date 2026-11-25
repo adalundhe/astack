@@ -9,7 +9,7 @@ Remove artifacts left behind by your work—temp files, debug logs/data, build o
 
 ## When to invoke
 
-- **Post-review (mandatory):** run after **review** finishes (before declaring work done or a PR merge-ready) to clear review scratch worktrees, ephemeral **slates** VFS volumes (`slates unmount` + `slates volume destroy`), stray repo-side repros, audit drafts, and leftover processes while preserving program records.
+- **Post-review (mandatory):** run after **review** finishes (before declaring work done or a PR merge-ready) to clear review worktrees, throwaway worker scratch worktrees, ephemeral **slates** VFS volumes (`slates unmount` + `slates volume destroy`), stray repo-side repros, audit drafts, and leftover processes while preserving program records.
 - **During debugging and right after a fix:** invoke during active **find-it** sessions to prune stale debug logs, captures, traces, and profiles—and always once the issue is fixed so every `<file>_DEBUG_<shorthash>.<type>` file and temporary debug print/instrumentation is removed.
 - **At handoff or after experiments:** clear throwaway prototypes, benchmark temp data, and background jobs you started.
 

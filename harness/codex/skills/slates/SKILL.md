@@ -1,6 +1,6 @@
 ---
 name: slates
-description: "Provision, mount, snapshot, clone, merge, land, and clean up isolated in-memory VFS workspaces using Slates (https://github.com/hyper-light/slates)—preferred over git worktrees when available for concurrent worker implementation lanes, parallel variants, and throwaway reviewer scratch tests. Use whenever isolating agent workspaces or checking whether Slates is available."
+description: "Provision, mount, snapshot, clone, merge, land, and clean up isolated in-memory VFS workspaces using Slates (https://github.com/hyper-light/slates)—preferred over git worktrees when available for concurrent worker implementation lanes, parallel variants, and read-only reviewer verification workspaces. Use whenever isolating agent workspaces or checking whether Slates is available."
 ---
 
 # Slates VFS volumes
@@ -29,12 +29,12 @@ slates mount <volume_id> <mount_dir>                            # macOS loopback
 slates status <volume_id> --drift                               # check if base files changed on disk
 ```
 
-- **Workers** (`lead`, `dagify`, `bugbash`, `modularize`, `watch-pr`): implement and test inside their mounted volume (or `work` volume below) without touching the shared checkout or another lane.
-- **Reviewers** (`review`, `adversarial-review`, `bugbash`): inspect the repo read-only and test reproductions, candidate fixes, or fix-equivalence checks inside a throwaway overlay/clone volume—never mutating the code under review.
+- **Workers** (`lead`, `dagify`, `bugbash`, `modularize`, `watch-pr`): implement lanes, recommended fixes, competing prototypes, fix-equivalence checks, and structural guards inside their mounted volume (or `work` volume below) without touching the shared checkout or another lane, then resubmit to reviewers.
+- **Reviewers** (`review`, `adversarial-review`, `bugbash`): inspect the repo read-only and run reproductions, stress tests, and verification checks on worker-submitted volumes—never writing or applying fixes themselves.
 
-### 2. Microsecond snapshots and clones (variants & competing fixes)
+### 2. Microsecond snapshots and clones (variants & worker prototypes)
 
-Snapshots record a version number without copying bytes; clones branch off a snapshot copy-on-write in microseconds—ideal for **ab-test**, **swarm-hypothesis**, and testing competing fix approaches in **bugbash**:
+Snapshots record a version number without copying bytes; clones branch off a snapshot copy-on-write in microseconds—ideal for **ab-test**, **swarm-hypothesis**, and worker-implemented competing fix prototypes in **bugbash**:
 
 ```sh
 slates volume snapshot <volume_id>

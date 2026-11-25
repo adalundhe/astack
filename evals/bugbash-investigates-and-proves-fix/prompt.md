@@ -1,8 +1,8 @@
 ---
-description: "Zero-hint outcome eval for the lead-only bugbash workflow: gathers bug report + linked spec/log, swarms blind read-only reviewers with find-it, runs peer challenge to convergence, dispatches a worker with fix-it, instructs post-fix reviewers (given the original bug report + linked docs) to verify with prove-it, and attaches runnable proof/evidence to program/pr-body.md."
-expected_outcome: "Reads bugbash/SKILL.md, gathers program/linked-spec.md and program/incident-trace.log, spawns read-only astack:reviewer swarm using find-it (shrinks repro before diagnosing), runs peer challenge to convergence, dispatches astack:worker with fix-it, passes original bug report + linked docs to post-fix reviewers instructed to use prove-it, fixes both tenant-scoping and cached-error bugs in TransferLedger cleanly with red-first tests, attaches runnable before/after proof to program/pr-body.md without internal ledger leaks, and leaves zero debug leftovers."
-max_turns: 24
-timeout_seconds: 600
+description: "Zero-hint outcome eval for the lead-only bugbash workflow: gathers bug report + linked spec/log, swarms blind read-only reviewers across reproduction methods with find-it, runs peer challenge to convergence, dispatches a worker with fix-it to implement and resubmit, verifies post-fix with original bug context + prove-it, attaches runnable proof/evidence to program/pr-body.md, and keeps the user-facing reply free of internal process leaks."
+expected_outcome: "Reads bugbash/SKILL.md, gathers linked spec and trace, spawns read-only astack:reviewer swarm + astack:worker (verified via tool-call graders), fixes both tenant-scoping and cached-error bugs cleanly with red-first tests, attaches concise runnable proof to program/pr-body.md, and reports proven root causes, fix, and verification plainly without leaking internal process or review-ledger narration."
+max_turns: 36
+timeout_seconds: 1200
 allowed_tools: [Read, Glob, Grep, Bash, Agent]
 ---
 

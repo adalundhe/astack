@@ -17,7 +17,7 @@ Classify every verification as **verified**, **not verified**, or **inconclusive
 ## Deterministic reproduction & empirical frequency
 
 - **Deterministic reproduction:** prove behavior with a repeatable repro—fixed inputs, explicit seeds, controlled clocks/schedules, and exact failure conditions—that fails reliably before the change and passes reliably after. One lucky green run proves nothing.
-- **Empirical frequency (**no-picked-constants**):** measure how often a failure or path actually occurs from logs, traces, telemetry, monitoring, metrics, or usage analytics (citing source, time window, and sample count)—never invent rates or hand-wave "rare/common".
+- **Empirical frequency (**no-picked-constants**):** measure how often a failure or path occurs from accessible logs, traces, telemetry, monitoring, metrics, or usage analytics (citing source, time window, and sample count)—never invent rates or hand-wave "rare/common". If telemetry isn't accessible, don't block or guess: mark frequency as unmeasured and prove behavior deterministically.
 - **Intermittent faults:** eliminate nondeterminism structurally (seeded scheduler, pinned clock, fault injection) wherever possible; otherwise compute the required clean-run count from the measured failure rate $p$ ($n \ge \lceil \ln(1-c)/\ln(1-p)\rceil$, **find-it**).
 
 ## The trust ladder

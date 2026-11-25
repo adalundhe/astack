@@ -6,13 +6,15 @@ disable-model-invocation: true
 
 # Find it
 
-Replicate a bug from real correlated data and the full environment of conditions that produced it, collect targeted runtime evidence, shrink the reproduction to the smallest deterministic failing case **before** diagnosing, narrow its root cause with runtime evidence, and leave zero debug artifacts behind once fixed.
+Replicate the failure from real data and conditions, capture targeted runtime evidence, shrink the repro **before** diagnosing, narrow the root cause, and clean up every debug artifact once fixed.
 
 ## 1. Replicate the real scenario, data, and environment first
 
-- **Never guess inputs—use correlated real data:** build the repro from inputs, payloads, queries, and cases provided by the user/lead or extracted from logs, traces, metrics, monitoring, telemetry, and usage analytics scoped to the bug path.
-- **Replicate the whole failure environment across the full path:** recreate the exact conditions correlated with the error—not just function arguments or SQL rows—including runtime versions, OS and CPU architecture, memory/CPU/disk/FD pressure, network behavior (latency, loss, resets, protocol/HTTP version), config/flags, load/concurrency, and correlated upstream/downstream systems (not exhaustive; match reality first, then strip variables in Section 4).
-- **Measure frequency & test `main`:** record the real failure rate (source, window, sample count) for **prove-it** and flaky bisects. Run the scenario on `main` first: if it behaves, log one line and stop; if `main` already fails, isolate it separately (**leave-it-better**) only when it blocks your work.
+- **Actively acquire correlated real data—never block when unavailable:** inspect code, infrastructure, configs, and env vars (**rtfm**) to pull real failure data from any accessible source: user or lead attachments, CI/CD logs and artifacts, monitoring and observability platforms (logs, traces, metrics, error trackers), or a local dev stack driven with repeated runs and traffic emulation.
+  - **Build missing acquisition tools or skills (**automate-this**, **test-drive**):** if nothing on hand can fetch or emulate the needed signal, create a clean, secret-safe (**no-leaked-secrets**) script, helper, or project skill. Read-only reviewers place scratch fetchers in their writable repro folder or ask the lead to dispatch a worker for shared repo tooling; publish the path and usage to the lead and peer agents (`LANES.md` / report) for reuse.
+  - **Fallback without stalling:** when real data remains unavailable or restricted, build the closest realistic case from code paths, schemas, fixtures, and symptoms, mark it as inferred (**decisions-in-plain-words**), and refine it if real data arrives.
+- **Replicate the whole failure environment across the full path:** match the conditions correlated with the failure—beyond isolated arguments or queries—including runtime versions, OS and CPU architecture, memory/CPU/disk/FD pressure, network behavior (latency, loss, resets, protocol/HTTP version), config and flags, load/concurrency, and correlated upstream or downstream systems (illustrative, not exhaustive; match reality first, then strip variables in Section 4).
+- **Measure frequency & test `main`:** record the observed failure rate (source, window, sample count) for **prove-it** and flaky bisects. Run the scenario on `main` first: if it behaves, log one line and move on; if `main` already fails, isolate it separately (**leave-it-better**) only when it blocks your work.
 - Failing test lists are not deliverables, and "hard to test" is not an excuse—make the failure observable.
 
 ## 2. Tool preference order & capture naming
