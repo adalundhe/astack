@@ -619,6 +619,82 @@ def _dir_on_path(target_dir: Path) -> bool:
     return False
 
 
+_LAUNCHER = """#!/usr/bin/env python3
+# astack launcher, written by `astack-tools link-bin`: runs @NAME@ from the newest installed astack, so
+# an update that removes the folder it was linked from never leaves it dangling.
+import json
+import os
+import sys
+from pathlib import Path
+
+NAME = @NAME@
+HINT = @HINT@
+SKIP = {".git", "node_modules", "__pycache__", "skills", "evals", "docs", "files", "sessions"}
+MANIFESTS = (".claude-plugin/plugin.json", ".cursor-plugin/plugin.json", ".codex-plugin/plugin.json", "plugin.json")
+
+
+def roots():
+    home = Path.home()
+    codex = Path(os.environ.get("CODEX_HOME") or home / ".codex")
+    return [home / ".claude" / "plugins", codex, home / ".cursor" / "plugins", home / ".gemini", home / ".agents",
+            home / ".pi" / "agent", home / ".devin", home / ".local" / "share" / "kiln" / "agents" / "skills"]
+
+
+def is_install(path):
+    skills = path / "skills"
+    return (path / "bin" / NAME).is_file() and ((skills / "go" / "SKILL.md").is_file() or (skills / "astack-go" / "SKILL.md").is_file())
+
+
+def installs():
+    if is_install(Path(HINT)):
+        yield Path(HINT)
+    for root in roots():
+        stack = [(root, 0)]
+        while stack:
+            here, depth = stack.pop()
+            try:
+                with os.scandir(here) as entries:
+                    children = sorted((e for e in entries if e.is_dir(follow_symlinks=False)), key=lambda e: e.name)
+            except OSError:
+                continue
+            if is_install(here):
+                yield here
+                continue
+            if depth < 5:
+                stack.extend((Path(e.path), depth + 1) for e in children if e.name not in SKIP)
+
+
+def version(path):
+    for name in MANIFESTS:
+        try:
+            text = json.loads((path / name).read_text()).get("version", "")
+        except (OSError, ValueError, AttributeError):
+            continue
+        return tuple(int(part) if part.isdigit() else 0 for part in str(text).split("."))
+    return ()
+
+
+def newest():
+    best = None
+    for path in installs():
+        key = (version(path), (path / "bin" / NAME).stat().st_mtime)
+        if best is None or key > best[0]:
+            best = (key, path)
+    return best[1] if best else None
+
+
+root = newest()
+if root is None:
+    sys.exit(f"{NAME}: no installed astack found; run `astack-tools link-bin` from an astack install")
+target = str(root / "bin" / NAME)
+os.execv(target, [target, *sys.argv[1:]])
+"""
+
+
+def _launcher(name: str, hint: Path) -> str:
+    return _LAUNCHER.replace("@NAME@", repr(name)).replace("@HINT@", repr(str(hint)))
+
+
 def cmd_link_bin(args) -> int:
     source_dir = Path(__file__).resolve().parent
     scripts = sorted(p for p in source_dir.iterdir() if p.is_file() and p.name.startswith("astack-"))
@@ -661,11 +737,16 @@ def cmd_link_bin(args) -> int:
                     os.chmod(tmp, 0o755)
                     os.replace(tmp, dst)
             else:
-                actions.append(f"link {dst} -> {src}")
+                text = _launcher(src.name, src.parent.parent)
+                if not dst.is_symlink() and dst.is_file() and dst.read_text(errors="replace") == text:
+                    actions.append(f"keep {dst} (already in place)")
+                    continue
+                actions.append(f"launcher {dst} -> newest installed astack (this one: {src})")
                 if not args.dry_run:
                     tmp = target_dir / f".{src.name}.astack-tmp"
                     tmp.unlink(missing_ok=True)
-                    tmp.symlink_to(src)
+                    tmp.write_text(text)
+                    os.chmod(tmp, 0o755)
                     os.replace(tmp, dst)
 
     for line in actions:
@@ -998,9 +1079,9 @@ def main(argv=None) -> int:
     p_inst.add_argument("--python", help="Python version/interpreter spec for uv or venv (>=3.11)")
     p_inst.add_argument("--dry-run", action="store_true", help="print commands without executing")
 
-    p_link = sub.add_parser("link-bin", help="link (or copy) astack-* CLI scripts onto PATH (default ~/.local/bin)")
+    p_link = sub.add_parser("link-bin", help="put launchers for (or copies of) the astack-* CLI scripts onto PATH (default ~/.local/bin)")
     p_link.add_argument("--bin-dir", type=Path, default=default_bin_dir())
-    p_link.add_argument("--copy", action="store_true", help="copy scripts instead of symlinking")
+    p_link.add_argument("--copy", action="store_true", help="copy scripts instead of writing launchers")
     p_link.add_argument("--dry-run", action="store_true", help="print actions without modifying files")
 
     p_agents = sub.add_parser(

@@ -457,9 +457,9 @@ class ToolsTest(Scratch):
             "astack-statechart", "astack-stamp",
             "astack-watch-pr", "astack-watch-github", "astack-watch-gitlab", "astack-watch-bitbucket",
         ):
-            linked = bin_dir / name
-            self.assertTrue(linked.is_symlink(), f"missing symlink {linked}")
-            self.assertEqual(linked.resolve(), (BIN / name).resolve())
+            launcher = bin_dir / name
+            self.assertTrue(launcher.is_file() and not launcher.is_symlink(), f"missing launcher {launcher}")
+            self.assertTrue(os.access(launcher, os.X_OK), f"{launcher} isn't executable")
 
         # Re-running is idempotent
         second = run("astack-tools", "link-bin", "--bin-dir", str(bin_dir))
@@ -471,6 +471,44 @@ class ToolsTest(Scratch):
         self.assertEqual(copied.returncode, 0, copied.stderr)
         self.assertTrue((copy_dir / "astack-tools").is_file())
         self.assertFalse((copy_dir / "astack-tools").is_symlink())
+
+    def test_link_bin_launchers_follow_an_update_that_removes_the_linked_folder(self):
+        home = self.dir / "home"
+
+        def install(root, version, word):
+            (root / "bin").mkdir(parents=True)
+            (root / "skills" / "go").mkdir(parents=True)
+            (root / "skills" / "go" / "SKILL.md").write_text("go\n")
+            (root / ".claude-plugin").mkdir()
+            (root / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "astack", "version": version}))
+            shutil.copy2(BIN / "astack-tools", root / "bin" / "astack-tools")
+            script = root / "bin" / "astack-status"
+            script.write_text(f"#!/bin/sh\necho {word} \"$@\"\n")
+            script.chmod(0o755)
+
+        old = home / ".claude" / "plugins" / "cache" / "market" / "astack" / "0.7.15"
+        install(old, "0.7.15", "old")
+        bin_dir = self.dir / "launcher-bin"
+        env = {**os.environ, "HOME": str(home)}
+        linked = subprocess.run([sys.executable, str(old / "bin" / "astack-tools"), "link-bin", "--bin-dir", str(bin_dir)], capture_output=True, text=True, env=env)
+        self.assertEqual(linked.returncode, 0, linked.stderr)
+        run_status = lambda: subprocess.run([str(bin_dir / "astack-status"), "x"], capture_output=True, text=True, env=env)
+        self.assertEqual(run_status().stdout.strip(), "old x")
+        # An update installs a newer copy elsewhere and the host removes the one it was linked from.
+        new = home / ".local" / "share" / "kiln" / "agents" / "skills" / "pkgs" / "p-1234"
+        install(new, "0.7.16", "new")
+        shutil.rmtree(old)
+        self.assertEqual(run_status().stdout.strip(), "new x")
+        # The newest of two wins, not the first found.
+        newer = home / ".claude" / "plugins" / "cache" / "market" / "astack" / "0.7.17"
+        install(newer, "0.7.17", "newest")
+        self.assertEqual(run_status().stdout.strip(), "newest x")
+        # Nothing installed: it says so.
+        shutil.rmtree(new)
+        shutil.rmtree(newer)
+        gone = run_status()
+        self.assertNotEqual(gone.returncode, 0)
+        self.assertIn("no installed astack found", gone.stderr)
 
     def test_install_provisions_python_via_uv_when_missing(self):
         fake_bin = self.dir / "fake-bin"

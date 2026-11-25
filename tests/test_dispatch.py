@@ -391,7 +391,7 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(r_link.returncode, 0, r_link.stderr)
         r_sd = subprocess.run(
             [sys.executable, "-B", str(bin_dir / "astack-tools"), "skills-dir"],
-            capture_output=True, text=True,
+            capture_output=True, text=True, env={**os.environ, "HOME": str(self.dir)},
         )
         self.assertEqual(r_sd.returncode, 0, r_sd.stderr)
         self.assertEqual(Path(r_sd.stdout.strip()).resolve(), (ROOT / "skills").resolve())
