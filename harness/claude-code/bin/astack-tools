@@ -8,6 +8,8 @@ Usage:
   astack-tools install-agents --harness HARNESS [--settings PATH] [--target DIR] [--dry-run]
   astack-tools enable-claude-skills [--settings PATH] [--dry-run]
   astack-tools skills-dir
+  astack-tools skills list --role lead|worker|reviewer|researcher
+  astack-tools skills get SKILL
   astack-tools python [--venv DIR] [ARGS...]
   astack-tools werkflow [--venv DIR] [ARGS...]
   astack-tools env [--venv DIR] [--shell sh|powershell|cmd]
@@ -917,6 +919,81 @@ def _stamp_skills_dir(body: str, skills_dir: Path | None) -> str:
     return stamp + body
 
 
+_ROLE_COLUMN = {"lead": 0, "worker": 1, "reviewer": 2, "researcher": 3}
+REQUIRED = "required"
+WHEN_IT_APPLIES = "when it applies"
+
+
+def _skill_folder(skills_dir: Path, name: str) -> Path | None:
+    for candidate in (name, f"astack-{name}"):
+        if (skills_dir / candidate / "SKILL.md").is_file():
+            return skills_dir / candidate
+    return None
+
+
+def _role_marks(skills_dir: Path, role: str) -> dict[str, str]:
+    """Each skill `go`'s "Skills by role" table gives `role`, whatever the host calls it: "required" or "when it applies"."""
+    go = _skill_folder(skills_dir, "go")
+    text = (go / "SKILL.md").read_text() if go else ""
+    table = text[text.find("## Skills by role"):] if "## Skills by role" in text else ""
+    column = _ROLE_COLUMN[role]
+    marks = {}
+    for line in table.splitlines():
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        match = re.fullmatch(r"`[/$](?:astack[:-])?([a-z0-9-]+)`", cells[0]) if len(cells) == 5 else None
+        if match and cells[1 + column] in (REQUIRED, WHEN_IT_APPLIES):
+            marks[match.group(1)] = cells[1 + column]
+    return marks
+
+
+def _what_for(folder: Path, width: int = 110) -> str:
+    """What a skill does, then when to load it (its "Use when ..." sentence), each cut to fit one line."""
+    match = re.search(r'^description:\s*"?(.*?)"?\s*$', (folder / "SKILL.md").read_text(), re.M)
+    text = " ".join((match.group(1) if match else "").split())
+    what, _, when = text.partition(" Use ")
+    clip = lambda part: part if len(part) <= width else part[: width - 1].rstrip() + "…"
+    return f"{clip(what)} Use {clip(when)}" if when else clip(what)
+
+
+def cmd_skills_list(args) -> int:
+    """The skills that are a role's: what to load before work, and what to load when the work calls for it."""
+    skills_dir = _resolve_skills_dir()
+    if skills_dir is None:
+        print("error: could not locate bundled astack skills/ directory", file=sys.stderr)
+        return 1
+    marks = _role_marks(skills_dir, args.role)
+    if not marks:
+        print(f"error: no skills found for {args.role} in go's \"Skills by role\" table", file=sys.stderr)
+        return 1
+    print(f"astack skills for the {args.role}. Load one with `astack-tools skills get <name>`, one skill per call, read in full.")
+    for heading, mark in (("REQUIRED: load every one before your first edit", REQUIRED),
+                          ("WHEN THE WORK CALLS FOR IT: load one the moment its situation comes up", WHEN_IT_APPLIES)):
+        names = sorted((n for n, m in marks.items() if m == mark), key=lambda n: (n != "go", n))
+        print(f"\n{heading}")
+        for name in names:
+            folder = _skill_folder(skills_dir, name)
+            print(f"  {name}: {_what_for(folder) if folder else 'missing'}")
+    return 0
+
+
+def cmd_skills_get(args) -> int:
+    """One skill, in full: what an agent runs to load a skill it must follow."""
+    skills_dir = _resolve_skills_dir()
+    if skills_dir is None:
+        print("error: could not locate bundled astack skills/ directory", file=sys.stderr)
+        return 1
+    name = args.name.removeprefix("/astack:").removeprefix("astack-")
+    folder = _skill_folder(skills_dir, name)
+    if folder is None:
+        print(f"error: no such astack skill: {name}; `astack-tools skills list --role <role>` names yours", file=sys.stderr)
+        return 1
+    text = (folder / "SKILL.md").read_text().rstrip()
+    print(f"===== {name} ({folder / 'SKILL.md'}) =====\n")
+    print(text)
+    print(f"\n[end of {name}: {len(text)} characters. Without this line the output was cut: read the file by the path above]")
+    return 0
+
+
 def cmd_skills_dir() -> int:
     skills_dir = _resolve_skills_dir()
     if skills_dir is None:
@@ -1106,6 +1183,12 @@ def main(argv=None) -> int:
     p_enable_cs.add_argument("--dry-run", action="store_true", help="print actions without modifying settings.json")
 
     sub.add_parser("skills-dir", help="print the absolute path to the installed astack skills/ directory")
+    p_skills = sub.add_parser("skills", help="list the skills that are a role's, or print one in full")
+    skills_sub = p_skills.add_subparsers(dest="skills_command", required=True)
+    p_skills_list = skills_sub.add_parser("list", help="a role's skills: required ones, and ones to load when the work calls for them")
+    p_skills_list.add_argument("--role", choices=sorted(_ROLE_COLUMN), required=True)
+    p_skills_get = skills_sub.add_parser("get", help="print one skill in full")
+    p_skills_get.add_argument("name", metavar="SKILL")
     sub.add_parser("python", help="run python inside the managed venv")
     sub.add_parser("werkflow", help="run the werkflow CLI inside the managed venv")
 
@@ -1129,6 +1212,8 @@ def main(argv=None) -> int:
         return cmd_enable_claude_skills(args)
     if args.command == "skills-dir":
         return cmd_skills_dir()
+    if args.command == "skills":
+        return cmd_skills_list(args) if args.skills_command == "list" else cmd_skills_get(args)
     if args.command == "env":
         return cmd_env(args)
     if args.command == "path":

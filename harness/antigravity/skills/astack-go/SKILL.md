@@ -114,80 +114,80 @@ Read this table in full before any code work: each rule's core is in it, so a ru
 
 ## Skills by role
 
-Every skill has at least one owner, and a skill may have several. **R**: that role opens it in full before any work. **T**: that role opens it when its trigger applies (the tables above and the skill's own description). **–**: not that role's skill. A brief's `Required skills` are the role's **R** skills plus every **T** skill whose trigger applies to the task.
+Every skill has at least one owner, and a skill may have several. In the table, **required** means that role loads the skill in full before its first edit, every time. **when it applies** means that role loads it the moment its situation shows up in the work (a bug fix, a timeout, a migration, a test), and follows it. **–** means it isn't that role's skill. Run `astack-tools skills list --role <role>` to see yours, and `astack-tools skills get <name>` to load one. A brief's skills are the role's required ones plus every one that applies to the task.
 
 | Skill | Lead | Worker | Reviewer | Researcher |
 |---|---|---|---|---|
-| `/ab-test` | T | T | – | T |
-| `/address-feedback` | T | T | – | – |
-| `/adversarial-review` | T | – | R | – |
-| `/analyze-environment` | T | T | T | R |
-| `/automate-this` | T | T | – | – |
-| `/baseline` | T | T | T | T |
-| `/benchmarking` | T | T | T | T |
-| `/blast-radius` | T | T | R | T |
-| `/bugbash` | T | – | – | – |
-| `/challenge` | T | T | T | T |
-| `/check-your-boundaries` | T | R | T | – |
-| `/checkpoint` | T | T | – | – |
-| `/clamber` | T | T | – | – |
-| `/cleanup` | T | R | T | T |
-| `/comment-cop` | T | R | T | – |
-| `/create-adc` | T | – | – | T |
-| `/dagify` | R | – | T | – |
-| `/data-structures-first` | T | R | T | – |
-| `/decide-by-data` | T | T | – | T |
-| `/decisions-in-plain-words` | R | R | T | T |
-| `/deeper` | R | – | – | T |
-| `/delight-users` | T | T | T | – |
-| `/event-driven` | T | T | T | – |
-| `/find-it` | T | T | T | T |
-| `/fix-it` | T | T | T | – |
-| `/formal-validate` | – | T | T | – |
-| `/full-spectrum-testing` | – | T | T | – |
-| `/astack-go` | R | R | R | R |
-| `/how-it-works` | T | T | T | T |
-| `/astack-lead` | R | – | – | – |
-| `/leave-feedback` | T | – | T | – |
-| `/leave-it-better` | T | T | – | – |
-| `/make-it-stick` | T | – | – | – |
-| `/minimize-state-stores` | T | T | T | – |
-| `/modularize` | T | T | – | – |
-| `/never-trade-functionality` | T | T | T | – |
-| `/no-bolt-ons` | T | R | T | – |
-| `/no-hidden-config` | T | T | T | – |
-| `/no-hidden-flow-control` | T | T | T | – |
-| `/no-implicit-states` | T | T | T | – |
-| `/no-leaked-secrets` | T | T | T | – |
-| `/no-picked-constants` | T | T | T | – |
-| `/no-shared-writes` | T | T | T | – |
-| `/orchestral` | T | T | – | – |
-| `/play-with-me` | T | T | – | – |
-| `/prove-it` | T | T | R | T |
-| `/rearchitect` | T | – | – | T |
-| `/research-this` | T | T | T | R |
-| `/resume` | T | T | – | – |
-| `/astack-review` | T | – | T | – |
-| `/rtfm` | R | R | R | R |
-| `/run-it-back` | R | R | T | R |
-| `/safe-to-rerun` | T | T | T | – |
-| `/astack-setup` | T | – | – | – |
-| `/show-the-states` | T | T | T | T |
-| `/simplify-me` | T | T | T | – |
-| `/slates` | T | T | T | – |
-| `/astack-status` | R | – | – | – |
-| `/suspend` | T | T | – | – |
-| `/swarm-hypothesis` | T | T | – | T |
-| `/talk-to-me` | T | T | T | T |
-| `/taskex` | T | T | – | – |
-| `/technical-writing` | T | T | T | T |
-| `/test-drive` | T | T | T | – |
-| `/tests-assert-behaviour` | T | R | T | – |
-| `/track-it` | T | – | – | – |
-| `/wat` | R | T | T | T |
-| `/watch-pr` | T | – | – | – |
-| `/werkflow` | T | T | – | – |
-| `/whatsup` | T | – | – | – |
-| `/workflow-this` | T | – | – | – |
-| `/worrywart` | T | T | – | – |
-| `/yagni` | T | R | T | – |
+| `/ab-test` | when it applies | when it applies | – | when it applies |
+| `/address-feedback` | when it applies | when it applies | – | – |
+| `/adversarial-review` | when it applies | – | required | – |
+| `/analyze-environment` | when it applies | when it applies | when it applies | required |
+| `/automate-this` | when it applies | when it applies | – | – |
+| `/baseline` | when it applies | when it applies | when it applies | when it applies |
+| `/benchmarking` | when it applies | when it applies | when it applies | when it applies |
+| `/blast-radius` | when it applies | when it applies | required | when it applies |
+| `/bugbash` | when it applies | – | – | – |
+| `/challenge` | when it applies | when it applies | when it applies | when it applies |
+| `/check-your-boundaries` | when it applies | required | when it applies | – |
+| `/checkpoint` | when it applies | when it applies | – | – |
+| `/clamber` | when it applies | when it applies | – | – |
+| `/cleanup` | when it applies | required | when it applies | when it applies |
+| `/comment-cop` | when it applies | required | when it applies | – |
+| `/create-adc` | when it applies | – | – | when it applies |
+| `/dagify` | required | – | when it applies | – |
+| `/data-structures-first` | when it applies | required | when it applies | – |
+| `/decide-by-data` | when it applies | when it applies | – | when it applies |
+| `/decisions-in-plain-words` | required | required | when it applies | when it applies |
+| `/deeper` | required | – | – | when it applies |
+| `/delight-users` | when it applies | when it applies | when it applies | – |
+| `/event-driven` | when it applies | when it applies | when it applies | – |
+| `/find-it` | when it applies | when it applies | when it applies | when it applies |
+| `/fix-it` | when it applies | when it applies | when it applies | – |
+| `/formal-validate` | – | when it applies | when it applies | – |
+| `/full-spectrum-testing` | – | when it applies | when it applies | – |
+| `/astack-go` | required | required | required | required |
+| `/how-it-works` | when it applies | when it applies | when it applies | when it applies |
+| `/astack-lead` | required | – | – | – |
+| `/leave-feedback` | when it applies | – | when it applies | – |
+| `/leave-it-better` | when it applies | when it applies | – | – |
+| `/make-it-stick` | when it applies | – | – | – |
+| `/minimize-state-stores` | when it applies | when it applies | when it applies | – |
+| `/modularize` | when it applies | when it applies | – | – |
+| `/never-trade-functionality` | when it applies | when it applies | when it applies | – |
+| `/no-bolt-ons` | when it applies | required | when it applies | – |
+| `/no-hidden-config` | when it applies | when it applies | when it applies | – |
+| `/no-hidden-flow-control` | when it applies | when it applies | when it applies | – |
+| `/no-implicit-states` | when it applies | when it applies | when it applies | – |
+| `/no-leaked-secrets` | when it applies | when it applies | when it applies | – |
+| `/no-picked-constants` | when it applies | when it applies | when it applies | – |
+| `/no-shared-writes` | when it applies | when it applies | when it applies | – |
+| `/orchestral` | when it applies | when it applies | – | – |
+| `/play-with-me` | when it applies | when it applies | – | – |
+| `/prove-it` | when it applies | when it applies | required | when it applies |
+| `/rearchitect` | when it applies | – | – | when it applies |
+| `/research-this` | when it applies | when it applies | when it applies | required |
+| `/resume` | when it applies | when it applies | – | – |
+| `/astack-review` | when it applies | – | when it applies | – |
+| `/rtfm` | required | required | required | required |
+| `/run-it-back` | required | required | when it applies | required |
+| `/safe-to-rerun` | when it applies | when it applies | when it applies | – |
+| `/astack-setup` | when it applies | – | – | – |
+| `/show-the-states` | when it applies | when it applies | when it applies | when it applies |
+| `/simplify-me` | when it applies | when it applies | when it applies | – |
+| `/slates` | when it applies | when it applies | when it applies | – |
+| `/astack-status` | required | – | – | – |
+| `/suspend` | when it applies | when it applies | – | – |
+| `/swarm-hypothesis` | when it applies | when it applies | – | when it applies |
+| `/talk-to-me` | when it applies | when it applies | when it applies | when it applies |
+| `/taskex` | when it applies | when it applies | – | – |
+| `/technical-writing` | when it applies | when it applies | when it applies | when it applies |
+| `/test-drive` | when it applies | when it applies | when it applies | – |
+| `/tests-assert-behaviour` | when it applies | required | when it applies | – |
+| `/track-it` | when it applies | – | – | – |
+| `/wat` | required | when it applies | when it applies | when it applies |
+| `/watch-pr` | when it applies | – | – | – |
+| `/werkflow` | when it applies | when it applies | – | – |
+| `/whatsup` | when it applies | – | – | – |
+| `/workflow-this` | when it applies | – | – | – |
+| `/worrywart` | when it applies | when it applies | – | – |
+| `/yagni` | when it applies | required | when it applies | – |

@@ -20,9 +20,17 @@ Resolve `<ASTACK_SKILLS_DIR>` before starting your review:
 
 Read `<ASTACK_SKILLS_DIR>/adversarial-review/SKILL.md`, `<ASTACK_SKILLS_DIR>/rtfm/SKILL.md`, and every applicable coding-rule `SKILL.md` in full before writing findings (and `<ASTACK_SKILLS_DIR>/go/SKILL.md` or `astack-go/SKILL.md` whenever you need any other workflow). Cite only skills or coding rules whose `SKILL.md` you actually read this session.
 
-**Non-negotiable:** read `<ASTACK_SKILLS_DIR>/go/SKILL.md` in full before any work, its rules table included: it carries each rule's core, so a rule you don't open still shaped the work. Your report names each skill that shaped a decision and the specific choice it changed, and cites only skills whose `SKILL.md` you read.
+**Use astack's skills. That is the job, not an extra.**
 
-**Your skills** (the owners of every skill are in the "Skills by role" table of `/astack-go`). Required before any work: `/adversarial-review`, `/blast-radius`, `/astack-go`, `/prove-it`, `/rtfm`. When its trigger applies: `/analyze-environment`, `/baseline`, `/benchmarking`, `/challenge`, `/check-your-boundaries`, `/cleanup`, `/comment-cop`, `/dagify`, `/data-structures-first`, `/decisions-in-plain-words`, `/delight-users`, `/event-driven`, `/find-it`, `/fix-it`, `/formal-validate`, `/full-spectrum-testing`, `/how-it-works`, `/leave-feedback`, `/minimize-state-stores`, `/never-trade-functionality`, `/no-bolt-ons`, `/no-hidden-config`, `/no-hidden-flow-control`, `/no-implicit-states`, `/no-leaked-secrets`, `/no-picked-constants`, `/no-shared-writes`, `/research-this`, `/astack-review`, `/run-it-back`, `/safe-to-rerun`, `/show-the-states`, `/simplify-me`, `/slates`, `/talk-to-me`, `/technical-writing`, `/test-drive`, `/tests-assert-behaviour`, `/wat`, `/yagni`.
+1. Your first command, before you open any file, is `astack-tools skills list --role reviewer`. It lists every skill that is yours, each with what it is for: the ones marked **REQUIRED**, and the ones to load **WHEN THE WORK CALLS FOR IT**.
+2. Before your first edit, run `astack-tools skills get <name>` for every **required** skill and every skill your brief names. One skill per call. Read each in full, and follow it.
+3. When the work reaches a situation a skill in the second group covers (a bug fix, a timeout, a migration, a test, a loop that waits), run `astack-tools skills get <name>` then, and follow it. Don't decide you can do without it.
+4. Your report names each skill that shaped a decision and the specific choice it changed. A skill you name and didn't load is a false claim. A skill you loaded and didn't use goes under LOSSES as `no effect: <why>`.
+5. The lead sends back a report that names no skills, and checks the `astack-tools skills get` commands you ran.
+
+If `astack-tools` isn't on `PATH`, or a `get` doesn't end with its `[end of <name>` line, read that skill's `SKILL.md` by path from your brief's skills directory.
+
+**Your skills.** Required, every time: `/adversarial-review`, `/blast-radius`, `/astack-go`, `/prove-it`, `/rtfm`. Load when the work calls for it: `/analyze-environment`, `/baseline`, `/benchmarking`, `/challenge`, `/check-your-boundaries`, `/cleanup`, `/comment-cop`, `/dagify`, `/data-structures-first`, `/decisions-in-plain-words`, `/delight-users`, `/event-driven`, `/find-it`, `/fix-it`, `/formal-validate`, `/full-spectrum-testing`, `/how-it-works`, `/leave-feedback`, `/minimize-state-stores`, `/never-trade-functionality`, `/no-bolt-ons`, `/no-hidden-config`, `/no-hidden-flow-control`, `/no-implicit-states`, `/no-leaked-secrets`, `/no-picked-constants`, `/no-shared-writes`, `/research-this`, `/astack-review`, `/run-it-back`, `/safe-to-rerun`, `/show-the-states`, `/simplify-me`, `/slates`, `/talk-to-me`, `/technical-writing`, `/test-drive`, `/tests-assert-behaviour`, `/wat`, `/yagni`.
 
 ## First
 

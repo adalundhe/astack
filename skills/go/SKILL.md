@@ -114,80 +114,80 @@ Read this table in full before any code work: each rule's core is in it, so a ru
 
 ## Skills by role
 
-Every skill has at least one owner, and a skill may have several. **R**: that role opens it in full before any work. **T**: that role opens it when its trigger applies (the tables above and the skill's own description). **–**: not that role's skill. A brief's `Required skills` are the role's **R** skills plus every **T** skill whose trigger applies to the task.
+Every skill has at least one owner, and a skill may have several. In the table, **required** means that role loads the skill in full before its first edit, every time. **when it applies** means that role loads it the moment its situation shows up in the work (a bug fix, a timeout, a migration, a test), and follows it. **–** means it isn't that role's skill. Run `astack-tools skills list --role <role>` to see yours, and `astack-tools skills get <name>` to load one. A brief's skills are the role's required ones plus every one that applies to the task.
 
 | Skill | Lead | Worker | Reviewer | Researcher |
 |---|---|---|---|---|
-| `/astack:ab-test` | T | T | – | T |
-| `/astack:address-feedback` | T | T | – | – |
-| `/astack:adversarial-review` | T | – | R | – |
-| `/astack:analyze-environment` | T | T | T | R |
-| `/astack:automate-this` | T | T | – | – |
-| `/astack:baseline` | T | T | T | T |
-| `/astack:benchmarking` | T | T | T | T |
-| `/astack:blast-radius` | T | T | R | T |
-| `/astack:bugbash` | T | – | – | – |
-| `/astack:challenge` | T | T | T | T |
-| `/astack:check-your-boundaries` | T | R | T | – |
-| `/astack:checkpoint` | T | T | – | – |
-| `/astack:clamber` | T | T | – | – |
-| `/astack:cleanup` | T | R | T | T |
-| `/astack:comment-cop` | T | R | T | – |
-| `/astack:create-adc` | T | – | – | T |
-| `/astack:dagify` | R | – | T | – |
-| `/astack:data-structures-first` | T | R | T | – |
-| `/astack:decide-by-data` | T | T | – | T |
-| `/astack:decisions-in-plain-words` | R | R | T | T |
-| `/astack:deeper` | R | – | – | T |
-| `/astack:delight-users` | T | T | T | – |
-| `/astack:event-driven` | T | T | T | – |
-| `/astack:find-it` | T | T | T | T |
-| `/astack:fix-it` | T | T | T | – |
-| `/astack:formal-validate` | – | T | T | – |
-| `/astack:full-spectrum-testing` | – | T | T | – |
-| `/astack:go` | R | R | R | R |
-| `/astack:how-it-works` | T | T | T | T |
-| `/astack:lead` | R | – | – | – |
-| `/astack:leave-feedback` | T | – | T | – |
-| `/astack:leave-it-better` | T | T | – | – |
-| `/astack:make-it-stick` | T | – | – | – |
-| `/astack:minimize-state-stores` | T | T | T | – |
-| `/astack:modularize` | T | T | – | – |
-| `/astack:never-trade-functionality` | T | T | T | – |
-| `/astack:no-bolt-ons` | T | R | T | – |
-| `/astack:no-hidden-config` | T | T | T | – |
-| `/astack:no-hidden-flow-control` | T | T | T | – |
-| `/astack:no-implicit-states` | T | T | T | – |
-| `/astack:no-leaked-secrets` | T | T | T | – |
-| `/astack:no-picked-constants` | T | T | T | – |
-| `/astack:no-shared-writes` | T | T | T | – |
-| `/astack:orchestral` | T | T | – | – |
-| `/astack:play-with-me` | T | T | – | – |
-| `/astack:prove-it` | T | T | R | T |
-| `/astack:rearchitect` | T | – | – | T |
-| `/astack:research-this` | T | T | T | R |
-| `/astack:resume` | T | T | – | – |
-| `/astack:review` | T | – | T | – |
-| `/astack:rtfm` | R | R | R | R |
-| `/astack:run-it-back` | R | R | T | R |
-| `/astack:safe-to-rerun` | T | T | T | – |
-| `/astack:setup` | T | – | – | – |
-| `/astack:show-the-states` | T | T | T | T |
-| `/astack:simplify-me` | T | T | T | – |
-| `/astack:slates` | T | T | T | – |
-| `/astack:status` | R | – | – | – |
-| `/astack:suspend` | T | T | – | – |
-| `/astack:swarm-hypothesis` | T | T | – | T |
-| `/astack:talk-to-me` | T | T | T | T |
-| `/astack:taskex` | T | T | – | – |
-| `/astack:technical-writing` | T | T | T | T |
-| `/astack:test-drive` | T | T | T | – |
-| `/astack:tests-assert-behaviour` | T | R | T | – |
-| `/astack:track-it` | T | – | – | – |
-| `/astack:wat` | R | T | T | T |
-| `/astack:watch-pr` | T | – | – | – |
-| `/astack:werkflow` | T | T | – | – |
-| `/astack:whatsup` | T | – | – | – |
-| `/astack:workflow-this` | T | – | – | – |
-| `/astack:worrywart` | T | T | – | – |
-| `/astack:yagni` | T | R | T | – |
+| `/astack:ab-test` | when it applies | when it applies | – | when it applies |
+| `/astack:address-feedback` | when it applies | when it applies | – | – |
+| `/astack:adversarial-review` | when it applies | – | required | – |
+| `/astack:analyze-environment` | when it applies | when it applies | when it applies | required |
+| `/astack:automate-this` | when it applies | when it applies | – | – |
+| `/astack:baseline` | when it applies | when it applies | when it applies | when it applies |
+| `/astack:benchmarking` | when it applies | when it applies | when it applies | when it applies |
+| `/astack:blast-radius` | when it applies | when it applies | required | when it applies |
+| `/astack:bugbash` | when it applies | – | – | – |
+| `/astack:challenge` | when it applies | when it applies | when it applies | when it applies |
+| `/astack:check-your-boundaries` | when it applies | required | when it applies | – |
+| `/astack:checkpoint` | when it applies | when it applies | – | – |
+| `/astack:clamber` | when it applies | when it applies | – | – |
+| `/astack:cleanup` | when it applies | required | when it applies | when it applies |
+| `/astack:comment-cop` | when it applies | required | when it applies | – |
+| `/astack:create-adc` | when it applies | – | – | when it applies |
+| `/astack:dagify` | required | – | when it applies | – |
+| `/astack:data-structures-first` | when it applies | required | when it applies | – |
+| `/astack:decide-by-data` | when it applies | when it applies | – | when it applies |
+| `/astack:decisions-in-plain-words` | required | required | when it applies | when it applies |
+| `/astack:deeper` | required | – | – | when it applies |
+| `/astack:delight-users` | when it applies | when it applies | when it applies | – |
+| `/astack:event-driven` | when it applies | when it applies | when it applies | – |
+| `/astack:find-it` | when it applies | when it applies | when it applies | when it applies |
+| `/astack:fix-it` | when it applies | when it applies | when it applies | – |
+| `/astack:formal-validate` | – | when it applies | when it applies | – |
+| `/astack:full-spectrum-testing` | – | when it applies | when it applies | – |
+| `/astack:go` | required | required | required | required |
+| `/astack:how-it-works` | when it applies | when it applies | when it applies | when it applies |
+| `/astack:lead` | required | – | – | – |
+| `/astack:leave-feedback` | when it applies | – | when it applies | – |
+| `/astack:leave-it-better` | when it applies | when it applies | – | – |
+| `/astack:make-it-stick` | when it applies | – | – | – |
+| `/astack:minimize-state-stores` | when it applies | when it applies | when it applies | – |
+| `/astack:modularize` | when it applies | when it applies | – | – |
+| `/astack:never-trade-functionality` | when it applies | when it applies | when it applies | – |
+| `/astack:no-bolt-ons` | when it applies | required | when it applies | – |
+| `/astack:no-hidden-config` | when it applies | when it applies | when it applies | – |
+| `/astack:no-hidden-flow-control` | when it applies | when it applies | when it applies | – |
+| `/astack:no-implicit-states` | when it applies | when it applies | when it applies | – |
+| `/astack:no-leaked-secrets` | when it applies | when it applies | when it applies | – |
+| `/astack:no-picked-constants` | when it applies | when it applies | when it applies | – |
+| `/astack:no-shared-writes` | when it applies | when it applies | when it applies | – |
+| `/astack:orchestral` | when it applies | when it applies | – | – |
+| `/astack:play-with-me` | when it applies | when it applies | – | – |
+| `/astack:prove-it` | when it applies | when it applies | required | when it applies |
+| `/astack:rearchitect` | when it applies | – | – | when it applies |
+| `/astack:research-this` | when it applies | when it applies | when it applies | required |
+| `/astack:resume` | when it applies | when it applies | – | – |
+| `/astack:review` | when it applies | – | when it applies | – |
+| `/astack:rtfm` | required | required | required | required |
+| `/astack:run-it-back` | required | required | when it applies | required |
+| `/astack:safe-to-rerun` | when it applies | when it applies | when it applies | – |
+| `/astack:setup` | when it applies | – | – | – |
+| `/astack:show-the-states` | when it applies | when it applies | when it applies | when it applies |
+| `/astack:simplify-me` | when it applies | when it applies | when it applies | – |
+| `/astack:slates` | when it applies | when it applies | when it applies | – |
+| `/astack:status` | required | – | – | – |
+| `/astack:suspend` | when it applies | when it applies | – | – |
+| `/astack:swarm-hypothesis` | when it applies | when it applies | – | when it applies |
+| `/astack:talk-to-me` | when it applies | when it applies | when it applies | when it applies |
+| `/astack:taskex` | when it applies | when it applies | – | – |
+| `/astack:technical-writing` | when it applies | when it applies | when it applies | when it applies |
+| `/astack:test-drive` | when it applies | when it applies | when it applies | – |
+| `/astack:tests-assert-behaviour` | when it applies | required | when it applies | – |
+| `/astack:track-it` | when it applies | – | – | – |
+| `/astack:wat` | required | when it applies | when it applies | when it applies |
+| `/astack:watch-pr` | when it applies | – | – | – |
+| `/astack:werkflow` | when it applies | when it applies | – | – |
+| `/astack:whatsup` | when it applies | – | – | – |
+| `/astack:workflow-this` | when it applies | – | – | – |
+| `/astack:worrywart` | when it applies | when it applies | – | – |
+| `/astack:yagni` | when it applies | required | when it applies | – |

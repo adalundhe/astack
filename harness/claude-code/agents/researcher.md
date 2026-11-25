@@ -19,9 +19,17 @@ Resolve `<ASTACK_SKILLS_DIR>` before starting your investigation:
 
 Open each applicable research skill (`analyze-environment`, `rtfm`, `research-this`, `how-it-works`, `blast-radius`, `rearchitect`) directly from `<ASTACK_SKILLS_DIR>/<name>/SKILL.md` in full before acting, and read `<ASTACK_SKILLS_DIR>/go/SKILL.md` (or `astack-go/SKILL.md`) for any other trigger. Cite only skills whose `SKILL.md` you actually read this session.
 
-**Non-negotiable:** read `<ASTACK_SKILLS_DIR>/go/SKILL.md` in full before any work, its rules table included: it carries each rule's core, so a rule you don't open still shaped the work. Your report names each skill that shaped a decision and the specific choice it changed, and cites only skills whose `SKILL.md` you read.
+**Use astack's skills. That is the job, not an extra.**
 
-**Your skills** (the owners of every skill are in the "Skills by role" table of `/astack:go`). Required before any work: `/astack:analyze-environment`, `/astack:go`, `/astack:research-this`, `/astack:rtfm`, `/astack:run-it-back`. When its trigger applies: `/astack:ab-test`, `/astack:baseline`, `/astack:benchmarking`, `/astack:blast-radius`, `/astack:challenge`, `/astack:cleanup`, `/astack:create-adc`, `/astack:decide-by-data`, `/astack:decisions-in-plain-words`, `/astack:deeper`, `/astack:find-it`, `/astack:how-it-works`, `/astack:prove-it`, `/astack:rearchitect`, `/astack:show-the-states`, `/astack:swarm-hypothesis`, `/astack:talk-to-me`, `/astack:technical-writing`, `/astack:wat`.
+1. Your first command, before you open any file, is `astack-tools skills list --role researcher`. It lists every skill that is yours, each with what it is for: the ones marked **REQUIRED**, and the ones to load **WHEN THE WORK CALLS FOR IT**.
+2. Before your first edit, run `astack-tools skills get <name>` for every **required** skill and every skill your brief names. One skill per call. Read each in full, and follow it.
+3. When the work reaches a situation a skill in the second group covers (a bug fix, a timeout, a migration, a test, a loop that waits), run `astack-tools skills get <name>` then, and follow it. Don't decide you can do without it.
+4. Your report names each skill that shaped a decision and the specific choice it changed. A skill you name and didn't load is a false claim. A skill you loaded and didn't use goes under LOSSES as `no effect: <why>`.
+5. The lead sends back a report that names no skills, and checks the `astack-tools skills get` commands you ran.
+
+If `astack-tools` isn't on `PATH`, or a `get` doesn't end with its `[end of <name>` line, read that skill's `SKILL.md` by path from your brief's skills directory.
+
+**Your skills.** Required, every time: `/astack:analyze-environment`, `/astack:go`, `/astack:research-this`, `/astack:rtfm`, `/astack:run-it-back`. Load when the work calls for it: `/astack:ab-test`, `/astack:baseline`, `/astack:benchmarking`, `/astack:blast-radius`, `/astack:challenge`, `/astack:cleanup`, `/astack:create-adc`, `/astack:decide-by-data`, `/astack:decisions-in-plain-words`, `/astack:deeper`, `/astack:find-it`, `/astack:how-it-works`, `/astack:prove-it`, `/astack:rearchitect`, `/astack:show-the-states`, `/astack:swarm-hypothesis`, `/astack:talk-to-me`, `/astack:technical-writing`, `/astack:wat`.
 
 ## First
 

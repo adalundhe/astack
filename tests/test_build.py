@@ -41,23 +41,26 @@ class BuildTest(unittest.TestCase):
     def test_every_skill_has_an_owner_and_each_agent_lists_exactly_its_own(self):
         go = (ROOT / "skills" / "go" / "SKILL.md").read_text()
         table = go[go.index("## Skills by role"):]
-        rows = re.findall(r"^\| `/astack:([a-z0-9-]+)` \| ([RT–]) \| ([RT–]) \| ([RT–]) \| ([RT–]) \|$", table, re.M)
+        mark = r"(required|when it applies|–)"
+        rows = re.findall(rf"^\| `/astack:([a-z0-9-]+)` \| {mark} \| {mark} \| {mark} \| {mark} \|$", table, re.M)
         roles = ("lead", "worker", "reviewer", "researcher")
         owners = {name: dict(zip(roles, marks)) for name, *marks in rows}
         skills = {p.name for p in (ROOT / "skills").iterdir() if p.is_dir()}
         self.assertEqual(set(owners), skills, "the table names every skill, once")
         self.assertEqual(len(rows), len(owners), "a skill has one row")
         for name, marks in owners.items():
-            self.assertTrue(any(m in "RT" for m in marks.values()), f"{name} has no owner")
+            self.assertTrue(any(m != "–" for m in marks.values()), f"{name} has no owner")
         for role in roles:
             text = (ROOT / "agents" / f"{role}.md").read_text()
-            line = re.search(r"\*\*Your skills\*\*.*", text)
+            line = re.search(r"\*\*Your skills\.\*\*.*", text)
             self.assertIsNotNone(line, f"{role} lists its skills")
-            required, _, triggered = line.group(0).partition("When its trigger applies:")
-            found = {"R": set(re.findall(r"`/astack:([a-z0-9-]+)`", required.partition("Required before any work:")[2])),
-                     "T": set(re.findall(r"`/astack:([a-z0-9-]+)`", triggered))}
-            for mark in "RT":
-                self.assertEqual(found[mark], {n for n, m in owners.items() if m[role] == mark}, f"{role}: {mark} skills")
+            self.assertIn(f"astack-tools skills list --role {role}", text, f"{role} lists its skills first")
+            self.assertIn("astack-tools skills get <name>", text, f"{role} loads each skill")
+            required, _, applies = line.group(0).partition("Load when the work calls for it:")
+            found = {"required": set(re.findall(r"`/astack:([a-z0-9-]+)`", required.partition("Required, every time:")[2])),
+                     "when it applies": set(re.findall(r"`/astack:([a-z0-9-]+)`", applies))}
+            for mark, names in found.items():
+                self.assertEqual(names, {n for n, m in owners.items() if m[role] == mark}, f"{role}: {mark} skills")
 
     def test_the_packages_are_current_with_the_source(self):
         result = subprocess.run([sys.executable, str(ROOT / "scripts" / "build.py"), "--check"],

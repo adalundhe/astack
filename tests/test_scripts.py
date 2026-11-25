@@ -2,6 +2,7 @@
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -11,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 BIN = Path(__file__).resolve().parent.parent / "bin"
+SKILLS = BIN.parent / "skills"
 MARKER = "<!-- astack lane log -->"
 
 
@@ -536,6 +538,33 @@ class ToolsTest(Scratch):
         gone = run_status()
         self.assertNotEqual(gone.returncode, 0)
         self.assertIn("no installed astack found", gone.stderr)
+
+    def test_skills_list_names_a_roles_required_skills_and_the_ones_for_when_the_work_calls(self):
+        listing = run("astack-tools", "skills", "list", "--role", "reviewer")
+        self.assertEqual(listing.returncode, 0, listing.stderr)
+        required, _, applies = listing.stdout.partition("WHEN THE WORK CALLS FOR IT")
+        for name in ("go", "adversarial-review", "rtfm", "prove-it", "blast-radius"):
+            self.assertRegex(required, rf"(?m)^  {name}: ")
+        self.assertRegex(applies, r"(?m)^  safe-to-rerun: ")
+        self.assertNotRegex(listing.stdout, r"(?m)^  status: ", "a lead's skill isn't the reviewer's")
+        self.assertIn("Use ", listing.stdout, "each line says when to load it")
+        self.assertEqual(run("astack-tools", "skills", "list").returncode, 2)
+
+    def test_skills_get_prints_one_skill_in_full_and_says_where_it_ends(self):
+        got = run("astack-tools", "skills", "get", "prove-it")
+        self.assertEqual(got.returncode, 0, got.stderr)
+        self.assertIn((SKILLS / "prove-it" / "SKILL.md").read_text().strip(), got.stdout)
+        self.assertRegex(got.stdout.rstrip().splitlines()[-1], r"^\[end of prove-it: \d+ characters")
+        self.assertEqual(run("astack-tools", "skills", "get", "/astack:prove-it").returncode, 0)
+        missing = run("astack-tools", "skills", "get", "not-a-skill")
+        self.assertEqual(missing.returncode, 1)
+        self.assertIn("not-a-skill", missing.stderr)
+
+    def test_every_skill_fits_one_get_under_a_tools_output_limit(self):
+        # Claude Code middle-truncates shell output past 30,000 characters (BASH_MAX_OUTPUT_LENGTH); a skill must fit one call.
+        for folder in sorted(SKILLS.iterdir()):
+            text = (folder / "SKILL.md").read_text()
+            self.assertLess(len(text) + 600, 30000, f"{folder.name} is too long for one `skills get`")
 
     def test_install_provisions_python_via_uv_when_missing(self):
         fake_bin = self.dir / "fake-bin"
