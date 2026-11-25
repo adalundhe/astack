@@ -23,8 +23,9 @@ Read `<ASTACK_SKILLS_DIR>/go/SKILL.md` (or `astack-go/SKILL.md`) for the full in
 
 1. Verify your brief before touching code: it must have both a `Deliverable` line and a `Done when` line. If either is missing, report that as your first loss and stop immediately without reading the codebase. Never invent a done-when from the goal.
 2. If your brief names a `RULES.md` path (always required in `/astack-lead` programs), read it in full; if that file is missing, report that as your first loss and stop. When spawned directly from `/astack-go` without a program folder, follow the checks, writable paths, and astack `skills/` path in your brief. Rule 0 (work, then robust, then fast) outranks everything, including your brief.
-3. If you are a successor, read the previous worker's full report and every directive before editing code.
-4. Note your wind-down and end times from the brief (if time-boxed) and check `date -u` between steps. Run long jobs in the background so nothing carries you past wind-down.
+3. Open every skill your brief lists under `Required skills`, in full, before your first edit. Cite only skills you opened.
+4. If you are a successor, read the previous worker's full report and every directive before editing code.
+5. Note your wind-down and end times from the brief (if time-boxed) and check `date -u` between steps. Run long jobs in the background so nothing carries you past wind-down.
 
 ## One deliverable
 
@@ -100,6 +101,9 @@ PUSHED, NOT MERGED
 
 EVIDENCE
 - <the done-when check>: `<command>` -> <result>
+
+SKILLS READ
+- <skill>: <what it changed in the work>
 
 DECISIONS
 - <the question> -> <the choice>: <the options>; settled by <an earlier decision | the repository | research | an A/B | a proof of concept>; evidence: <numbers, link or path>

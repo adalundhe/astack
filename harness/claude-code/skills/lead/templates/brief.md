@@ -3,6 +3,7 @@
 Program goal: <one line, the same in every brief>.
 You are <worker>, building lane <lane>. Started <UTC>. Wind down at <UTC>. End by <UTC>.
 Read first, in full: <path to RULES.md>. Rule 0 outranks everything, this brief included.
+Required skills, each SKILL.md opened in full before your first edit: <skill>, <skill>. A skill you cite and didn't open is a loss.
 
 Deliverable: <ONE thing, in plain words: what a user or engineer gets>.
 Done when: <the evidence: a command and its output, a scenario and its result, a SHA on <target>>.

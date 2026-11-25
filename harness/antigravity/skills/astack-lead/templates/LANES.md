@@ -15,11 +15,15 @@ time from memory.
     started <worker> on <lane> (<agent id>) | successor of <worker> | branch <branch> | wind-down <UTC> | ends <UTC> | deliverable: <one line> | done when: <evidence>
     started <reviewer> on <vector> (<agent id>) | role reviewer | model <provider>/<model> | wind-down <UTC> | ends <UTC> | scope: <scope>
     started <researcher> on <topic> (<agent id>) | role researcher | wind-down <UTC> | ends <UTC> | question: <one line>
+    plan reviewed: <reviewer> (<agent id>) -> <verdict>; changed: <what, or none>
+    check-in: <N> active | <what astack-status showed, and what you did>
     steer <agent>: <the directive>
     asked: "<the question, as asked>"
     person: "<their words, verbatim>" -> <what changed; agents told>
     decided: <the question> -> <the choice> (settled by <what>; evidence: <where>)
     rules rev: <what changed, and why>; told: <agents>
+    verified <sha>: astack-verify-merge <result> | astack-check-gates <result> | <other checks>
+    ledger: <vector> -> <astack-review-ledger state>
     ended <worker>: MERGED <sha> (verified) | NOT MERGED <branch>@<sha>; losses: <...>
     ended <reviewer>: <VERDICT>; blocking=<N> minor=<N> dropped=<N>
     ended <researcher>: <summary>; gaps: <...>

@@ -18,6 +18,9 @@ PUSHED, NOT MERGED
 EVIDENCE
 - <the done-when check>: `<command>` -> <result>
 
+SKILLS READ
+- <skill>: <what it changed in the work>
+
 DECISIONS
 - <the question> -> <the choice>: <the options>; settled by <an earlier decision | the repository | research | an A/B | a proof of concept>; evidence: <numbers, link or path>
 
@@ -34,6 +37,7 @@ NEXT
 - RESULT comes first: a run that ends with the deliverable unbuilt has failed, and says so up front.
 - LOSSES come before wins: the lead plans the successor from what is missing.
 - MERGED carries its checks: the lead verifies every claimed merge, and the SHA and commands make that quick.
+- SKILLS READ lists each skill opened, so the lead can tell a cited skill from a read one.
 - SIDE FINDINGS stand apart: they are logged, not worked.
 - DECISIONS lists every choice, not only measured ones, with what settled it. The lead logs each.
 - NEEDS THE PERSON holds only what nothing else could settle; the lead tries again before asking.
