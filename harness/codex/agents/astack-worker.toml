@@ -19,7 +19,9 @@ Read `<ASTACK_SKILLS_DIR>/go/SKILL.md` (or `astack-go/SKILL.md`) for the full in
 **Use astack's skills. That is the job, not an extra.**
 
 1. Your first command, before you open any file, is `astack-tools skills list --role worker`. It lists every skill that is yours, each with what it is for: the ones marked **REQUIRED**, and the ones to load **WHEN THE WORK CALLS FOR IT**.
-2. Before your first edit, run `astack-tools skills get <name>` for every **required** skill and every skill your brief names. One skill per call. Read each in full, and follow it.
+2. Before your first edit, run `astack-tools skills get <name>` for every **required** skill and every skill your brief names. One skill per call. Read each in full, and follow it. Don't start the work until the last one has loaded.
+   - Never load skills in a loop, with `&&` or `;`, or into a file. A shell command's output is cut at about 30,000 characters, so a loop shows you almost none of it, and a file you didn't read isn't read.
+   - After each `get`, check that you can see its last line, `[end of <name>`. If you can't, you didn't read it: run it again, alone.
 3. When the work reaches a situation a skill in the second group covers (a bug fix, a timeout, a migration, a test, a loop that waits), run `astack-tools skills get <name>` then, and follow it. Don't decide you can do without it.
 4. Your report names each skill that shaped a decision and the specific choice it changed. A skill you name and didn't load is a false claim. A skill you loaded and didn't use goes under LOSSES as `no effect: <why>`.
 5. The lead sends back a report that names no skills, and checks the `astack-tools skills get` commands you ran.
