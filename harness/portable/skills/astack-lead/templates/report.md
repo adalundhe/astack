@@ -19,7 +19,7 @@ EVIDENCE
 - <the done-when check>: `<command>` -> <result>
 
 SKILLS READ
-- <skill>: <what it changed in the work>
+- <skill>: <the choice it changed>
 
 DECISIONS
 - <the question, rejected theory, or failed/reverted fix attempt> -> <the choice or why rejected>: <the options or approach tried>; settled by <an earlier decision | the repository | research | an A/B | a proof of concept | failing test/repro>; evidence: <numbers, link or path>

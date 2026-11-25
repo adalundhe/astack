@@ -90,24 +90,104 @@ Read the matching skill file(s) before starting:
 
 ## Principles and coding-rules index
 
-Read the matching rule file whenever its trigger applies to code you are designing, writing, or reviewing:
+Read this table in full before any code work: each rule's core is in it, so a rule whose file you don't open still shaped the work. Open a rule's file whenever its trigger applies to code you are designing, writing, or reviewing; any code you write or review triggers `data-structures-first`, `check-your-boundaries`, `no-bolt-ons`, `yagni` and `comment-cop`.
 
-| Trigger | Rule file |
-|---|---|
-| Designing schemas, structs, state, or algorithms | `../data-structures-first/SKILL.md` |
-| Behavior depends on prior state or lifecycle flags | `../no-implicit-states/SKILL.md` |
-| Error handling, retries, exceptions, or fallbacks | `../no-hidden-flow-control/SKILL.md` |
-| CLI flags, config files, env vars, or feature toggles | `../no-hidden-config/SKILL.md` |
-| Caches, copies, denormalization, or long-lived state | `../minimize-state-stores/SKILL.md` |
-| Parsing requests, CLI args, files, DB rows, or API replies | `../check-your-boundaries/SKILL.md` |
-| Concurrent threads, processes, agents, or locks | `../no-shared-writes/SKILL.md` |
-| Commands, migrations, deploy steps, jobs, or retries | `../safe-to-rerun/SKILL.md` |
-| Adding a new requirement to existing code | `../no-bolt-ons/SKILL.md` |
-| Replacing code, shims, legacy paths, or dead flags | `../yagni/SKILL.md` |
-| Writing, reviewing, or cleaning up comments | `../comment-cop/SKILL.md` |
-| User-facing UI, CLI, errors, defaults, or public APIs | `../delight-users/SKILL.md` |
-| Limits, timeouts, batch/pool sizes, or thresholds | `../no-picked-constants/SKILL.md` |
-| Waiting, polling loops, sleeps, timers, or CI checks | `../event-driven/SKILL.md` |
-| Speedups, memory cuts, or approximate/deferred variants | `../never-trade-functionality/SKILL.md` |
-| Secrets, tokens, PII, logging, errors, telemetry, or debug dumps | `../no-leaked-secrets/SKILL.md` |
-| Writing, reviewing, or fixing any test or flake | `../tests-assert-behaviour/SKILL.md` |
+| Trigger | Rule file | Core rule |
+|---|---|---|
+| Designing schemas, structs, state, or algorithms | `../data-structures-first/SKILL.md` | design data representations, invariants, and access patterns before control flow |
+| Behavior depends on prior state or lifecycle flags | `../no-implicit-states/SKILL.md` | use explicit state enums/tagged unions and centralized transitions instead of boolean flags |
+| Error handling, retries, exceptions, or fallbacks | `../no-hidden-flow-control/SKILL.md` | handle specific errors narrowly or return typed values; no catch-alls or swallowed errors |
+| CLI flags, config files, env vars, or feature toggles | `../no-hidden-config/SKILL.md` | parse settings in one place, document and test every value, use real feature flags |
+| Caches, copies, denormalization, or long-lived state | `../minimize-state-stores/SKILL.md` | keep one source of truth; add caches or copies only when measurements justify them |
+| Parsing requests, CLI args, files, DB rows, or API replies | `../check-your-boundaries/SKILL.md` | parse untrusted input once at the edge into domain types, then trust them inside |
+| Concurrent threads, processes, agents, or locks | `../no-shared-writes/SKILL.md` | give concurrent writers isolated state and merge on read before reaching for locks |
+| Commands, migrations, deploy steps, jobs, or retries | `../safe-to-rerun/SKILL.md` | make state-changing operations idempotent and crash-safe (converge from state, atomic write-then-rename) |
+| Adding a new requirement to existing code | `../no-bolt-ons/SKILL.md` | fold new requirements cleanly into the design instead of special-case flags or `_v2` copies |
+| Replacing code, shims, legacy paths, or dead flags | `../yagni/SKILL.md` | migrate callers and delete legacy paths together—no shims, deprecated aliases, or dead flags |
+| Writing, reviewing, or cleaning up comments | `../comment-cop/SKILL.md` | cut narrating comments; keep only API contracts, external constraints, legal headers, and links |
+| User-facing UI, CLI, errors, defaults, or public APIs | `../delight-users/SKILL.md` | audit from the consumer's side for missing states, vague errors, awkward APIs, and bad defaults |
+| Limits, timeouts, batch/pool sizes, or thresholds | `../no-picked-constants/SKILL.md` | derive limits/timeouts from cited specs or adapt them at runtime—never pick magic numbers |
+| Waiting, polling loops, sleeps, timers, or CI checks | `../event-driven/SKILL.md` | wake on completion events instead of `sleep` loops, fixed timers, or polling |
+| Speedups, memory cuts, or approximate/deferred variants | `../never-trade-functionality/SKILL.md` | never trade accuracy, freshness, or features for speed; run `research-this` before accepting any limit |
+| Secrets, tokens, PII, logging, errors, telemetry, or debug dumps | `../no-leaked-secrets/SKILL.md` | sweeps code, diffs, configs, logs, errors, telemetry, tests, and debug artifacts for leaked secrets, credentials, unneeded PII, or excessive logging |
+| Writing, reviewing, or fixing any test or flake | `../tests-assert-behaviour/SKILL.md` | keeps tests checking observable behavior rather than internals, mocks, or wall-clock timing |
+
+## Skills by role
+
+Every skill has at least one owner, and a skill may have several. **R**: that role opens it in full before any work. **T**: that role opens it when its trigger applies (the tables above and the skill's own description). **–**: not that role's skill. A brief's `Required skills` are the role's **R** skills plus every **T** skill whose trigger applies to the task.
+
+| Skill | Lead | Worker | Reviewer | Researcher |
+|---|---|---|---|---|
+| `$ab-test` | T | T | – | T |
+| `$address-feedback` | T | T | – | – |
+| `$adversarial-review` | T | – | R | – |
+| `$analyze-environment` | T | T | T | R |
+| `$automate-this` | T | T | – | – |
+| `$baseline` | T | T | T | T |
+| `$benchmarking` | T | T | T | T |
+| `$blast-radius` | T | T | R | T |
+| `$bugbash` | T | – | – | – |
+| `$challenge` | T | T | T | T |
+| `$check-your-boundaries` | T | R | T | – |
+| `$checkpoint` | T | T | – | – |
+| `$clamber` | T | T | – | – |
+| `$cleanup` | T | R | T | T |
+| `$comment-cop` | T | R | T | – |
+| `$create-adc` | T | – | – | T |
+| `$dagify` | R | – | T | – |
+| `$data-structures-first` | T | R | T | – |
+| `$decide-by-data` | T | T | – | T |
+| `$decisions-in-plain-words` | R | R | T | T |
+| `$deeper` | R | – | – | T |
+| `$delight-users` | T | T | T | – |
+| `$event-driven` | T | T | T | – |
+| `$find-it` | T | T | T | T |
+| `$fix-it` | T | T | T | – |
+| `$formal-validate` | – | T | T | – |
+| `$full-spectrum-testing` | – | T | T | – |
+| `$astack-go` | R | R | R | R |
+| `$how-it-works` | T | T | T | T |
+| `$astack-lead` | R | – | – | – |
+| `$leave-feedback` | T | – | T | – |
+| `$leave-it-better` | T | T | – | – |
+| `$make-it-stick` | T | – | – | – |
+| `$minimize-state-stores` | T | T | T | – |
+| `$modularize` | T | T | – | – |
+| `$never-trade-functionality` | T | T | T | – |
+| `$no-bolt-ons` | T | R | T | – |
+| `$no-hidden-config` | T | T | T | – |
+| `$no-hidden-flow-control` | T | T | T | – |
+| `$no-implicit-states` | T | T | T | – |
+| `$no-leaked-secrets` | T | T | T | – |
+| `$no-picked-constants` | T | T | T | – |
+| `$no-shared-writes` | T | T | T | – |
+| `$orchestral` | T | T | – | – |
+| `$play-with-me` | T | T | – | – |
+| `$prove-it` | T | T | R | T |
+| `$rearchitect` | T | – | – | T |
+| `$research-this` | T | T | T | R |
+| `$resume` | T | T | – | – |
+| `$astack-review` | T | – | T | – |
+| `$rtfm` | R | R | R | R |
+| `$run-it-back` | R | R | T | R |
+| `$safe-to-rerun` | T | T | T | – |
+| `$astack-setup` | T | – | – | – |
+| `$show-the-states` | T | T | T | T |
+| `$simplify-me` | T | T | T | – |
+| `$slates` | T | T | T | – |
+| `$astack-status` | R | – | – | – |
+| `$suspend` | T | T | – | – |
+| `$swarm-hypothesis` | T | T | – | T |
+| `$talk-to-me` | T | T | T | T |
+| `$taskex` | T | T | – | – |
+| `$technical-writing` | T | T | T | T |
+| `$test-drive` | T | T | T | – |
+| `$tests-assert-behaviour` | T | R | T | – |
+| `$track-it` | T | – | – | – |
+| `$wat` | R | T | T | T |
+| `$watch-pr` | T | – | – | – |
+| `$werkflow` | T | T | – | – |
+| `$whatsup` | T | – | – | – |
+| `$workflow-this` | T | – | – | – |
+| `$worrywart` | T | T | – | – |
+| `$yagni` | T | R | T | – |

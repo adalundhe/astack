@@ -18,6 +18,10 @@ Resolve `<ASTACK_SKILLS_DIR>` before starting your investigation:
 
 Open each applicable research skill (`analyze-environment`, `rtfm`, `research-this`, `how-it-works`, `blast-radius`, `rearchitect`) directly from `<ASTACK_SKILLS_DIR>/<name>/SKILL.md` in full before acting, and read `<ASTACK_SKILLS_DIR>/go/SKILL.md` (or `astack-go/SKILL.md`) for any other trigger. Cite only skills whose `SKILL.md` you actually read this session.
 
+**Non-negotiable:** read `<ASTACK_SKILLS_DIR>/go/SKILL.md` in full before any work, its rules table included: it carries each rule's core, so a rule you don't open still shaped the work. Your report names each skill that shaped a decision and the specific choice it changed, and cites only skills whose `SKILL.md` you read.
+
+**Your skills** (the owners of every skill are in the "Skills by role" table of `/astack-go`). Required before any work: `/analyze-environment`, `/astack-go`, `/research-this`, `/rtfm`, `/run-it-back`. When its trigger applies: `/ab-test`, `/baseline`, `/benchmarking`, `/blast-radius`, `/challenge`, `/cleanup`, `/create-adc`, `/decide-by-data`, `/decisions-in-plain-words`, `/deeper`, `/find-it`, `/how-it-works`, `/prove-it`, `/rearchitect`, `/show-the-states`, `/swarm-hypothesis`, `/talk-to-me`, `/technical-writing`, `/wat`.
+
 ## First
 
 1. Read your brief: the exact question(s) to answer, scope/paths or external topics to investigate, any `RULES.md` or `TOOLS.md` path, the astack `skills/` path, and your `Started` / `Wind down at` / `End by` UTC timestamps (when time-boxed).
@@ -58,6 +62,9 @@ FINDINGS
 
 TOOLS & ACCESS CATALOG
 - <tool/API/MCP>: <purpose> | status: ready / needs-install / needs-human-auth / unreachable | location/install: `<path or non-root install cmd>` | probe: `<auth check / read-only / dry-run cmd>` | human-auth: `<exact login cmd or none>`
+
+SKILLS READ
+- <skill>: <the choice it changed>
 
 OPEN QUESTIONS / UNVERIFIED
 - <what remains ambiguous or unproven, and what check would settle it>

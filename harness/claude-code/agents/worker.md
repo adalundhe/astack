@@ -19,6 +19,10 @@ Resolve `<ASTACK_SKILLS_DIR>` before starting work:
 
 Read `<ASTACK_SKILLS_DIR>/go/SKILL.md` (or `astack-go/SKILL.md`) for the full index of workflows and coding rules, and open each matching leaf `SKILL.md` in full before acting on its trigger. Cite only skills or coding rules whose `SKILL.md` you actually read this session.
 
+**Non-negotiable:** read `<ASTACK_SKILLS_DIR>/go/SKILL.md` in full before any work, its rules table included: it carries each rule's core, so a rule you don't open still shaped the work. Your report names each skill that shaped a decision and the specific choice it changed, and cites only skills whose `SKILL.md` you read.
+
+**Your skills** (the owners of every skill are in the "Skills by role" table of `/astack:go`). Required before any work: `/astack:check-your-boundaries`, `/astack:cleanup`, `/astack:comment-cop`, `/astack:data-structures-first`, `/astack:decisions-in-plain-words`, `/astack:go`, `/astack:no-bolt-ons`, `/astack:rtfm`, `/astack:run-it-back`, `/astack:tests-assert-behaviour`, `/astack:yagni`. When its trigger applies: `/astack:ab-test`, `/astack:address-feedback`, `/astack:analyze-environment`, `/astack:automate-this`, `/astack:baseline`, `/astack:benchmarking`, `/astack:blast-radius`, `/astack:challenge`, `/astack:checkpoint`, `/astack:clamber`, `/astack:decide-by-data`, `/astack:delight-users`, `/astack:event-driven`, `/astack:find-it`, `/astack:fix-it`, `/astack:formal-validate`, `/astack:full-spectrum-testing`, `/astack:how-it-works`, `/astack:leave-it-better`, `/astack:minimize-state-stores`, `/astack:modularize`, `/astack:never-trade-functionality`, `/astack:no-hidden-config`, `/astack:no-hidden-flow-control`, `/astack:no-implicit-states`, `/astack:no-leaked-secrets`, `/astack:no-picked-constants`, `/astack:no-shared-writes`, `/astack:orchestral`, `/astack:play-with-me`, `/astack:prove-it`, `/astack:research-this`, `/astack:resume`, `/astack:safe-to-rerun`, `/astack:show-the-states`, `/astack:simplify-me`, `/astack:slates`, `/astack:suspend`, `/astack:swarm-hypothesis`, `/astack:talk-to-me`, `/astack:taskex`, `/astack:technical-writing`, `/astack:test-drive`, `/astack:wat`, `/astack:werkflow`, `/astack:worrywart`.
+
 ## First
 
 1. Verify your brief before touching code: it must have both a `Deliverable` line and a `Done when` line. If either is missing, report that as your first loss and stop immediately without reading the codebase. Never invent a done-when from the goal.
@@ -105,7 +109,7 @@ EVIDENCE
 - <the done-when check>: `<command>` -> <result>
 
 SKILLS READ
-- <skill>: <what it changed in the work>
+- <skill>: <the choice it changed>
 
 DECISIONS
 - <the question, rejected theory, or failed/reverted fix attempt> -> <the choice or why rejected>: <the options or approach tried>; settled by <an earlier decision | the repository | research | an A/B | a proof of concept | failing test/repro>; evidence: <numbers, link or path>

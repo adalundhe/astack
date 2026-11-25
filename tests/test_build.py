@@ -38,6 +38,27 @@ def front_matter(path):
 
 
 class BuildTest(unittest.TestCase):
+    def test_every_skill_has_an_owner_and_each_agent_lists_exactly_its_own(self):
+        go = (ROOT / "skills" / "go" / "SKILL.md").read_text()
+        table = go[go.index("## Skills by role"):]
+        rows = re.findall(r"^\| `/astack:([a-z0-9-]+)` \| ([RT–]) \| ([RT–]) \| ([RT–]) \| ([RT–]) \|$", table, re.M)
+        roles = ("lead", "worker", "reviewer", "researcher")
+        owners = {name: dict(zip(roles, marks)) for name, *marks in rows}
+        skills = {p.name for p in (ROOT / "skills").iterdir() if p.is_dir()}
+        self.assertEqual(set(owners), skills, "the table names every skill, once")
+        self.assertEqual(len(rows), len(owners), "a skill has one row")
+        for name, marks in owners.items():
+            self.assertTrue(any(m in "RT" for m in marks.values()), f"{name} has no owner")
+        for role in roles:
+            text = (ROOT / "agents" / f"{role}.md").read_text()
+            line = re.search(r"\*\*Your skills\*\*.*", text)
+            self.assertIsNotNone(line, f"{role} lists its skills")
+            required, _, triggered = line.group(0).partition("When its trigger applies:")
+            found = {"R": set(re.findall(r"`/astack:([a-z0-9-]+)`", required.partition("Required before any work:")[2])),
+                     "T": set(re.findall(r"`/astack:([a-z0-9-]+)`", triggered))}
+            for mark in "RT":
+                self.assertEqual(found[mark], {n for n, m in owners.items() if m[role] == mark}, f"{role}: {mark} skills")
+
     def test_the_packages_are_current_with_the_source(self):
         result = subprocess.run([sys.executable, str(ROOT / "scripts" / "build.py"), "--check"],
                                 capture_output=True, text=True)

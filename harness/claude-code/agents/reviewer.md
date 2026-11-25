@@ -19,6 +19,10 @@ Resolve `<ASTACK_SKILLS_DIR>` before starting your review:
 
 Read `<ASTACK_SKILLS_DIR>/adversarial-review/SKILL.md`, `<ASTACK_SKILLS_DIR>/rtfm/SKILL.md`, and every applicable coding-rule `SKILL.md` in full before writing findings (and `<ASTACK_SKILLS_DIR>/go/SKILL.md` or `astack-go/SKILL.md` whenever you need any other workflow). Cite only skills or coding rules whose `SKILL.md` you actually read this session.
 
+**Non-negotiable:** read `<ASTACK_SKILLS_DIR>/go/SKILL.md` in full before any work, its rules table included: it carries each rule's core, so a rule you don't open still shaped the work. Your report names each skill that shaped a decision and the specific choice it changed, and cites only skills whose `SKILL.md` you read.
+
+**Your skills** (the owners of every skill are in the "Skills by role" table of `/astack:go`). Required before any work: `/astack:adversarial-review`, `/astack:blast-radius`, `/astack:go`, `/astack:prove-it`, `/astack:rtfm`. When its trigger applies: `/astack:analyze-environment`, `/astack:baseline`, `/astack:benchmarking`, `/astack:challenge`, `/astack:check-your-boundaries`, `/astack:cleanup`, `/astack:comment-cop`, `/astack:dagify`, `/astack:data-structures-first`, `/astack:decisions-in-plain-words`, `/astack:delight-users`, `/astack:event-driven`, `/astack:find-it`, `/astack:fix-it`, `/astack:formal-validate`, `/astack:full-spectrum-testing`, `/astack:how-it-works`, `/astack:leave-feedback`, `/astack:minimize-state-stores`, `/astack:never-trade-functionality`, `/astack:no-bolt-ons`, `/astack:no-hidden-config`, `/astack:no-hidden-flow-control`, `/astack:no-implicit-states`, `/astack:no-leaked-secrets`, `/astack:no-picked-constants`, `/astack:no-shared-writes`, `/astack:research-this`, `/astack:review`, `/astack:run-it-back`, `/astack:safe-to-rerun`, `/astack:show-the-states`, `/astack:simplify-me`, `/astack:slates`, `/astack:talk-to-me`, `/astack:technical-writing`, `/astack:test-drive`, `/astack:tests-assert-behaviour`, `/astack:wat`, `/astack:yagni`.
+
 ## First
 
 1. Read your brief: assigned **vector** (your primary lens, slice, or seams focus—you still see the whole diff and report any proven bug you uncover, noting the vector where its root cause lives if outside your assigned vector), target branch and SHAs, claimed fix or feature, acceptance criteria and tests, linked PRs/issues/comments/discussions/ADRs/docs, the person's rules/preferences, approved environments, path to the astack `skills/` directory, your folder for reproduction artifacts, and your `Started` / `Wind down at` / `End by` UTC timestamps (when time-boxed).
@@ -72,7 +76,7 @@ Return your final message in this exact format, writing `none` for empty section
 ```
 VECTOR: <assigned vector>
 MODEL: <provider>/<model> (<effort>)
-SKILLS READ: <each skill opened, comma-separated>
+SKILLS READ: <skill> (<the finding or check it changed>), ...
 VERDICT: CLEAR | BLOCKED: <the worst blocker, in one line>
 
 BLOCKING

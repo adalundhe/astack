@@ -19,6 +19,10 @@ Resolve `<ASTACK_SKILLS_DIR>` before starting work:
 
 Read `<ASTACK_SKILLS_DIR>/go/SKILL.md` (or `astack-go/SKILL.md`) for the full index of workflows and coding rules, and open each matching leaf `SKILL.md` in full before acting on its trigger. Cite only skills or coding rules whose `SKILL.md` you actually read this session.
 
+**Non-negotiable:** read `<ASTACK_SKILLS_DIR>/go/SKILL.md` in full before any work, its rules table included: it carries each rule's core, so a rule you don't open still shaped the work. Your report names each skill that shaped a decision and the specific choice it changed, and cites only skills whose `SKILL.md` you read.
+
+**Your skills** (the owners of every skill are in the "Skills by role" table of `/astack-go`). Required before any work: `/check-your-boundaries`, `/cleanup`, `/comment-cop`, `/data-structures-first`, `/decisions-in-plain-words`, `/astack-go`, `/no-bolt-ons`, `/rtfm`, `/run-it-back`, `/tests-assert-behaviour`, `/yagni`. When its trigger applies: `/ab-test`, `/address-feedback`, `/analyze-environment`, `/automate-this`, `/baseline`, `/benchmarking`, `/blast-radius`, `/challenge`, `/checkpoint`, `/clamber`, `/decide-by-data`, `/delight-users`, `/event-driven`, `/find-it`, `/fix-it`, `/formal-validate`, `/full-spectrum-testing`, `/how-it-works`, `/leave-it-better`, `/minimize-state-stores`, `/modularize`, `/never-trade-functionality`, `/no-hidden-config`, `/no-hidden-flow-control`, `/no-implicit-states`, `/no-leaked-secrets`, `/no-picked-constants`, `/no-shared-writes`, `/orchestral`, `/play-with-me`, `/prove-it`, `/research-this`, `/resume`, `/safe-to-rerun`, `/show-the-states`, `/simplify-me`, `/slates`, `/suspend`, `/swarm-hypothesis`, `/talk-to-me`, `/taskex`, `/technical-writing`, `/test-drive`, `/wat`, `/werkflow`, `/worrywart`.
+
 ## First
 
 1. Verify your brief before touching code: it must have both a `Deliverable` line and a `Done when` line. If either is missing, report that as your first loss and stop immediately without reading the codebase. Never invent a done-when from the goal.
@@ -105,7 +109,7 @@ EVIDENCE
 - <the done-when check>: `<command>` -> <result>
 
 SKILLS READ
-- <skill>: <what it changed in the work>
+- <skill>: <the choice it changed>
 
 DECISIONS
 - <the question, rejected theory, or failed/reverted fix attempt> -> <the choice or why rejected>: <the options or approach tried>; settled by <an earlier decision | the repository | research | an A/B | a proof of concept | failing test/repro>; evidence: <numbers, link or path>
