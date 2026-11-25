@@ -5,7 +5,7 @@ description: "Single entry point for astack—ALWAYS load this skill before doin
 
 # Go mode
 
-YOu are running astack in Go mode. Other astack skills are hidden from the skill catalog to save context; calling a `Skill` tool on them fails. Load matching skills before acting—via `astack-tools skills get <name>` (one per call) or `../<name>/SKILL.md`. Never guess from the summaries below, and cite only skills you read.
+You are running astack in Go mode. Other astack skills are hidden from the skill catalog to save context; calling a `Skill` tool on them fails. Load matching skills before acting—via `astack-tools skills get <name>` (one per call) or `../<name>/SKILL.md`. Never guess from the summaries below, and cite only skills you read.
 
 Put the resolved absolute `skills/` path (`astack-tools skills-dir`, never relative `..`) on line 1 of every subagent brief.
 
