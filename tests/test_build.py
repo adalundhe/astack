@@ -74,19 +74,55 @@ class BuildTest(unittest.TestCase):
             HARNESS / "codex/plugin.json",
             HARNESS / "antigravity/plugin.json",
             HARNESS / "portable/plugin.json",
+            ROOT / ".antigravity-plugin/plugin.json",
         ]
         self.assertEqual(len({(load(m)["name"], load(m)["version"]) for m in manifests}), 1)
         for m in manifests:
             data = load(m)
-            self.assertEqual(data.get("skills"), "./skills/", f"{m} missing explicit skills path")
-            if "claude-code" in str(m):
+            if m == ROOT / ".antigravity-plugin/plugin.json" or "antigravity" in str(m):
+                self.assertEqual(data.get("skills"), "./skills/", f"{m} missing explicit skills path")
+                self.assertEqual(data.get("$schema"), "https://antigravity.google/schemas/v1/plugin.json")
+                self.assertNotIn("agents", data, f"{m} must omit unknown 'agents' field for agy --strict")
+            elif "claude-code" in str(m):
+                self.assertEqual(data.get("skills"), "./skills/", f"{m} missing explicit skills path")
                 self.assertEqual(
                     data.get("agents"),
                     ["./agents/lead.md", "./agents/worker.md", "./agents/reviewer.md", "./agents/researcher.md"],
                     f"{m} must declare all 4 .md agent paths for Claude Code manifest schema",
                 )
             else:
+                self.assertEqual(data.get("skills"), "./skills/", f"{m} missing explicit skills path")
                 self.assertEqual(data.get("agents"), "./agents/", f"{m} missing explicit agents path")
+        self.assertEqual(
+            (ROOT / "hooks.json").read_text(),
+            (ROOT / "packaging/antigravity/hooks.json").read_text(),
+            "root hooks.json must stay synced with packaging/antigravity/hooks.json",
+        )
+
+    @unittest.skipUnless(shutil.which("agy"), "agy CLI not installed")
+    def test_antigravity_validates_strict_and_installs_from_repo_root_and_harness(self):
+        for target in (ROOT, HARNESS / "antigravity"):
+            val = subprocess.run(
+                ["agy", "plugin", "validate", str(target), "--strict", "--json"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(val.returncode, 0, f"agy validate failed for {target}:\n{val.stdout}\n{val.stderr}")
+            data = json.loads(val.stdout)
+            self.assertGreaterEqual(data["components"]["skills"], 83)
+            self.assertEqual(data["components"]["agents"], 4)
+            self.assertEqual(data["components"]["hooks"], 2)
+
+        with tempfile.TemporaryDirectory(prefix="astack-agy-install-") as td:
+            fake_home = Path(td)
+            env = {**os.environ, "HOME": str(fake_home)}
+            inst = subprocess.run(
+                ["agy", "plugin", "install", str(ROOT)],
+                capture_output=True, text=True, env=env,
+            )
+            self.assertEqual(inst.returncode, 0, inst.stdout + inst.stderr)
+            self.assertIn("[ok]", inst.stdout)
+            self.assertTrue((fake_home / ".gemini/config/plugins/astack/.antigravity-plugin/plugin.json").is_file())
+            self.assertTrue((fake_home / ".gemini/config/plugins/astack/hooks.json").is_file())
 
     def test_each_marketplace_points_at_its_package(self):
         claude = load(ROOT / ".claude-plugin/marketplace.json")["plugins"][0]
@@ -372,6 +408,7 @@ class BuildTest(unittest.TestCase):
                 "astack-stamp", "astack-stamp-hook", "astack-statechart", "astack-status",
                 "astack-tools", "astack-verify-merge",
                 "astack-watch-pr", "astack-watch-github", "astack-watch-gitlab", "astack-watch-bitbucket",
+                "astack-release", "astack-go-mode", "astack-go-hook",
             ):
                 self.assertTrue((HARNESS / tool / "bin" / script).stat().st_mode & 0o111, f"{tool}/{script}")
 
@@ -488,6 +525,10 @@ class BuildTest(unittest.TestCase):
         self.assertIn("never writing or applying fixes themselves", bugbash)
         self.assertIn("dispatches a fresh `astack:worker`", bugbash)
         self.assertIn("**slates**", bugbash)
+        self.assertIn("reported issue, error, crash, failure, regression", bugbash)
+        self.assertIn("never investigate the bug yourself", bugbash)
+        self.assertIn("route to **bugbash**", find_it)
+        self.assertIn("default to **bugbash** immediately", (ROOT / "skills/go/SKILL.md").read_text())
 
         slates_skill = (ROOT / "skills/slates/SKILL.md").read_text()
         self.assertIn("https://github.com/hyper-light/slates", slates_skill)
@@ -498,6 +539,8 @@ class BuildTest(unittest.TestCase):
 
         for path in (
             "skills/dagify/SKILL.md",
+            "skills/treeify/SKILL.md",
+            "skills/cross-repo/SKILL.md",
             "skills/bugbash/SKILL.md",
             "skills/lead/SKILL.md",
             "skills/review/SKILL.md",
@@ -533,11 +576,62 @@ class BuildTest(unittest.TestCase):
             "skills/swarm-hypothesis/SKILL.md",
             "skills/modularize/SKILL.md",
             "skills/dagify/SKILL.md",
+            "skills/treeify/SKILL.md",
+            "skills/cross-repo/SKILL.md",
         ):
             stext = (ROOT / swarm_path).read_text()
             self.assertIn("astack-status", stext, f"{swarm_path} missing time-limit watch/swap via astack-status")
             self.assertIn("check_in_minutes", stext, f"{swarm_path} missing check_in_minutes clock check")
             self.assertIn("fresh successor", stext, f"{swarm_path} missing fresh-successor swap rule")
+
+        treeify = (ROOT / "skills/treeify/SKILL.md").read_text()
+        self.assertIn("Stopping criterion:", treeify)
+        self.assertIn("Wave 0 foundation leaf", treeify)
+        self.assertIn("subtree-ready waves", treeify)
+        self.assertIn("never writing fixes themselves", treeify)
+        self.assertIn("| **Leaves** |", treeify)
+        self.assertIn("| **Middle layers** |", treeify)
+        self.assertIn("| **Root** |", treeify)
+
+        safe_deploy = (ROOT / "skills/safe-to-deploy/SKILL.md").read_text()
+        self.assertIn("expand -> switch -> contract", safe_deploy)
+        self.assertIn("rollback", safe_deploy.lower())
+        self.assertIn("non-privileged", safe_deploy)
+        self.assertIn("**safe-to-deploy**", (ROOT / "skills/yagni/SKILL.md").read_text())
+        self.assertIn("**safe-to-deploy**", (ROOT / "skills/dagify/SKILL.md").read_text())
+        self.assertIn("**safe-to-deploy**", (ROOT / "skills/blast-radius/SKILL.md").read_text())
+        self.assertIn("**safe-to-deploy**", (ROOT / "skills/full-spectrum-testing/SKILL.md").read_text())
+        self.assertIn("**safe-to-deploy**", (ROOT / "skills/adversarial-review/SKILL.md").read_text())
+        self.assertIn("**safe-to-deploy**", (ROOT / "skills/safe-to-rerun/SKILL.md").read_text())
+        self.assertIn("`safe-to-deploy`", (ROOT / "agents/reviewer.md").read_text())
+
+        # Verify infra, security, resilience, observability, live triage, networking, multi-repo, and diagram-handoff rules
+        least_priv = (ROOT / "skills/least-privilege/SKILL.md").read_text()
+        self.assertIn("illustrative, never exhaustive", least_priv)
+        self.assertIn("allow and deny", least_priv)
+        safe_iac = (ROOT / "skills/safe-iac/SKILL.md").read_text()
+        self.assertIn("forces replacement", safe_iac)
+        self.assertIn("illustrative, never exhaustive", safe_iac)
+        self.assertIn("Decouple liveness from external dependencies", (ROOT / "skills/fail-safely/SKILL.md").read_text())
+        self.assertIn("bounded", (ROOT / "skills/observable-by-default/SKILL.md").read_text().lower())
+        triage = (ROOT / "skills/triage/SKILL.md").read_text()
+        self.assertIn("volatile state", triage)
+        self.assertIn("never assume a fixed vendor list", triage)
+        self.assertIn("astack-release", (ROOT / "skills/cross-repo/SKILL.md").read_text())
+        self.assertIn("astack-release", (ROOT / "skills/watch-pr/SKILL.md").read_text())
+        net_trace = (ROOT / "skills/net-trace/SKILL.md").read_text()
+        self.assertIn("illustrative, never exhaustive", net_trace)
+        self.assertIn("flow logs", net_trace.lower())
+        self.assertIn("openssl s_client", net_trace)
+        self.assertIn("tcpdump", net_trace)
+        env_text = (ROOT / "skills/analyze-environment/SKILL.md").read_text()
+        self.assertIn("illustrative, never exhaustive", env_text)
+        self.assertIn("DIAGRAMS", (ROOT / "agents/researcher.md").read_text())
+        self.assertIn("DIAGRAMS", (ROOT / "agents/worker.md").read_text())
+        self.assertIn("never leave a diagram stranded", (ROOT / "skills/show-the-states/SKILL.md").read_text())
+        self.assertIn("Mermaid state", (ROOT / "skills/watch-pr/SKILL.md").read_text())
+        self.assertIn("Mermaid state/architecture diagrams", (ROOT / "agents/lead.md").read_text())
+        self.assertIn("Mermaid state/architecture diagrams", lead_src)
 
         prove_it = (ROOT / "skills/prove-it/SKILL.md").read_text()
         self.assertIn("Deterministic reproduction", prove_it)
@@ -576,6 +670,46 @@ class BuildTest(unittest.TestCase):
         self.assertIn("out_of_dir_work", setup_src)
         self.assertIn("user_space_tool_install", setup_src)
         self.assertIn("bootstrap `bin/astack-*`", setup_src)
+
+        watch_pr_src = (ROOT / "skills/watch-pr/SKILL.md").read_text()
+        self.assertIn("PRState.HELD", watch_pr_src)
+        self.assertIn("--release-file", watch_pr_src)
+        self.assertIn("never enabling forge auto-merge", watch_pr_src)
+        self.assertIn("never auto-merge on approval", dec_skill)
+        self.assertIn("never enable forge auto-merge", dec_skill)
+
+        # Verify sticky Go mode + immediate Lead role assumption + bundled hooks + doc-sync checks
+        go_src = (ROOT / "skills/go/SKILL.md").read_text()
+        self.assertIn("sticky Go mode as the Lead", go_src)
+        self.assertIn("never exit Go mode or drop the Lead role", go_src)
+        self.assertIn("astack-tools skills list --role lead", go_src)
+        self.assertIn("Nested Lead (`astack:lead`, optional)", go_src)
+        self.assertIn("Stay in Go mode and the Lead role", lead_src)
+        self.assertIn("Stay in Go mode and the Lead role", (ROOT / "agents/lead.md").read_text())
+        for hook_rel in (
+            "claude-code/hooks/hooks.json",
+            "codex/hooks/hooks.json",
+            "antigravity/hooks.json",
+            "cursor/hooks/hooks.json",
+        ):
+            hook_text = (HARNESS / hook_rel).read_text()
+            json.loads(hook_text)
+            self.assertIn("astack-go-hook", hook_text, f"{hook_rel} missing astack-go-hook")
+
+        tech_writing = (ROOT / "skills/technical-writing/SKILL.md").read_text()
+        self.assertIn("Discover and audit impacted docs on every change", tech_writing)
+        self.assertIn("impacted repo docs", go_src)
+        self.assertIn("technical-writing", (ROOT / "skills/blast-radius/SKILL.md").read_text())
+        self.assertIn("technical-writing", (ROOT / "skills/dagify/SKILL.md").read_text())
+        self.assertIn("technical-writing", (ROOT / "skills/adversarial-review/SKILL.md").read_text())
+        self.assertIn("DOCS", (ROOT / "agents/worker.md").read_text())
+        self.assertIn("DOCS", (ROOT / "skills/lead/templates/report.md").read_text())
+        self.assertIn("DIAGRAMS", (ROOT / "skills/lead/templates/report.md").read_text())
+
+        bap_src = (ROOT / "skills/bap/SKILL.md").read_text()
+        self.assertIn("Audit why it slipped", bap_src)
+        self.assertIn("**make-it-stick**", bap_src)
+        self.assertIn("run **bap** immediately", go_src)
 
         self.assertTrue((ROOT / "evals/find-it-and-fix-it-bug/verify.py").is_file())
         self.assertTrue((ROOT / "evals/bugbash-investigates-and-proves-fix/verify.py").is_file())

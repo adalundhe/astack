@@ -37,7 +37,7 @@ Read `autonomy` (`mode`: `"supervised"` default vs `"unattended"`, plus explicit
   - `watch_pr_and_fix_ci`: run `astack-watch-pr`, dispatch remediation leads/workers for CI failures and review feedback, and re-verify via vectored **review**.
   - `post_audited_pr_replies`: post PR replies only after an independent second-agent **leave-feedback** audit returns `CLEAR` (enforced by `astack-watch-pr reply`).
 - **What an unattended grant NEVER permits unless explicitly authorized for that specific action:**
-  - `merge_pr`: merging a PR/MR into the target branch.
+  - `merge_pr`: merging a PR/MR into the target branch—never self-merge, never auto-merge on approval, never enable forge auto-merge on gated PRs, and never merge while any external hold or guard (**watch-pr**, **cross-repo**) is unmet.
   - `push_protected_branch`: pushing directly or force-pushing to shared/protected branches (`main`, `master`, release branches).
   - `close_or_delete_others_pr`: closing/deleting another person's PR or branch, or discarding uncommitted changes you did not create.
   - `prod_deploy_or_destructive_migration`: production deploys, destructive schema/data migrations, or IAM/credential changes.
@@ -52,6 +52,6 @@ Guidelines:
 - Don't re-ask answered questions. When given a direct order, execute it without offering to undo it.
 - In reports, answer their question first, then losses/gaps, then completed work with evidence. Mark each claim as measured, inferred, or guessed.
 
-Referenced skills: `play-with-me` (`${CLAUDE_SKILL_DIR}/../play-with-me/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`), `analyze-environment` (`${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`), `setup` (`${CLAUDE_SKILL_DIR}/../setup/SKILL.md`), `slates` (`${CLAUDE_SKILL_DIR}/../slates/SKILL.md`), `review` (`${CLAUDE_SKILL_DIR}/../review/SKILL.md`), `leave-feedback` (`${CLAUDE_SKILL_DIR}/../leave-feedback/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `play-with-me` (`${CLAUDE_SKILL_DIR}/../play-with-me/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`), `analyze-environment` (`${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`), `setup` (`${CLAUDE_SKILL_DIR}/../setup/SKILL.md`), `slates` (`${CLAUDE_SKILL_DIR}/../slates/SKILL.md`), `review` (`${CLAUDE_SKILL_DIR}/../review/SKILL.md`), `leave-feedback` (`${CLAUDE_SKILL_DIR}/../leave-feedback/SKILL.md`), `watch-pr` (`${CLAUDE_SKILL_DIR}/../watch-pr/SKILL.md`), `cross-repo` (`${CLAUDE_SKILL_DIR}/../cross-repo/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's poteto-mode skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

@@ -31,7 +31,7 @@ Open each applicable research skill (`analyze-environment`, `rtfm`, `research-th
 
 If `astack-tools` isn't on `PATH`, or a `get` doesn't end with its `[end of <name>` line, read that skill's `SKILL.md` by path from your brief's skills directory.
 
-**Your skills.** Required, every time: `/astack:analyze-environment`, `/astack:go`, `/astack:research-this`, `/astack:rtfm`, `/astack:run-it-back`. Load when the work calls for it: `/astack:ab-test`, `/astack:baseline`, `/astack:benchmarking`, `/astack:blast-radius`, `/astack:challenge`, `/astack:cleanup`, `/astack:create-adc`, `/astack:decide-by-data`, `/astack:decisions-in-plain-words`, `/astack:deeper`, `/astack:find-it`, `/astack:how-it-works`, `/astack:prove-it`, `/astack:rearchitect`, `/astack:show-the-states`, `/astack:swarm-hypothesis`, `/astack:talk-to-me`, `/astack:technical-writing`, `/astack:wat`.
+**Your skills.** Required, every time: `/astack:analyze-environment`, `/astack:go`, `/astack:research-this`, `/astack:rtfm`, `/astack:run-it-back`. Load when the work calls for it: `/astack:ab-test`, `/astack:bap`, `/astack:baseline`, `/astack:benchmarking`, `/astack:blast-radius`, `/astack:challenge`, `/astack:cleanup`, `/astack:create-adc`, `/astack:cross-repo`, `/astack:decide-by-data`, `/astack:decisions-in-plain-words`, `/astack:deeper`, `/astack:fail-safely`, `/astack:find-it`, `/astack:fix-it`, `/astack:how-it-works`, `/astack:least-privilege`, `/astack:net-trace`, `/astack:observable-by-default`, `/astack:prove-it`, `/astack:rearchitect`, `/astack:safe-iac`, `/astack:safe-to-deploy`, `/astack:show-the-states`, `/astack:swarm-hypothesis`, `/astack:talk-to-me`, `/astack:technical-writing`, `/astack:treeify`, `/astack:triage`, `/astack:wat`.
 
 ## First
 
@@ -73,6 +73,9 @@ FINDINGS
 
 TOOLS & ACCESS CATALOG
 - <tool/API/MCP>: <purpose> | status: ready / needs-install / needs-human-auth / unreachable | location/install: `<path or non-root install cmd>` | probe: `<auth check / read-only / dry-run cmd>` | human-auth: `<exact login cmd or none>`
+
+DIAGRAMS
+- <title / scope>: inline Mermaid block (e.g. `stateDiagram-v2`) + saved path if written (never leave diagrams only in scratch files)
 
 SKILLS READ
 - <skill>: <the choice it changed>

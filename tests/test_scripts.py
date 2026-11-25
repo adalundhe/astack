@@ -485,6 +485,7 @@ class ToolsTest(Scratch):
             "astack-verify-merge", "astack-check-gates", "astack-review-ledger",
             "astack-statechart", "astack-stamp",
             "astack-watch-pr", "astack-watch-github", "astack-watch-gitlab", "astack-watch-bitbucket",
+            "astack-release", "astack-go-mode",
         ):
             launcher = bin_dir / name
             self.assertTrue(launcher.is_file() and not launcher.is_symlink(), f"missing launcher {launcher}")
@@ -561,10 +562,12 @@ class ToolsTest(Scratch):
         self.assertIn("not-a-skill", missing.stderr)
 
     def test_every_skill_fits_one_get_under_a_tools_output_limit(self):
-        # Claude Code middle-truncates shell output past 30,000 characters (BASH_MAX_OUTPUT_LENGTH); a skill must fit one call.
+        # Claude Code middle-truncates shell output past 30,000 chars, and Antigravity truncates SKILL.md bodies past 24,000 bytes.
         for folder in sorted(SKILLS.iterdir()):
             text = (folder / "SKILL.md").read_text()
             self.assertLess(len(text) + 600, 30000, f"{folder.name} is too long for one `skills get`")
+            body = re.sub(r"^---\n.*?\n---\n", "", text, count=1, flags=re.S)
+            self.assertLess(len(body.encode("utf-8")), 24000, f"{folder.name} body exceeds Antigravity's 24,000-byte load cap")
 
     def test_install_provisions_python_via_uv_when_missing(self):
         fake_bin = self.dir / "fake-bin"
@@ -1009,6 +1012,234 @@ class CheckGatesTest(Scratch):
         res_fake_swap = run("astack-check-gates", f"{swap_base}..{sha_fake_swap}", "--repo", str(self.repo), "--json")
         self.assertEqual(res_fake_swap.returncode, 1, res_fake_swap.stdout)
         self.assertIn("weakened-assertion", {f["category"] for f in json.loads(res_fake_swap.stdout)["findings"]})
+
+
+class GoModeHookTest(Scratch):
+    def _run_hook(self, script, args, payload, state_root):
+        env = {**os.environ, "ASTACK_STATE_DIR": str(state_root)}
+        cmd = [str(BIN / script), *args] if script.endswith("-hook") else [sys.executable, "-B", str(BIN / script), *args]
+        return subprocess.run(cmd, input=json.dumps(payload), capture_output=True, text=True, env=env)
+
+    def test_claude_code_sticky_go_mode_persists_across_prompts_compaction_and_exits_cleanly(self):
+        state_root = self.dir / "state"
+        sid = "claude-sess-1"
+
+        # 1. Turn 1: /astack:go activates without duplicating reminder on that turn
+        r1 = self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "UserPromptSubmit"],
+            {"session_id": sid, "prompt": "/astack:go fix the retry bug"},
+            state_root,
+        )
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        self.assertEqual(r1.stdout.strip(), "")
+
+        # 2. Turn 2 (after task finished): plain follow-up prompt injects Lead + Go mode reminder!
+        r2 = self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "UserPromptSubmit"],
+            {"session_id": sid, "prompt": "Now add caching to the user service"},
+            state_root,
+        )
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        out2 = json.loads(r2.stdout)
+        ctx2 = out2["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("astack Go mode — ACTIVE (Lead role)", ctx2)
+        self.assertIn("astack:worker", ctx2)
+        self.assertIn("bugbash", ctx2)
+
+        # 3. Unrelated session B is NOT affected (strict session isolation)
+        r_other = self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "UserPromptSubmit"],
+            {"session_id": "claude-sess-other", "prompt": "Say hello"},
+            state_root,
+        )
+        self.assertEqual(r_other.returncode, 0)
+        self.assertEqual(r_other.stdout.strip(), "")
+
+        # 4. Compaction (SessionStart source=compact) re-injects with reload instruction
+        r_cmp = self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "SessionStart"],
+            {"session_id": sid, "source": "compact"},
+            state_root,
+        )
+        self.assertEqual(r_cmp.returncode, 0)
+        ctx_cmp = json.loads(r_cmp.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("compacted/resumed", ctx_cmp)
+        self.assertIn("SKILL.md", ctx_cmp)
+
+        # 5. Explicit exit deactivates Go mode; subsequent prompts stay quiet
+        r_exit = self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "UserPromptSubmit"],
+            {"session_id": sid, "prompt": "exit go mode"},
+            state_root,
+        )
+        self.assertEqual(r_exit.returncode, 0)
+        self.assertIn("EXITED", json.loads(r_exit.stdout)["hookSpecificOutput"]["additionalContext"])
+
+        r_after = self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "UserPromptSubmit"],
+            {"session_id": sid, "prompt": "Just answer a quick question"},
+            state_root,
+        )
+        self.assertEqual(r_after.stdout.strip(), "")
+
+        # 6. Auto-load via PostToolUse Skill(astack:go) activates, while subagent listing --role worker is ignored
+        sid_auto = "claude-sess-auto"
+        r_auto = self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "PostToolUse"],
+            {"session_id": sid_auto, "tool_name": "Skill", "tool_input": {"skill": "astack:go"}},
+            state_root,
+        )
+        self.assertEqual(r_auto.returncode, 0)
+        r_auto_next = self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "UserPromptSubmit"],
+            {"session_id": sid_auto, "prompt": "Now review this diff"},
+            state_root,
+        )
+        self.assertIn("ACTIVE (Lead role)", json.loads(r_auto_next.stdout)["hookSpecificOutput"]["additionalContext"])
+
+        # Clear resets session cleanly
+        self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "SessionStart"],
+            {"session_id": sid_auto, "source": "clear"},
+            state_root,
+        )
+        r_cleared = self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "UserPromptSubmit"],
+            {"session_id": sid_auto, "prompt": "Fresh start"},
+            state_root,
+        )
+        self.assertEqual(r_cleared.stdout.strip(), "")
+
+        # Subagent session running `astack-tools skills list --role worker` never activates Lead Go mode
+        sid_sub = "claude-sub-worker"
+        self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "PostToolUse"],
+            {"session_id": sid_sub, "tool_name": "Bash", "tool_input": {"command": "astack-tools skills list --role worker"}},
+            state_root,
+        )
+        self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "PostToolUse"],
+            {"session_id": sid_sub, "tool_name": "Bash", "tool_input": {"command": "astack-tools skills get go"}},
+            state_root,
+        )
+        r_sub = self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "UserPromptSubmit"],
+            {"session_id": sid_sub, "prompt": "continue"},
+            state_root,
+        )
+        self.assertEqual(r_sub.stdout.strip(), "")
+
+    def test_antigravity_codex_and_cursor_hook_contracts(self):
+        state_root = self.dir / "state-multi"
+
+        # Antigravity: PostToolUse fast-path returns {}, PreInvocation injects ONCE per new prompt and on compaction
+        ag_sid = "agy-conv-1"
+        ag_noop = self._run_hook(
+            "astack-go-hook", ["--harness", "antigravity", "--event", "PostToolUse"],
+            {"conversationId": ag_sid, "toolCall": {"name": "read_file", "args": {"Path": "/tmp/foo.py"}}},
+            state_root,
+        )
+        self.assertEqual(ag_noop.returncode, 0)
+        self.assertEqual(json.loads(ag_noop.stdout), {})
+
+        ag_act = self._run_hook(
+            "astack-go-hook", ["--harness", "antigravity", "--event", "PreInvocation"],
+            {"conversationId": ag_sid, "lastUserInput": "/astack-go fix login", "initialNumSteps": 2},
+            state_root,
+        )
+        self.assertEqual(json.loads(ag_act.stdout), {})
+
+        # Same turn, later model call -> no duplicate injection
+        ag_same = self._run_hook(
+            "astack-go-hook", ["--harness", "antigravity", "--event", "PreInvocation"],
+            {"conversationId": ag_sid, "lastUserInput": "/astack-go fix login", "initialNumSteps": 10},
+            state_root,
+        )
+        self.assertEqual(json.loads(ag_same.stdout), {})
+
+        # New user prompt -> injects systemMessage ONCE
+        ag_next = self._run_hook(
+            "astack-go-hook", ["--harness", "antigravity", "--event", "PreInvocation"],
+            {"conversationId": ag_sid, "lastUserInput": "Now update the docs", "initialNumSteps": 12},
+            state_root,
+        )
+        ag_out = json.loads(ag_next.stdout)
+        self.assertIn("ACTIVE (Lead role)", ag_out["injectSteps"][0]["systemMessage"]["systemMessage"])
+        self.assertIn("astack-worker", ag_out["injectSteps"][0]["systemMessage"]["systemMessage"])
+
+        # Same new prompt, next model call -> quiet again
+        ag_next2 = self._run_hook(
+            "astack-go-hook", ["--harness", "antigravity", "--event", "PreInvocation"],
+            {"conversationId": ag_sid, "lastUserInput": "Now update the docs", "initialNumSteps": 15},
+            state_root,
+        )
+        self.assertEqual(json.loads(ag_next2.stdout), {})
+
+        # Trajectory shrinks (compaction) -> re-injects with compaction note
+        ag_cmp = self._run_hook(
+            "astack-go-hook", ["--harness", "antigravity", "--event", "PreInvocation"],
+            {"conversationId": ag_sid, "lastUserInput": "Now update the docs", "initialNumSteps": 3},
+            state_root,
+        )
+        self.assertIn("compacted/resumed", json.loads(ag_cmp.stdout)["injectSteps"][0]["systemMessage"]["systemMessage"])
+
+        # Codex: $astack-go activates and follow-up returns hookSpecificOutput.additionalContext
+        cx_sid = "codex-sess-1"
+        self._run_hook(
+            "astack-go-hook", ["--harness", "codex", "--event", "UserPromptSubmit"],
+            {"session_id": cx_sid, "prompt": "$astack-go build parser"},
+            state_root,
+        )
+        cx_next = self._run_hook(
+            "astack-go-hook", ["--harness", "codex", "--event", "UserPromptSubmit"],
+            {"session_id": cx_sid, "prompt": "Now optimize it"},
+            state_root,
+        )
+        self.assertIn("astack-worker", json.loads(cx_next.stdout)["hookSpecificOutput"]["additionalContext"])
+
+        # Cursor: beforeSubmitPrompt returns {"continue": true} and sessionStart resumes with additional_context
+        cur_sid = "cursor-conv-1"
+        cur_p1 = self._run_hook(
+            "astack-go-hook", ["--harness", "cursor", "--event", "beforeSubmitPrompt"],
+            {"conversation_id": cur_sid, "prompt": "/astack-go refactor api"},
+            state_root,
+        )
+        self.assertEqual(json.loads(cur_p1.stdout), {"continue": True})
+        cur_resume = self._run_hook(
+            "astack-go-hook", ["--harness", "cursor", "--event", "sessionStart"],
+            {"conversation_id": cur_sid},
+            state_root,
+        )
+        self.assertIn("ACTIVE (Lead role)", json.loads(cur_resume.stdout)["additional_context"])
+
+        # Explicit /astack:bap works even outside Go mode; repeated-reminder cues fire BAP inside Go mode without false-triggering normal prompts
+        r_bap_out = self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "UserPromptSubmit"],
+            {"session_id": "non-go-sess", "prompt": "/astack:bap you forgot to run tests again"},
+            state_root,
+        )
+        self.assertIn("astack BAP", json.loads(r_bap_out.stdout)["hookSpecificOutput"]["additionalContext"])
+
+        self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "UserPromptSubmit"],
+            {"session_id": "go-bap-sess", "prompt": "/astack:go build auth"},
+            state_root,
+        )
+        r_normal = self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "UserPromptSubmit"],
+            {"session_id": "go-bap-sess", "prompt": "Add rate limiting next"},
+            state_root,
+        )
+        self.assertNotIn("astack BAP", json.loads(r_normal.stdout)["hookSpecificOutput"]["additionalContext"])
+
+        r_repeat = self._run_hook(
+            "astack-go-hook", ["--harness", "claude-code", "--event", "UserPromptSubmit"],
+            {"session_id": "go-bap-sess", "prompt": "I already told you to update the README when flags change"},
+            state_root,
+        )
+        repeat_ctx = json.loads(r_repeat.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("astack BAP", repeat_ctx)
+        self.assertIn("astack Go mode — ACTIVE (Lead role)", repeat_ctx)
 
 
 if __name__ == "__main__":

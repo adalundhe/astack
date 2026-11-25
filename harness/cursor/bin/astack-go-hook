@@ -1,0 +1,34 @@
+#!/bin/sh
+# Fast hook entry point for sticky session-scoped Go mode.
+# Most PostToolUse calls never touch go/lead skills, so they cost one shell check instead of a Python start.
+event=$(cat)
+harness=""
+hook_event=""
+prev=""
+for arg in "$@"; do
+  case "$prev" in
+    --harness) harness="$arg"; prev="" ;;
+    --event) hook_event="$arg"; prev="" ;;
+    *)
+      case "$arg" in
+        --harness|--event) prev="$arg" ;;
+      esac
+      ;;
+  esac
+done
+
+if [ "$hook_event" = "PostToolUse" ]; then
+  case "$event" in
+    *astack:go*|*astack-go*|*astack:lead*|*astack-lead*|*skills/go/SKILL.md*|*skills/astack-go/SKILL.md*|*"skills get"*|*"skills list"*|*"\"skill\":\"go\""*|*"\"skill\": \"go\""*|*"\"skill\":\"lead\""*|*"\"skill\": \"lead\""*)
+      printf '%s' "$event" | exec "$(dirname "$0")/astack-go-mode" --hook "$@"
+      ;;
+    *)
+      if [ "$harness" = "antigravity" ]; then
+        printf '{}\n'
+      fi
+      exit 0
+      ;;
+  esac
+fi
+
+printf '%s' "$event" | exec "$(dirname "$0")/astack-go-mode" --hook "$@"

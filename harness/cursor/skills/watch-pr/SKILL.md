@@ -6,9 +6,9 @@ disable-model-invocation: true
 
 # Watch a PR
 
-Shepherd a pull request or merge request on **GitHub**, **GitLab**, or **Bitbucket** (Cloud or Server/Data Center) to merge-ready state without merging it yourself.
+Shepherd a pull request or merge request on **GitHub**, **GitLab**, or **Bitbucket** (Cloud or Server/Data Center) to merge-ready state—**never** auto-merging on approval, never enabling forge auto-merge on gated PRs, and holding whenever external prerequisites haven't cleared.
 
-Merge-ready means CI is green and settled, every human and agent review thread/task/comment is resolved, the branch is up to date without conflicts, and all required approvals are in.
+Merge-ready means CI is green and settled, every human and agent review thread/task/comment is resolved, the branch is up to date without conflicts, all required approvals are in, **and every configured hold or external guard CI is unaware of** (upstream PR merges, IaC applies, migrations, live verification) has passed.
 
 ## Use the shipped watchers—never build your own polling loop
 
@@ -18,6 +18,7 @@ Run the bundled good-citizen PR watchers from `PATH` (linked by `/astack-setup` 
 - **GitHub (github.com + GitHub Enterprise Server):** `astack-watch-github`
 - **GitLab (gitlab.com + self-hosted GitLab, including nested subgroups):** `astack-watch-gitlab`
 - **Bitbucket (Cloud REST 2.0 + Server/Data Center REST 1.0):** `astack-watch-bitbucket`
+- **Multi-repo / multi-step PR merge & deploy trains:** pair `astack-watch-pr` with `astack-release` (**cross-repo**) to sequence cross-repo PR merges, tags, IaC applies, and live verification gates (`astack-release sync` queries `astack-watch-pr` across active PRs, passes verified outputs like SHAs/ARNs/tags downstream, honors `autonomy.deny`, and computes reverse-order rollbacks).
 
 Never write an ad-hoc `sleep`/polling loop, and never run two watchers on the same PR/MR (each watcher holds a per-PR lock and exits `2` if another instance already owns it).
 
@@ -27,7 +28,7 @@ Never write an ad-hoc `sleep`/polling loop, and never run two watchers on the sa
 
 ## Steps
 
-1. **Open the PR/MR** only after vectored **review** clears (zero proven blocking bugs, every suggestion/nit fixed, answered, or refuted via **worrywart**, secrets/PII swept via **no-leaked-secrets**, and post-review **cleanup** done). Write a clear description: problem, what changed, how it was tested, how to verify it, and—for bug fixes—a concise summary and attached runnable proof/evidence from post-fix **prove-it** review.
+1. **Open the PR/MR** only after vectored **review** clears (zero proven blocking bugs, every suggestion/nit fixed, answered, or refuted via **worrywart**, secrets/PII swept via **no-leaked-secrets**, and post-review **cleanup** done). Write a clear description: problem, what changed, how it was tested, how to verify it, any relevant Mermaid state/transition/architecture diagrams produced during research, planning, or implementation (**show-the-states**, also updated in matching repo docs/runbooks via **technical-writing**), and—for bug fixes—a concise summary and attached runnable proof/evidence from post-fix **prove-it** review.
 2. **Start the background watcher with durable handoff markers (**event-driven**):**
    - For a quick inspection (single PR or stacked PRs with `--stack`):
      ```bash
@@ -42,6 +43,7 @@ Never write an ad-hoc `sleep`/polling loop, and never run two watchers on the sa
      astack-watch-bitbucket <pr-url-or-id> --marker-dir <program>/watch
      ```
    - Add `--stack` to discover and evaluate stacked PRs/MRs bottom-to-top (fork-isolated, cycle-safe), `--require-approval` when waiting on human approval, `--require-bot <name>` when a repo gates on a specific review bot, or `--allow-draft` when watching a draft PR.
+   - **Hold & external-guard gating (never auto-merge on approval):** when a PR must wait on something CI cannot see (an upstream PR merge + IaC apply, a migration, a manual freeze, or live verification), protect it on the forge itself (keep it **Draft** or apply a hold label such as `do-not-merge` / `hold` / `wait-for-gate` — and **never** enable forge auto-merge while gated) and pass `--hold <reason>`, `--gate-cmd "<read-only check>"`, or `--release-file <release.json> --release-step <step-id>` to `astack-watch-pr`. The watcher evaluates forge hold labels, static holds, upstream release DAG steps/outputs, and external gate commands before ever declaring `merge_ready`: unmet holds return `PRState.HELD` (exit `6`), warn loudly if forge auto-merge is enabled, and keep polling politely on dynamic `--gate-cmd` / `--release-file` gates while still surfacing CI, rebase, and review-comment blockers immediately.
    - The watcher maintains `<program>/watch/<PR number>.md` atomically on every event (URL, forge, branch, head/base SHA, explicit `PRState`, CI table, open threads/tasks, open timestamp, next 24h ping time, API budget, and dispatch history) so any successor can pick up cold.
    - For autonomous CLI dispatch (outside an active lead session), pass `--dispatch` (or `--auto-dispatch`, previewable with `--dry-run`) to write a security-fenced lead remediation brief and idempotently launch `astack-dispatch run --role lead` (keyed by `(action, head_sha, target_ids)` so restarts never double-dispatch). The dispatched lead delegates isolated code/test edits to a fresh `astack-worker` (which never spawns subagents) and runs `astack-check-gates`, vectored **review**, and independent `/leave-feedback` audits itself before pushing or replying. Respect the configured `autonomy` grant (`mode`, `allow`, `deny`) in `~/.config/astack/settings.json` (**setup**, **decisions-in-plain-words**): `astack-watch-pr` stamps active `autonomy` boundaries into briefs and blocks `--dispatch` / `reply` when the corresponding action is in `autonomy.deny`.
 
@@ -69,8 +71,8 @@ Never write an ad-hoc `sleep`/polling loop, and never run two watchers on the sa
      3. **Diff-growth guard & mandatory vectored review on CI fixes:** check `astack-watch-pr diff-guard` (trimming with **simplify-me** first if the fix bloated the diff), then run `astack-check-gates <base>..HEAD` and vectored **review** across `reviewer_pool` (`astack-review-ledger`) before pushing. Audit any PR explanation comment through **leave-feedback**.
    - **Exit `7` (`stuck_24h` — open/waiting past `--stuck-hours`, default 24h):**
      - Draft a concise status reminder naming what the PR/MR is waiting on, run the independent **leave-feedback** audit until `CLEAR`, post it via `astack-watch-pr reply`, and log one line in `LANES.md`.
-   - **Exit `6` (`draft` / merge gate), `1` (`closed`), `2` (bad args/auth/lock), or `8` (rate-limit/timeout):**
-     - Report exact status and blocker from the marker file without retrying in a tight loop.
+   - **Exit `6` (`draft` / `held` merge gate), `1` (`closed`), `2` (bad args/auth/lock), or `8` (rate-limit/timeout):**
+     - Report exact status, active hold/external gates (`waiting_on`), and any forge auto-merge warning from the marker file without merging or retrying in a tight loop.
 
 4. **Preserve takeover credit (git authorship & co-author trailers):** when taking over, rebasing, squashing, or finishing another person's PR or branch, keep their original commit authorship intact (`git rebase` / `git cherry-pick` / `--author`), or include `Co-authored-by: Name <email>` trailers whenever combining or amending their commits. Verify no contributor was dropped before pushing:
    ```bash
@@ -80,6 +82,6 @@ Never write an ad-hoc `sleep`/polling loop, and never run two watchers on the sa
 6. **Hand off cleanly at wind-down:** confirm `<program>/watch/<PR number>.md` is current, report exact PR/MR state and remaining blockers, and stop so a successor can continue cold.
 7. **Stop when merge-ready:** notify the lead (or the person, if running standalone) and stop. Never merge the PR/MR yourself.
 
-Referenced skills: `review` (`../astack-review/SKILL.md`), `worrywart` (`../worrywart/SKILL.md`), `no-leaked-secrets` (`../no-leaked-secrets/SKILL.md`), `cleanup` (`../cleanup/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`), `event-driven` (`../event-driven/SKILL.md`), `setup` (`../astack-setup/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`), `slates` (`../slates/SKILL.md`), `blast-radius` (`../blast-radius/SKILL.md`), `address-feedback` (`../address-feedback/SKILL.md`), `simplify-me` (`../simplify-me/SKILL.md`), `leave-feedback` (`../leave-feedback/SKILL.md`), `find-it` (`../find-it/SKILL.md`), `fix-it` (`../fix-it/SKILL.md`), `leave-it-better` (`../leave-it-better/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `cross-repo` (`../cross-repo/SKILL.md`), `review` (`../astack-review/SKILL.md`), `worrywart` (`../worrywart/SKILL.md`), `no-leaked-secrets` (`../no-leaked-secrets/SKILL.md`), `cleanup` (`../cleanup/SKILL.md`), `show-the-states` (`../show-the-states/SKILL.md`), `technical-writing` (`../technical-writing/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`), `event-driven` (`../event-driven/SKILL.md`), `setup` (`../astack-setup/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`), `slates` (`../slates/SKILL.md`), `blast-radius` (`../blast-radius/SKILL.md`), `address-feedback` (`../address-feedback/SKILL.md`), `simplify-me` (`../simplify-me/SKILL.md`), `leave-feedback` (`../leave-feedback/SKILL.md`), `find-it` (`../find-it/SKILL.md`), `fix-it` (`../fix-it/SKILL.md`), `leave-it-better` (`../leave-it-better/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's autopilot-full rebase and verdict carry-over rules (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

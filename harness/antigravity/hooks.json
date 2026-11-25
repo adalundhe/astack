@@ -12,5 +12,26 @@
         ]
       }
     ]
+  },
+  "astack-go-mode": {
+    "PostToolUse": [
+      {
+        "matcher": "read_file|view_file|run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./bin/astack-go-hook --harness antigravity --event PostToolUse",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "./bin/astack-go-hook --harness antigravity --event PreInvocation",
+        "timeout": 10
+      }
+    ]
   }
 }

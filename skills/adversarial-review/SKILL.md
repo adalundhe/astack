@@ -26,6 +26,7 @@ Review a change by trying to break it the way its users would, in its real envir
    - **Faults:** slow or failing dependencies, mid-operation restarts, lost or duplicated messages, full disk.
    - **Concurrency:** races, deadlocks, and livelocks wherever locks, retries, or waits exist.
    - **Misuse:** plausible mistakes by a confused user, scripted client, or another agent.
+   - **Rollout & rollback:** for migrations, auth/IAM/RBAC, infra, Helm/deploy waves, or schema/API changes, verify pre-change non-privileged workloads (old pods, CronJobs, Jobs) and rolled-back charts still work after the change commits (**safe-to-deploy**).
 
    Seed generated inputs and fault schedules as in **full-spectrum-testing**.
 8. **Enforce astack disciplines and coding rules (open and read every matching rule!).** Never skip rule checks or review from generic habit alone. Check core disciplines (**work -> robust -> fast**, **prove-it**, **blast-radius**, **simplify-me**, **challenge**, **tests-assert-behaviour**, **never-trade-functionality**) AND read the matching coding-rule `SKILL.md` file from the astack `skills/` directory whenever its trigger appears in the diff, verifying its `Watch for` list, `Showing it` check, and `When it doesn't fit` exceptions:
@@ -37,6 +38,11 @@ Review a change by trying to break it the way its users would, in its real envir
    - Parsing requests, files, wire formats, DB rows, API replies -> **check-your-boundaries**
    - Locks, threads, processes, shared mutable state -> **no-shared-writes**
    - Migrations, deploys, retries, jobs, idempotency -> **safe-to-rerun**
+   - Migrations, auth/identity, infra, DNS/edge, deploy waves, contract cutovers, rollback -> **safe-to-deploy**
+   - Auth, identities, tokens, roles, RBAC, DB grants, encryption keys, network rules -> **least-privilege**
+   - Declarative infra, IaC, edge/DNS/WAF configs, cluster manifests, stateful resources -> **safe-iac**
+   - Network boundaries, retries, timeouts, queues, pools, probes, drain, failure domains -> **fail-safely**
+   - Services, scheduled jobs, workers, queues, alerts, telemetry, runbooks -> **observable-by-default**
    - Adding a requirement onto existing code -> **no-bolt-ons**
    - Shims, legacy paths, dead flags, unused code -> **yagni**
    - Comments (redundant, stale, misleading) -> **comment-cop**
@@ -46,6 +52,7 @@ Review a change by trying to break it the way its users would, in its real envir
    - Optimizations, approximations, deferred/cached shortcuts -> **never-trade-functionality**
    - Secrets, tokens, credentials, PII, logs, errors, telemetry, debug dumps -> **no-leaked-secrets**
    - Tests, assertions, mocks, tolerances, skips -> **tests-assert-behaviour**
+   - Changed behavior, interfaces, config, architecture, or operations (audit repo docs for staleness or gaps) -> **technical-writing**
 
    Violating the person's explicit rules, or departing from a coding rule's defaults without justification, is a real finding even when tests pass—cite `[rule: <name>]` on every rule finding.
 9. **Prove every finding.** Include a runnable reproduction: steps or command, actual output, and expected output. Blockers must be proven locally; unproven suspicions go under unproven and never block. Run each reproduction without the change too, and state whether the change caused it, left it in place, or failed to fix it. For a rule violation or contradiction, prove it using the rule's `Showing it` check or cite the exact conflicting files/lines/commits/comments.

@@ -28,6 +28,7 @@ Keep one path per job. Don't add or retain legacy paths, shims, adapters, compat
 
 ## When it doesn't fit
 
-- a shim, alias, fallback, or flag explicitly requested by the person or an agreed design, citing where it was approved and the condition for removing it.
+- a shim, alias, fallback, or flag explicitly requested by the person or an agreed design, citing where it was approved and the condition for removing it;
+- temporary expand-and-contract compatibility required so live running workloads (old pods, CronJobs, Jobs) and rollbacks survive a deploy across releases (**safe-to-deploy**), paired with an explicit retirement release or runbook step.
 
 <!-- Adapts pstack's migrate-callers-then-delete-legacy-apis principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

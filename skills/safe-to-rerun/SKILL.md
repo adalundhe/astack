@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Safe to rerun
 
-Make state-changing operations end in the right state regardless of how many times they run or where a previous run crashed.
+Make state-changing operations end in the right state regardless of how many times they run or where a previous run crashed. For keeping live workloads and rollbacks working across deploy steps and breaking cutovers, also apply **safe-to-deploy**.
 
 ## Start with
 

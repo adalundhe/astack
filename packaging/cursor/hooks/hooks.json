@@ -10,6 +10,16 @@
       {
         "command": "./bin/astack-stamp-hook"
       }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "./bin/astack-go-hook --harness cursor --event beforeSubmitPrompt"
+      }
+    ],
+    "sessionStart": [
+      {
+        "command": "./bin/astack-go-hook --harness cursor --event sessionStart"
+      }
     ]
   }
 }

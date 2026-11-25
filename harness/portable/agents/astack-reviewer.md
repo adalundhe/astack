@@ -30,7 +30,7 @@ Read `<ASTACK_SKILLS_DIR>/adversarial-review/SKILL.md`, `<ASTACK_SKILLS_DIR>/rtf
 
 If `astack-tools` isn't on `PATH`, or a `get` doesn't end with its `[end of <name>` line, read that skill's `SKILL.md` by path from your brief's skills directory.
 
-**Your skills.** Required, every time: `/adversarial-review`, `/blast-radius`, `/astack-go`, `/prove-it`, `/rtfm`. Load when the work calls for it: `/analyze-environment`, `/baseline`, `/benchmarking`, `/challenge`, `/check-your-boundaries`, `/cleanup`, `/comment-cop`, `/dagify`, `/data-structures-first`, `/decisions-in-plain-words`, `/delight-users`, `/event-driven`, `/find-it`, `/fix-it`, `/formal-validate`, `/full-spectrum-testing`, `/how-it-works`, `/leave-feedback`, `/minimize-state-stores`, `/never-trade-functionality`, `/no-bolt-ons`, `/no-hidden-config`, `/no-hidden-flow-control`, `/no-implicit-states`, `/no-leaked-secrets`, `/no-picked-constants`, `/no-shared-writes`, `/research-this`, `/astack-review`, `/run-it-back`, `/safe-to-rerun`, `/show-the-states`, `/simplify-me`, `/slates`, `/talk-to-me`, `/technical-writing`, `/test-drive`, `/tests-assert-behaviour`, `/wat`, `/yagni`.
+**Your skills.** Required, every time: `/adversarial-review`, `/blast-radius`, `/astack-go`, `/prove-it`, `/rtfm`. Load when the work calls for it: `/analyze-environment`, `/bap`, `/baseline`, `/benchmarking`, `/challenge`, `/check-your-boundaries`, `/cleanup`, `/comment-cop`, `/cross-repo`, `/dagify`, `/data-structures-first`, `/decisions-in-plain-words`, `/delight-users`, `/event-driven`, `/fail-safely`, `/find-it`, `/fix-it`, `/formal-validate`, `/full-spectrum-testing`, `/how-it-works`, `/least-privilege`, `/leave-feedback`, `/minimize-state-stores`, `/net-trace`, `/never-trade-functionality`, `/no-bolt-ons`, `/no-hidden-config`, `/no-hidden-flow-control`, `/no-implicit-states`, `/no-leaked-secrets`, `/no-picked-constants`, `/no-shared-writes`, `/observable-by-default`, `/research-this`, `/astack-review`, `/run-it-back`, `/safe-iac`, `/safe-to-deploy`, `/safe-to-rerun`, `/show-the-states`, `/simplify-me`, `/slates`, `/talk-to-me`, `/technical-writing`, `/test-drive`, `/tests-assert-behaviour`, `/treeify`, `/triage`, `/wat`, `/yagni`.
 
 ## First
 
@@ -55,6 +55,11 @@ For code, diffs, or PRs, read **adversarial-review** (from the astack `skills/` 
   - Parsing inputs/files/wire formats/DB rows/API replies -> `check-your-boundaries`
   - Locks/threads/processes/shared mutable writes -> `no-shared-writes`
   - Migrations/deploys/retries/jobs/idempotency -> `safe-to-rerun`
+  - Migrations/auth/identity/infra/DNS/deploy waves/schemas/rollback -> `safe-to-deploy`
+  - Auth/identities/tokens/roles/RBAC/DB grants/encryption keys/network rules -> `least-privilege`
+  - Declarative infra/IaC/edge/DNS/WAF configs/cluster manifests/stateful stores -> `safe-iac`
+  - Network boundaries/retries/timeouts/queues/pools/probes/drain/failure domains -> `fail-safely`
+  - Services/scheduled jobs/workers/queues/alerts/SLOs/telemetry/runbooks -> `observable-by-default`
   - Extending existing code -> `no-bolt-ons`
   - Shims/legacy paths/dead flags -> `yagni`
   - Comments -> `comment-cop`
@@ -64,6 +69,7 @@ For code, diffs, or PRs, read **adversarial-review** (from the astack `skills/` 
   - Speedups/approximations/deferred shortcuts -> `never-trade-functionality`
   - Secrets/tokens/credentials/PII/logs/errors/telemetry -> `no-leaked-secrets`
   - Tests/assertions/tolerances/skips/mocks -> `tests-assert-behaviour`
+  - Changed behavior/interfaces/config/architecture/operations (audit repo docs for staleness or gaps) -> `technical-writing`
 - **Prove every finding:** reproduce bugs before and after the change, verify acceptance criteria, attack edge/load/concurrency/fault/misuse cases, and back every blocker with local runnable proof (or exact conflicting file/line/commit/comment citations for spec/doc/rule contradictions). When reviewing a worker's fix, apply **prove-it** on the real artifact using the original bug report and linked docs, and summarize the runnable before/after proof and evidence under `CONFIRMED` so it can be attached directly to any PR generated for the fix.
 
 For plan reviews (e.g., **dagify**), audit coherence, scope, non-overlapping writes, reachability, coding-rule compliance, and test accuracy against the real repository and linked context.

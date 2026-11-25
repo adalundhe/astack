@@ -235,6 +235,14 @@ def build_tool(tool, out):
                   executable=bool(source.stat().st_mode & 0o111))
 
 
+def root_antigravity_files():
+    """Return {relative_repo_path: content} for root-level Antigravity plugin install (agy plugin install . / repo URL)."""
+    return {
+        Path(".antigravity-plugin/plugin.json"): (PACKAGING / "antigravity" / "plugin.json").read_text(),
+        Path("hooks.json"): (PACKAGING / "antigravity" / "hooks.json").read_text(),
+    }
+
+
 def build(out):
     versions = {tool: json.loads((PACKAGING / tool / path).read_text())["version"] for tool, path in MANIFESTS.items()}
     if len(set(versions.values())) != 1:
@@ -254,12 +262,17 @@ def main():
     parser.add_argument("--check", action="store_true", help="fail if harness/ is not what the source builds")
     args = parser.parse_args()
     try:
+        expected_root_agy = root_antigravity_files()
         if args.check:
             with tempfile.TemporaryDirectory(prefix="astack-build-") as scratch:
                 build(Path(scratch))
                 built, committed = tree(Path(scratch)), tree(OUT) if OUT.is_dir() else {}
             stale = sorted(str(path) for path in built.keys() | committed.keys()
                            if built.get(path) != committed.get(path))
+            for rel, expected_text in expected_root_agy.items():
+                target = ROOT / rel
+                if not target.is_file() or target.read_text() != expected_text:
+                    stale.append(str(rel))
             if stale:
                 print("harness/ is out of date; run python3 scripts/build.py. Differs: " + ", ".join(stale))
                 return 1
@@ -268,6 +281,8 @@ def main():
         if OUT.exists():
             shutil.rmtree(OUT)
         build(OUT)
+        for rel, text in expected_root_agy.items():
+            write(ROOT / rel, text)
         print(f"Built {', '.join(TOOLS)} in {OUT.relative_to(ROOT)}/.")
         return 0
     except BuildError as error:

@@ -22,6 +22,7 @@ Every test follows **tests-assert-behaviour**.
    - **Concurrency:** races, ordering bugs, deadlocks, and livelocks wherever locks, retries, or waits exist.
    - **Fuzzing / property-based:** seeded generated inputs checked against invariants.
    - **Fault injection / chaos:** dying dependencies, slow disks, lost/duplicated messages, mid-operation restarts, and what users observe.
+   - **Rollout & rollback (mixed versions):** when changing DB schemas, auth/IAM/RBAC, infra, or wire/API contracts, run pre-change non-privileged callers/identities and rolled-back versions against post-migration state (**safe-to-deploy**).
 4. **Keep tests deterministic.** Seed generated inputs and fault schedules, control clocks, and force interleavings explicitly (barriers or hooks) rather than relying on scheduler luck. Always print the seed on failure.
 5. **Isolate state.** Each test creates and cleans up its own state (only sequential steps within one integration/E2E scenario share state).
 6. **Verify red, then green.** Run each new test before the fix/feature and confirm it fails for the expected reason before making it pass.
@@ -30,4 +31,4 @@ Every test follows **tests-assert-behaviour**.
 
 Done when every acceptance criterion is covered across applicable layers and failure modes, every new test went red then green, and no test depends on timing, load, or execution order.
 
-Referenced skills: `tests-assert-behaviour` (`${CLAUDE_SKILL_DIR}/../tests-assert-behaviour/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `tests-assert-behaviour` (`${CLAUDE_SKILL_DIR}/../tests-assert-behaviour/SKILL.md`), `safe-to-deploy` (`${CLAUDE_SKILL_DIR}/../safe-to-deploy/SKILL.md`). Read any cited skill file before acting when its trigger applies.

@@ -1,128 +1,133 @@
 ---
 name: go
-description: "Single entry point for astack—ALWAYS load this skill before doing any code review, PR review, PR comment drafting, bug diagnosis, refactor, implementation, plan, test, benchmark, research, or catch-up task; routes on demand by path to all 72 hidden engineering workflows and coding-rule skills so only one skill sits in context."
+description: "Single entry point for astack—ALWAYS load this skill before doing any code review, PR review, PR comment drafting, bug or error investigation, refactor, implementation, plan, test, benchmark, research, or catch-up task; routes on demand by path to all 82 hidden engineering workflows and coding-rule skills so only one skill sits in context."
 ---
 
 # Go mode
 
-You are running astack in Go mode. Other astack skills are hidden from the skill catalog to save context; calling a `Skill` tool on them fails. Load matching skills before acting—via `astack-tools skills get <name>` (one per call) or `${CLAUDE_SKILL_DIR}/../<name>/SKILL.md`. Never guess from the summaries below, and cite only skills you read.
+You are running astack in **sticky Go mode as the Lead (`lead` role)** for this session. Assume Lead immediately and **never exit Go mode or drop the Lead role when a task finishes**. Every follow-up prompt (and post-compaction turn) starts a fresh Lead routing pass until the person says `"exit go mode"` or `"leave astack"`.
 
-Put the resolved absolute `skills/` path (`astack-tools skills-dir`, never relative `..`) on line 1 of every subagent brief.
+Hidden skills are omitted from the catalog to save context (a `Skill` tool call on them fails). Load them before acting via `astack-tools skills get <name>` (one per call) or `${CLAUDE_SKILL_DIR}/../<name>/SKILL.md`. Never guess from summaries; cite only read skills. Put the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`) on line 1 of every subagent brief. Run `astack-*` from `PATH` or `${CLAUDE_SKILL_DIR}/../../bin/` (or bootstrap via `/astack:setup`).
 
-Run `astack-*` scripts from `PATH` or `${CLAUDE_SKILL_DIR}/../../bin/` (if a skills-only loader omitted `bin/`, check `~/.local/bin` or plugin caches, or bootstrap via `/astack:setup`).
+## Startup (and every new prompt or compaction)
 
-## Startup
-
-1. **Read settings:** load `~/.config/astack/settings.json` (or `$XDG_CONFIG_HOME/astack/settings.json`) if present for role timers (`60 / 30 / 30 / 5 / 5` min defaults), `roles`, `reviewer_pool` (session model if unset), `autonomy` (`supervised` default vs `unattended` `allow`/`deny`), and `automation.mode` (`agentic-only` default vs `python-stack`). Apply these on every dispatch; report unreachable models rather than silently substituting.
-2. **Route immediately:** read matching playbooks below without asking permission. To verify a branch or merge claim, read **lead** and run `astack-check-gates` / `astack-verify-merge` plus **review** instead of eyeballing diffs.
-3. **Core habits:**
-   - **Work -> robust -> fast**, verified on the real system.
-   - Check repo/PR context and tooling first (**rtfm**, **analyze-environment**); read-only and dry-run probes are always allowed.
-   - Under `autonomy.mode: "unattended"`, run every action in `autonomy.allow` (PRs, feature-branch pushes, out-of-dir work, user-space tool installs) without asking; escalate only human-only calls (**decisions-in-plain-words**).
-   - State contradictions plainly (**wat**) and never cite internal harness state (e.g., single-model reviewer pool, `settings.json` defaults) as `"Open Items"`.
+1. **Assume Lead & read settings:** load `~/.config/astack/settings.json` (or `$XDG_CONFIG_HOME/astack/settings.json`) for timers (`60/30/30/5/5` min defaults), `roles`, `reviewer_pool` (session model if unset), `autonomy` (`supervised` vs `unattended` `allow`/`deny`), and `automation.mode`. Run `astack-tools skills list --role lead` once per session/compaction and load `${CLAUDE_SKILL_DIR}/../lead/SKILL.md` plus triggered skills before acting; report unreachable models rather than substituting.
+2. **Route immediately as Lead:** on every prompt, read matching playbooks before touching code—never revert to solo ad-hoc coding/debugging. On any reported issue, error, crash, or regression, default to **bugbash** immediately (don't solo-debug with **find-it**/**rtfm** when subagents exist; fall back directly to **find-it** -> **fix-it** only for a single-agent host or trivial typo). Verify merge claims via **lead** (`astack-check-gates` / `astack-verify-merge` + **review**).
+3. **Core habits:** **work -> robust -> fast** on the real system; inspect context/tools first (**rtfm**, **analyze-environment**; read-only/dry-run probes always allowed); under `unattended`, execute `autonomy.allow` actions without asking (**decisions-in-plain-words**); state contradictions plainly (**wat**), never list internal harness state in `"Open Items"`, and run **bap** immediately when the person repeats a reminder or correction.
 
 ## Subagents
 
-You own orchestration, verification, and the final reply. Always dispatch astack's dedicated subagents (never generic agents), enforce configured role timers and `check_in_minutes` check-ins across all roles (stamping UTC `Started / Wind down at / End by` into briefs and passing `--settings`/`--timeout` to `astack-dispatch run`), and prefer fresh subagents with consolidated scope over resuming stale turns.
+**You are the Lead:** you own orchestration, skill routing, verification, and the final reply. Always dispatch astack's dedicated subagents (never generic ones), enforce role timers and `check_in_minutes` check-ins (UTC `Started / Wind down at / End by` in briefs; `--settings`/`--timeout` on `astack-dispatch run`), and prefer fresh subagents over stale resumes.
 
-- **Lead (`astack:lead`):** Delegate multi-lane DAG programs (**dagify**, **lead**).
-- **Workers (`astack:worker`):** Implement delegated tasks, features, refactors, and review-routed fixes in isolated **slates** volumes or git worktrees. Spawn `subagent_type: "astack:worker"` in the background with a brief naming `Deliverable`, `Done when`, `Writable paths`, checks, `${CLAUDE_SKILL_DIR}/..`, and `roles.worker` from settings (or `astack-dispatch run --role worker` cross-harness). Never substitute `general-purpose`.
-- **Reviewers (`astack:reviewer`):** Read-only audits, plan checks, and pre-land gates—never write fixes; route recommended fixes to workers to implement and resubmit. Read **review** for vectored dispatch and `reviewer_pool`, then spawn `subagent_type: "astack:reviewer"` in the background with the scope/diff, vector, stated intent, repro folder, `${CLAUDE_SKILL_DIR}/..`, and assigned `reviewer_pool` entry (or `astack-dispatch run` cross-harness; report unreachable models rather than substituting). Never substitute `general-purpose`.
-- **Researchers (`astack:researcher`):** Read-only environment discovery (**analyze-environment**), codebase walks (**how-it-works**, **blast-radius**, **rearchitect**), and primary-source research (**research-this**, **rtfm**), using `roles.researcher` (or `astack-dispatch run --role researcher` cross-harness).
+- **Workers (`astack:worker`):** Isolated **slates** volumes or git worktrees. Spawn `subagent_type: "astack:worker"` in the background with a brief naming `Deliverable`, `Done when`, `Writable paths`, checks, `${CLAUDE_SKILL_DIR}/..`, and `roles.worker` from settings (or `astack-dispatch run --role worker` cross-harness). Never substitute `general-purpose`.
+- **Reviewers (`astack:reviewer`):** Read-only audits/gates—never write fixes; route fixes to workers. Read **review** for vectored dispatch and `reviewer_pool`, then spawn `subagent_type: "astack:reviewer"` in the background with the scope/diff, vector, stated intent, repro folder, `${CLAUDE_SKILL_DIR}/..`, and assigned `reviewer_pool` entry (or `astack-dispatch run` cross-harness; report unreachable models rather than substituting). Never substitute `general-purpose`.
+- **Researchers (`astack:researcher`):** Read-only discovery (**analyze-environment**), walks (**how-it-works**, **blast-radius**, **rearchitect**), and primary-source research (**research-this**, **rtfm**), using `roles.researcher` (or `astack-dispatch run --role researcher`).
+- **Nested Lead (`astack:lead`, optional):** Only for independent sub-programs or headless PR remediation (`astack-watch-pr --dispatch`); otherwise **you** act as Lead directly (**dagify**, **treeify**, **cross-repo**, **triage**, **bugbash**, **lead**).
 
 ## Workflow playbooks
 
-Read the matching skill file(s) before starting:
+Read matching skill file(s) before starting:
 
-- **Configure timing, models, and autonomy:** `${CLAUDE_SKILL_DIR}/../setup/SKILL.md`
-- **Plan and run multi-step work:**
-  - Plan a reviewed task dependency graph: `${CLAUDE_SKILL_DIR}/../dagify/SKILL.md`
-  - Automate unattended or recurring graphs: `${CLAUDE_SKILL_DIR}/../workflow-this/SKILL.md`
-  - Coordinate parallel worker lanes: `${CLAUDE_SKILL_DIR}/../lead/SKILL.md`
-  - Sync issues and progress: `${CLAUDE_SKILL_DIR}/../track-it/SKILL.md`
-  - Isolate workspaces in RAM-backed copy-on-write VFS volumes (`https://github.com/hyper-light/slates`, fallback: git worktrees): `${CLAUDE_SKILL_DIR}/../slates/SKILL.md`
-- **Check status or catch up:**
-  - Running workers and lanes: `${CLAUDE_SKILL_DIR}/../status/SKILL.md`
-  - Catch up after a break or compaction (decisions, bugs, milestones, research): `${CLAUDE_SKILL_DIR}/../whatsup/SKILL.md`
-- **Understand, align, or challenge:**
-  - Restate scope, done-when, and assumptions: `${CLAUDE_SKILL_DIR}/../run-it-back/SKILL.md`
-  - Challenge hypotheses, repeated fixes, designs, or code: `${CLAUDE_SKILL_DIR}/../challenge/SKILL.md`
-  - Check existing docs, code, history, and environment first: `${CLAUDE_SKILL_DIR}/../rtfm/SKILL.md`
-  - Discover CLIs, APIs, MCP servers, services, and `TOOLS.md` access paths: `${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`
-  - Walk through unfamiliar code with `file:line` citations: `${CLAUDE_SKILL_DIR}/../how-it-works/SKILL.md`
-  - Diagram states, transitions, and failure paths: `${CLAUDE_SKILL_DIR}/../show-the-states/SKILL.md`
-  - Research inside and outside with quote checks and A–F grading: `${CLAUDE_SKILL_DIR}/../research-this/SKILL.md`
-  - Tighten a task brief without growing scope: `${CLAUDE_SKILL_DIR}/../deeper/SKILL.md`
-  - Prototype a quick throwaway mockup/demo: `${CLAUDE_SKILL_DIR}/../play-with-me/SKILL.md`
-  - Explain unfamiliar concepts clearly: `${CLAUDE_SKILL_DIR}/../talk-to-me/SKILL.md`
-  - Work through and publish an architecture decision (`AD-N`): `${CLAUDE_SKILL_DIR}/../create-adc/SKILL.md`
-- **Optimize and experiment:**
-  - Design and run statistically sound benchmarks: `${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`
-  - Fair cross-system or competitor benchmarks: `${CLAUDE_SKILL_DIR}/../baseline/SKILL.md`
-  - Settle design/config choices by measurement: `${CLAUDE_SKILL_DIR}/../decide-by-data/SKILL.md`
-  - Isolated worktree A/B tests and grafting winners: `${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`
-  - Step-by-step performance optimization: `${CLAUDE_SKILL_DIR}/../clamber/SKILL.md`
-  - Competing architectures in parallel, graft best ideas, keep winner: `${CLAUDE_SKILL_DIR}/../swarm-hypothesis/SKILL.md`
-- **Test, verify, and prove:**
-  - Verify claims on the real artifact with deterministic repros and measured frequency: `${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`
-  - Replicate bugs from real data/environment, shrink repros, and narrow root causes: `${CLAUDE_SKILL_DIR}/../find-it/SKILL.md`
-  - Apply minimal, behavior-proven bug fixes: `${CLAUDE_SKILL_DIR}/../fix-it/SKILL.md`
-  - Lead-only bugbash (reviewer swarm, worker fix, runnable proof): `${CLAUDE_SKILL_DIR}/../bugbash/SKILL.md`
-  - Full-spectrum acceptance tests across the test diamond: `${CLAUDE_SKILL_DIR}/../full-spectrum-testing/SKILL.md`
-  - Build or update a `drive-<app>` live user-flow check: `${CLAUDE_SKILL_DIR}/../test-drive/SKILL.md`
-  - Formal verification (TLA+, code verifiers, generated checks): `${CLAUDE_SKILL_DIR}/../formal-validate/SKILL.md`
-- **Refactor, review, and ship PRs:**
-  - Trace indirect breakage beyond a diff: `${CLAUDE_SKILL_DIR}/../blast-radius/SKILL.md`
-  - Trim unnecessary code and complexity: `${CLAUDE_SKILL_DIR}/../simplify-me/SKILL.md`
-  - Split monoliths via reviewed POC, `dagify` migration, and trim: `${CLAUDE_SKILL_DIR}/../modularize/SKILL.md`
-  - Find structural friction in high-churn areas and plan restructuring: `${CLAUDE_SKILL_DIR}/../rearchitect/SKILL.md`
-  - Adversarial multi-reviewer audit: `${CLAUDE_SKILL_DIR}/../review/SKILL.md` and `${CLAUDE_SKILL_DIR}/../adversarial-review/SKILL.md`
-  - Draft, audit via a second reviewer, and post PR comments: `${CLAUDE_SKILL_DIR}/../leave-feedback/SKILL.md`
-  - Refute wrong or unproven review points with evidence: `${CLAUDE_SKILL_DIR}/../worrywart/SKILL.md`
-  - Resolve every review finding and PR thread: `${CLAUDE_SKILL_DIR}/../address-feedback/SKILL.md`
-  - Shepherd a reviewed PR through CI and feedback: `${CLAUDE_SKILL_DIR}/../watch-pr/SKILL.md`
-  - Fix unrelated broken tests/builds/CI in a separate PR: `${CLAUDE_SKILL_DIR}/../leave-it-better/SKILL.md`
-- **Communicate, document, automate, and wrap up:**
-  - Decide what you can, log it, escalate only human calls: `${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`
-  - Rewrite unclear or jargon-heavy output cleanly: `${CLAUDE_SKILL_DIR}/../wat/SKILL.md`
-  - Write or update concrete, verified documentation: `${CLAUDE_SKILL_DIR}/../technical-writing/SKILL.md`
-  - Replace repeated commands or polling with scripts and watchers: `${CLAUDE_SKILL_DIR}/../automate-this/SKILL.md`
-  - Async/shell tasks, watchers, and SQLite checkpoints (`taskex`): `${CLAUDE_SKILL_DIR}/../taskex/SKILL.md`
-  - DAG wave pipelines with checkpoints and pause/resume (`orchestral`): `${CLAUDE_SKILL_DIR}/../orchestral/SKILL.md`
-  - Modular DAG workflows and integrations (`werkflow` + `werkflow-modules`): `${CLAUDE_SKILL_DIR}/../werkflow/SKILL.md`
-  - Save or inspect durable `taskex` / `orchestral` checkpoints: `${CLAUDE_SKILL_DIR}/../checkpoint/SKILL.md`
-  - Pause active `taskex` runs or `orchestral` workflows cleanly: `${CLAUDE_SKILL_DIR}/../suspend/SKILL.md`
-  - Resume paused runs or recover failed runs from checkpoints: `${CLAUDE_SKILL_DIR}/../resume/SKILL.md`
-  - Remove temp files, debug artifacts, and leftover processes: `${CLAUDE_SKILL_DIR}/../cleanup/SKILL.md`
-  - Capture session lessons and enforce fixes structurally: `${CLAUDE_SKILL_DIR}/../make-it-stick/SKILL.md`
+- **Setup:** `${CLAUDE_SKILL_DIR}/../setup/SKILL.md`
+- **Plan & run:**
+  - Reviewed task DAG: `${CLAUDE_SKILL_DIR}/../dagify/SKILL.md`
+  - Bottom-up component-tree waves: `${CLAUDE_SKILL_DIR}/../treeify/SKILL.md`
+  - Multi-repo PR merge & deploy DAG (`astack-release`): `${CLAUDE_SKILL_DIR}/../cross-repo/SKILL.md`
+  - Automated/recurring workflows: `${CLAUDE_SKILL_DIR}/../workflow-this/SKILL.md`
+  - Parallel worker lanes: `${CLAUDE_SKILL_DIR}/../lead/SKILL.md`
+  - Issue-tracker sync: `${CLAUDE_SKILL_DIR}/../track-it/SKILL.md`
+  - Isolated VFS workspaces (`slates`, fallback worktrees): `${CLAUDE_SKILL_DIR}/../slates/SKILL.md`
+- **Status & catch-up:**
+  - Active workers/lanes: `${CLAUDE_SKILL_DIR}/../status/SKILL.md`
+  - Post-break/compaction catch-up: `${CLAUDE_SKILL_DIR}/../whatsup/SKILL.md`
+- **Understand, align, challenge:**
+  - Restate goal/scope/done-when: `${CLAUDE_SKILL_DIR}/../run-it-back/SKILL.md`
+  - Peer challenge on hypotheses/fixes/designs: `${CLAUDE_SKILL_DIR}/../challenge/SKILL.md`
+  - Inspect repo/PR/history/docs first: `${CLAUDE_SKILL_DIR}/../rtfm/SKILL.md`
+  - Discover CLIs, APIs, MCPs, contexts (`TOOLS.md`): `${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`
+  - Codebase walkthrough (`file:line`): `${CLAUDE_SKILL_DIR}/../how-it-works/SKILL.md`
+  - Mermaid state/failure diagrams: `${CLAUDE_SKILL_DIR}/../show-the-states/SKILL.md`
+  - Graded primary-source research (A–F): `${CLAUDE_SKILL_DIR}/../research-this/SKILL.md`
+  - Tighten a task brief: `${CLAUDE_SKILL_DIR}/../deeper/SKILL.md`
+  - Throwaway prototype/mockup: `${CLAUDE_SKILL_DIR}/../play-with-me/SKILL.md`
+  - Explain unfamiliar concepts: `${CLAUDE_SKILL_DIR}/../talk-to-me/SKILL.md`
+  - Architecture decision record (`AD-N`): `${CLAUDE_SKILL_DIR}/../create-adc/SKILL.md`
+- **Optimize & experiment:**
+  - Statistical benchmarks: `${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`
+  - Fair competitor baselines: `${CLAUDE_SKILL_DIR}/../baseline/SKILL.md`
+  - Decide by measurement: `${CLAUDE_SKILL_DIR}/../decide-by-data/SKILL.md`
+  - Isolated A/B tests & grafting: `${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`
+  - Step-by-step perf loop: `${CLAUDE_SKILL_DIR}/../clamber/SKILL.md`
+  - Parallel competing architectures: `${CLAUDE_SKILL_DIR}/../swarm-hypothesis/SKILL.md`
+- **Test, debug, verify:**
+  - Default lead bug workflow (reviewer swarm + worker fix + proof): `${CLAUDE_SKILL_DIR}/../bugbash/SKILL.md`
+  - Live infra/systems incident triage: `${CLAUDE_SKILL_DIR}/../triage/SKILL.md`
+  - Network/DNS/edge/firewall/flow-log/TLS/packet tracing: `${CLAUDE_SKILL_DIR}/../net-trace/SKILL.md`
+  - Real-data repro, shrink, root cause (reviewers/single-agent): `${CLAUDE_SKILL_DIR}/../find-it/SKILL.md`
+  - Minimal behavior-proven bug fix (workers): `${CLAUDE_SKILL_DIR}/../fix-it/SKILL.md`
+  - Real-artifact proof & frequency: `${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`
+  - Test-diamond acceptance suites: `${CLAUDE_SKILL_DIR}/../full-spectrum-testing/SKILL.md`
+  - Live user-flow `drive-<app>` check: `${CLAUDE_SKILL_DIR}/../test-drive/SKILL.md`
+  - Formal verification (TLA+/verifiers): `${CLAUDE_SKILL_DIR}/../formal-validate/SKILL.md`
+- **Refactor, review, PRs:**
+  - Indirect breakage beyond diff: `${CLAUDE_SKILL_DIR}/../blast-radius/SKILL.md`
+  - Cut unnecessary complexity: `${CLAUDE_SKILL_DIR}/../simplify-me/SKILL.md`
+  - Monolith split via POC + `dagify`: `${CLAUDE_SKILL_DIR}/../modularize/SKILL.md`
+  - High-churn structural redesign: `${CLAUDE_SKILL_DIR}/../rearchitect/SKILL.md`
+  - Vectored adversarial review: `${CLAUDE_SKILL_DIR}/../review/SKILL.md` and `${CLAUDE_SKILL_DIR}/../adversarial-review/SKILL.md`
+  - Independently audited PR replies: `${CLAUDE_SKILL_DIR}/../leave-feedback/SKILL.md`
+  - Evidence-backed pushback: `${CLAUDE_SKILL_DIR}/../worrywart/SKILL.md`
+  - Resolve all review findings/threads: `${CLAUDE_SKILL_DIR}/../address-feedback/SKILL.md`
+  - Good-citizen PR watcher & DAG holds: `${CLAUDE_SKILL_DIR}/../watch-pr/SKILL.md`
+  - Fix unrelated broken CI/tests separately: `${CLAUDE_SKILL_DIR}/../leave-it-better/SKILL.md`
+- **Communicate, automate, wrap up:**
+  - Autonomy & plain escalations: `${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`
+  - Plain bottom-line rewrite: `${CLAUDE_SKILL_DIR}/../wat/SKILL.md`
+  - Immediate course-correction on repeated reminders: `${CLAUDE_SKILL_DIR}/../bap/SKILL.md`
+  - Docs impact audit & verified docs: `${CLAUDE_SKILL_DIR}/../technical-writing/SKILL.md`
+  - Script/watcher automation: `${CLAUDE_SKILL_DIR}/../automate-this/SKILL.md`
+  - Async tasks & SQLite checkpoints (`taskex`): `${CLAUDE_SKILL_DIR}/../taskex/SKILL.md`
+  - DAG wave pipelines (`orchestral`): `${CLAUDE_SKILL_DIR}/../orchestral/SKILL.md`
+  - Modular DAG workflows (`werkflow`): `${CLAUDE_SKILL_DIR}/../werkflow/SKILL.md`
+  - Durable checkpoints: `${CLAUDE_SKILL_DIR}/../checkpoint/SKILL.md`
+  - Pause runs cleanly: `${CLAUDE_SKILL_DIR}/../suspend/SKILL.md`
+  - Resume/recover runs: `${CLAUDE_SKILL_DIR}/../resume/SKILL.md`
+  - Post-review/debug cleanup: `${CLAUDE_SKILL_DIR}/../cleanup/SKILL.md`
+  - Session lessons & structural guards: `${CLAUDE_SKILL_DIR}/../make-it-stick/SKILL.md`
 
 ## Principles and coding-rules index
 
-Read this table in full before any code work: each rule's core is in it, so a rule whose file you don't open still shaped the work. Open a rule's file whenever its trigger applies to code you are designing, writing, or reviewing; any code you write or review triggers `data-structures-first`, `check-your-boundaries`, `no-bolt-ons`, `yagni` and `comment-cop`.
+Read before any code work; open a rule's file when its trigger applies. Any code written or reviewed triggers `data-structures-first`, `check-your-boundaries`, `no-bolt-ons`, `yagni`, `comment-cop`, and checking impacted repo docs (`technical-writing`).
 
 | Trigger | Rule file | Core rule |
 |---|---|---|
-| Designing schemas, structs, state, or algorithms | `${CLAUDE_SKILL_DIR}/../data-structures-first/SKILL.md` | design data representations, invariants, and access patterns before control flow |
-| Behavior depends on prior state or lifecycle flags | `${CLAUDE_SKILL_DIR}/../no-implicit-states/SKILL.md` | use explicit state enums/tagged unions and centralized transitions instead of boolean flags |
-| Error handling, retries, exceptions, or fallbacks | `${CLAUDE_SKILL_DIR}/../no-hidden-flow-control/SKILL.md` | handle specific errors narrowly or return typed values; no catch-alls or swallowed errors |
-| CLI flags, config files, env vars, or feature toggles | `${CLAUDE_SKILL_DIR}/../no-hidden-config/SKILL.md` | parse settings in one place, document and test every value, use real feature flags |
-| Caches, copies, denormalization, or long-lived state | `${CLAUDE_SKILL_DIR}/../minimize-state-stores/SKILL.md` | keep one source of truth; add caches or copies only when measurements justify them |
-| Parsing requests, CLI args, files, DB rows, or API replies | `${CLAUDE_SKILL_DIR}/../check-your-boundaries/SKILL.md` | parse untrusted input once at the edge into domain types, then trust them inside |
-| Concurrent threads, processes, agents, or locks | `${CLAUDE_SKILL_DIR}/../no-shared-writes/SKILL.md` | give concurrent writers isolated state and merge on read before reaching for locks |
-| Commands, migrations, deploy steps, jobs, or retries | `${CLAUDE_SKILL_DIR}/../safe-to-rerun/SKILL.md` | make state-changing operations idempotent and crash-safe (converge from state, atomic write-then-rename) |
-| Adding a new requirement to existing code | `${CLAUDE_SKILL_DIR}/../no-bolt-ons/SKILL.md` | fold new requirements cleanly into the design instead of special-case flags or `_v2` copies |
-| Replacing code, shims, legacy paths, or dead flags | `${CLAUDE_SKILL_DIR}/../yagni/SKILL.md` | migrate callers and delete legacy paths together—no shims, deprecated aliases, or dead flags |
-| Writing, reviewing, or cleaning up comments | `${CLAUDE_SKILL_DIR}/../comment-cop/SKILL.md` | cut narrating comments; keep only API contracts, external constraints, legal headers, and links |
-| User-facing UI, CLI, errors, defaults, or public APIs | `${CLAUDE_SKILL_DIR}/../delight-users/SKILL.md` | audit from the consumer's side for missing states, vague errors, awkward APIs, and bad defaults |
-| Limits, timeouts, batch/pool sizes, or thresholds | `${CLAUDE_SKILL_DIR}/../no-picked-constants/SKILL.md` | derive limits/timeouts from cited specs or adapt them at runtime—never pick magic numbers |
-| Waiting, polling loops, sleeps, timers, or CI checks | `${CLAUDE_SKILL_DIR}/../event-driven/SKILL.md` | wake on completion events instead of `sleep` loops, fixed timers, or polling |
-| Speedups, memory cuts, or approximate/deferred variants | `${CLAUDE_SKILL_DIR}/../never-trade-functionality/SKILL.md` | never trade accuracy, freshness, or features for speed; run `research-this` before accepting any limit |
-| Secrets, tokens, PII, logging, errors, telemetry, or debug dumps | `${CLAUDE_SKILL_DIR}/../no-leaked-secrets/SKILL.md` | sweeps code, diffs, configs, logs, errors, telemetry, tests, and debug artifacts for leaked secrets, credentials, unneeded PII, or excessive logging |
-| Writing, reviewing, or fixing any test or flake | `${CLAUDE_SKILL_DIR}/../tests-assert-behaviour/SKILL.md` | keeps tests checking observable behavior rather than internals, mocks, or wall-clock timing |
+| Schemas, structs, state, algorithms | `${CLAUDE_SKILL_DIR}/../data-structures-first/SKILL.md` | design data shapes, invariants, and access patterns before control flow |
+| Lifecycle/order-dependent state | `${CLAUDE_SKILL_DIR}/../no-implicit-states/SKILL.md` | use explicit state enums/tagged unions and centralized transitions |
+| Errors, retries, fallbacks | `${CLAUDE_SKILL_DIR}/../no-hidden-flow-control/SKILL.md` | handle specific errors narrowly or return typed values; no catch-alls |
+| CLI flags, config, env, toggles | `${CLAUDE_SKILL_DIR}/../no-hidden-config/SKILL.md` | parse in one place, document and test every value, use real flags |
+| Caches, copies, stored state | `${CLAUDE_SKILL_DIR}/../minimize-state-stores/SKILL.md` | keep one source of truth; add caches only when measured |
+| Untrusted input/API/file/DB parsing | `${CLAUDE_SKILL_DIR}/../check-your-boundaries/SKILL.md` | parse once at the edge into domain types, trust inside |
+| Threads, processes, agents, locks | `${CLAUDE_SKILL_DIR}/../no-shared-writes/SKILL.md` | isolate concurrent writers and merge on read before locks |
+| Commands, migrations, deploys, retries | `${CLAUDE_SKILL_DIR}/../safe-to-rerun/SKILL.md` | make mutations idempotent and crash-safe (converge, atomic replace) |
+| Migrations, auth, infra, DNS, cutovers | `${CLAUDE_SKILL_DIR}/../safe-to-deploy/SKILL.md` | keep live workloads and rollbacks working (expand -> switch -> contract); test non-privileged callers |
+| Auth, roles, RBAC, grants, keys, net rules | `${CLAUDE_SKILL_DIR}/../least-privilege/SKILL.md` | grant exact needed scope; prove both allow and deny as real non-privileged identity |
+| IaC, edge/DNS/WAF, cluster manifests | `${CLAUDE_SKILL_DIR}/../safe-iac/SKILL.md` | inspect real plan/diff, protect stateful/routing resources, check drift, bound spend |
+| Network boundaries, retries, pools, probes | `${CLAUDE_SKILL_DIR}/../fail-safely/SKILL.md` | bound timeouts/pools/retries (backoff+jitter+budget), decouple liveness, shield origins, drain |
+| Services, jobs, queues, alerts, runbooks | `${CLAUDE_SKILL_DIR}/../observable-by-default/SKILL.md` | bounded-cardinality telemetry, trace correlation, SLO alerts with verified runbooks, DLQs |
+| Extending existing code | `${CLAUDE_SKILL_DIR}/../no-bolt-ons/SKILL.md` | fold new requirements cleanly instead of special-case flags or `_v2` copies |
+| Replacing code, shims, legacy paths | `${CLAUDE_SKILL_DIR}/../yagni/SKILL.md` | migrate callers and delete legacy paths together—no shims or dead flags |
+| Comments | `${CLAUDE_SKILL_DIR}/../comment-cop/SKILL.md` | cut narrating comments; keep contracts, external constraints, legal, links |
+| User-facing UI/CLI/errors/defaults/APIs | `${CLAUDE_SKILL_DIR}/../delight-users/SKILL.md` | audit from the consumer's side for missing states, vague errors, bad defaults |
+| Limits, timeouts, sizes, thresholds | `${CLAUDE_SKILL_DIR}/../no-picked-constants/SKILL.md` | derive from cited specs or adapt at runtime—no magic numbers |
+| Waits, polling, sleeps, timers | `${CLAUDE_SKILL_DIR}/../event-driven/SKILL.md` | wake on completion events instead of `sleep` loops or polling |
+| Speedups, memory cuts, shortcuts | `${CLAUDE_SKILL_DIR}/../never-trade-functionality/SKILL.md` | never trade accuracy, freshness, or features for speed without `research-this` |
+| Secrets, tokens, PII, logs, telemetry | `${CLAUDE_SKILL_DIR}/../no-leaked-secrets/SKILL.md` | sweep code, diffs, configs, logs, errors, and dumps for secrets/PII |
+| Writing or fixing tests/flakes | `${CLAUDE_SKILL_DIR}/../tests-assert-behaviour/SKILL.md` | assert observable behavior, not internals, mocks, or wall-clock timing |
+| Behavior, interface, config, or ops changes | `${CLAUDE_SKILL_DIR}/../technical-writing/SKILL.md` | audit repo docs and update or delete stale docs in the same change |
 
 ## Skills by role
 
-Every skill has at least one owner, and a skill may have several. In the table, **required** means that role loads the skill in full before its first edit, every time. **when it applies** means that role loads it the moment its situation shows up in the work (a bug fix, a timeout, a migration, a test), and follows it. **–** means it isn't that role's skill. Run `astack-tools skills list --role <role>` to see yours, and `astack-tools skills get <name>` to load one. A brief's skills are the role's required ones plus every one that applies to the task.
+Every skill has an owner: **required** = load in full before first edit; **when it applies** = load when its trigger shows up; **–** = not that role's skill. Run `astack-tools skills list --role <role>` and `astack-tools skills get <name>`.
 
 | Skill | Lead | Worker | Reviewer | Researcher |
 |---|---|---|---|---|
@@ -131,6 +136,7 @@ Every skill has at least one owner, and a skill may have several. In the table, 
 | `/astack:adversarial-review` | when it applies | – | required | – |
 | `/astack:analyze-environment` | when it applies | when it applies | when it applies | required |
 | `/astack:automate-this` | when it applies | when it applies | – | – |
+| `/astack:bap` | when it applies | when it applies | when it applies | when it applies |
 | `/astack:baseline` | when it applies | when it applies | when it applies | when it applies |
 | `/astack:benchmarking` | when it applies | when it applies | when it applies | when it applies |
 | `/astack:blast-radius` | when it applies | when it applies | required | when it applies |
@@ -142,6 +148,7 @@ Every skill has at least one owner, and a skill may have several. In the table, 
 | `/astack:cleanup` | when it applies | required | when it applies | when it applies |
 | `/astack:comment-cop` | when it applies | required | when it applies | – |
 | `/astack:create-adc` | when it applies | – | – | when it applies |
+| `/astack:cross-repo` | when it applies | – | when it applies | when it applies |
 | `/astack:dagify` | required | – | when it applies | – |
 | `/astack:data-structures-first` | when it applies | required | when it applies | – |
 | `/astack:decide-by-data` | when it applies | when it applies | – | when it applies |
@@ -149,18 +156,21 @@ Every skill has at least one owner, and a skill may have several. In the table, 
 | `/astack:deeper` | required | – | – | when it applies |
 | `/astack:delight-users` | when it applies | when it applies | when it applies | – |
 | `/astack:event-driven` | when it applies | when it applies | when it applies | – |
-| `/astack:find-it` | when it applies | when it applies | when it applies | when it applies |
-| `/astack:fix-it` | when it applies | when it applies | when it applies | – |
+| `/astack:fail-safely` | when it applies | when it applies | when it applies | when it applies |
+| `/astack:find-it` | – | when it applies | when it applies | when it applies |
+| `/astack:fix-it` | – | when it applies | when it applies | when it applies |
 | `/astack:formal-validate` | – | when it applies | when it applies | – |
 | `/astack:full-spectrum-testing` | – | when it applies | when it applies | – |
 | `/astack:go` | required | required | required | required |
 | `/astack:how-it-works` | when it applies | when it applies | when it applies | when it applies |
 | `/astack:lead` | required | – | – | – |
+| `/astack:least-privilege` | when it applies | when it applies | when it applies | when it applies |
 | `/astack:leave-feedback` | when it applies | – | when it applies | – |
 | `/astack:leave-it-better` | when it applies | when it applies | – | – |
 | `/astack:make-it-stick` | when it applies | – | – | – |
 | `/astack:minimize-state-stores` | when it applies | when it applies | when it applies | – |
 | `/astack:modularize` | when it applies | when it applies | – | – |
+| `/astack:net-trace` | when it applies | when it applies | when it applies | when it applies |
 | `/astack:never-trade-functionality` | when it applies | when it applies | when it applies | – |
 | `/astack:no-bolt-ons` | when it applies | required | when it applies | – |
 | `/astack:no-hidden-config` | when it applies | when it applies | when it applies | – |
@@ -169,6 +179,7 @@ Every skill has at least one owner, and a skill may have several. In the table, 
 | `/astack:no-leaked-secrets` | when it applies | when it applies | when it applies | – |
 | `/astack:no-picked-constants` | when it applies | when it applies | when it applies | – |
 | `/astack:no-shared-writes` | when it applies | when it applies | when it applies | – |
+| `/astack:observable-by-default` | when it applies | when it applies | when it applies | when it applies |
 | `/astack:orchestral` | when it applies | when it applies | – | – |
 | `/astack:play-with-me` | when it applies | when it applies | – | – |
 | `/astack:prove-it` | when it applies | when it applies | required | when it applies |
@@ -178,6 +189,8 @@ Every skill has at least one owner, and a skill may have several. In the table, 
 | `/astack:review` | when it applies | – | when it applies | – |
 | `/astack:rtfm` | required | required | required | required |
 | `/astack:run-it-back` | required | required | when it applies | required |
+| `/astack:safe-iac` | when it applies | when it applies | when it applies | when it applies |
+| `/astack:safe-to-deploy` | when it applies | when it applies | when it applies | when it applies |
 | `/astack:safe-to-rerun` | when it applies | when it applies | when it applies | – |
 | `/astack:setup` | when it applies | – | – | – |
 | `/astack:show-the-states` | when it applies | when it applies | when it applies | when it applies |
@@ -192,6 +205,8 @@ Every skill has at least one owner, and a skill may have several. In the table, 
 | `/astack:test-drive` | when it applies | when it applies | when it applies | – |
 | `/astack:tests-assert-behaviour` | when it applies | required | when it applies | – |
 | `/astack:track-it` | when it applies | – | – | – |
+| `/astack:treeify` | when it applies | – | when it applies | when it applies |
+| `/astack:triage` | when it applies | when it applies | when it applies | when it applies |
 | `/astack:wat` | required | when it applies | when it applies | when it applies |
 | `/astack:watch-pr` | when it applies | – | – | – |
 | `/astack:werkflow` | when it applies | when it applies | – | – |

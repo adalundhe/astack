@@ -1,0 +1,539 @@
+#!/usr/bin/env python3
+"""Maintain sticky session-scoped astack Go mode (in the Lead role) across turns and compaction.
+
+Usage:
+  astack-go-mode --hook --harness claude-code|codex|antigravity|cursor --event EVENT
+  astack-go-mode status --session ID [--state-dir DIR] [--json]
+  astack-go-mode on --session ID [--harness HARNESS] [--state-dir DIR]
+  astack-go-mode off --session ID [--state-dir DIR]
+
+Reads hook JSON from stdin and emits harness-native JSON on stdout:
+  - Activates sticky Go mode (as Lead) for a session_id / conversationId when the user invokes
+    /astack:go, /astack-go, $astack-go, /astack:lead, /astack-lead, or $astack-lead, or when
+    the main session loads the go/astack-go skill (skipping worker/reviewer/researcher subagents).
+  - Re-injects a concise Lead + Go mode reminder on every subsequent user prompt and after
+    context compaction/resume so completing a task never drops out of Go mode.
+  - Exits cleanly only on an explicit exit command (/astack:exit, "exit go mode") or /clear.
+
+Stdlib-only (Python >=3.9). Fails open with valid JSON on unexpected I/O errors so hooks never
+break a host session.
+"""
+from __future__ import annotations
+
+import argparse
+from datetime import datetime, timezone
+from enum import Enum
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import sys
+import time
+from typing import Any, Dict, Optional, Sequence
+
+
+SCHEMA_VERSION = 1
+STALE_SESSION_SECONDS = 7 * 24 * 3600
+
+# User prompt explicitly invoking Go mode or Lead mode at the start of the prompt
+ACTIVATE_PROMPT_RE = re.compile(
+    r"^\s*(?:/astack:(?:go|lead)|/astack-(?:go|lead)|\$astack-(?:go|lead))(?=$|[\s.,;:!?)])",
+    re.IGNORECASE,
+)
+
+# User prompt explicitly asking to leave Go mode (anchored at start so meta-discussion doesn't false-trigger)
+EXIT_PROMPT_RE = re.compile(
+    r"^\s*(?:"
+    r"(?:/astack:|/astack-|\$astack-)(?:stop-go|exit-go|off)"
+    r"|(?:exit|leave|disable|stop|turn\s+off)\s+(?:astack\s+)?(?:go\s+mode|astack(?:\s+mode)?)"
+    r")(?=$|[\s.,;:!?)])",
+    re.IGNORECASE,
+)
+
+# Explicit /astack:bap (or /bap, $bap) or unmistakable repeated-reminder cues in active Go mode
+BAP_EXPLICIT_RE = re.compile(
+    r"^\s*(?:/astack:|/|\$)bap(?=$|[\s.,;:!?)])",
+    re.IGNORECASE,
+)
+BAP_REPEAT_REMINDER_RE = re.compile(
+    r"(?:"
+    r"\bi\s+already\s+told\s+you\b"
+    r"|\bwhy\s+do\s+i\s+keep\s+having\s+to\s+remind\b"
+    r"|\bkeep\s+having\s+to\s+remind\s+you\b"
+    r"|\bhow\s+many\s+times\s+(?:do\s+i|have\s+i)\b"
+    r"|\bstop\s+forgetting\s+to\b"
+    r"|\bagain[,:]?\s+you\s+(?:forgot|didn'?t|did\s+not|skipped|ignored)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+# Tool calls indicating the main agent loaded go/astack-go or lead/astack-lead
+SKILL_TOOL_ACTIVATE_RE = re.compile(r"^(?:astack:)?(?:astack-)?(?:go|lead)$", re.IGNORECASE)
+SKILL_PATH_ACTIVATE_RE = re.compile(r"(?:^|[/\\])skills[/\\](?:astack-)?go[/\\]SKILL\.md$", re.IGNORECASE)
+SHELL_GET_GO_RE = re.compile(
+    r"\bastack-tools\s+skills\s+get\s+['\"]?(?:/astack:|/|\$)?(?:astack-)?go['\"]?(?=$|[\s;&|])",
+    re.IGNORECASE,
+)
+SUBAGENT_LIST_ROLE_RE = re.compile(
+    r"\bastack-tools\s+skills\s+list\s+--role\s+(worker|reviewer|researcher)\b",
+    re.IGNORECASE,
+)
+
+
+class GoModeState(str, Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    SUBAGENT = "subagent"
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def default_state_dir() -> Path:
+    if override := os.environ.get("ASTACK_STATE_DIR"):
+        return Path(override).expanduser() / "go-sessions"
+    if xdg := os.environ.get("XDG_STATE_HOME"):
+        return Path(xdg).expanduser() / "astack" / "go-sessions"
+    return Path.home() / ".local" / "state" / "astack" / "go-sessions"
+
+
+def resolve_skills_dir(harness: str = "") -> Path:
+    return Path(__file__).resolve().parent.parent / "skills"
+
+
+def _go_skill_path(skills_dir: Path) -> Path:
+    for name in ("go", "astack-go"):
+        p = skills_dir / name / "SKILL.md"
+        if p.is_file():
+            return p
+    return skills_dir / "go" / "SKILL.md"
+
+
+def _lead_skill_path(skills_dir: Path) -> Path:
+    for name in ("lead", "astack-lead"):
+        p = skills_dir / name / "SKILL.md"
+        if p.is_file():
+            return p
+    return skills_dir / "lead" / "SKILL.md"
+
+
+def session_file(state_dir: Path, session_id: str) -> Path:
+    digest = hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:24]
+    return state_dir / f"{digest}.json"
+
+
+def _prompt_hash(text: str) -> str:
+    return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()[:24]
+
+
+def load_session(state_dir: Path, session_id: str) -> Optional[Dict[str, Any]]:
+    path = session_file(state_dir, session_id)
+    try:
+        if not path.is_file():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def _prune_stale(state_dir: Path) -> None:
+    try:
+        cutoff = time.time() - STALE_SESSION_SECONDS
+        for entry in state_dir.iterdir():
+            if entry.suffix == ".json" and not entry.name.startswith("."):
+                try:
+                    if entry.stat().st_mtime < cutoff:
+                        entry.unlink()
+                except OSError:
+                    pass
+    except OSError:
+        pass
+
+
+def save_session(state_dir: Path, session_id: str, data: Dict[str, Any]) -> None:
+    try:
+        state_dir.mkdir(parents=True, exist_ok=True)
+        path = session_file(state_dir, session_id)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+        _prune_stale(state_dir)
+    except OSError:
+        # Fail open in restricted sandboxes so hooks never disrupt the host session
+        pass
+
+
+def extract_session_id(event: Dict[str, Any]) -> str:
+    for key in ("session_id", "conversationId", "conversation_id", "sessionId", "thread_id"):
+        val = event.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
+def extract_prompt(event: Dict[str, Any]) -> str:
+    for key in ("prompt", "lastUserInput", "user_prompt", "message"):
+        val = event.get(key)
+        if isinstance(val, str) and val.strip():
+            return val
+    return ""
+
+
+def is_subagent_event(event: Dict[str, Any]) -> bool:
+    for key in ("parent_session_id", "parentSessionId", "agent_id", "subagent_type", "subagentType"):
+        val = event.get(key)
+        if isinstance(val, str) and val.strip():
+            return True
+    agent_type = str(event.get("agent_type") or event.get("agentType") or "").strip().lower()
+    if agent_type and any(tok in agent_type for tok in ("worker", "reviewer", "researcher")):
+        return True
+    return False
+
+
+def _detect_post_tool_signal(event: Dict[str, Any]) -> Optional[GoModeState]:
+    """Return ACTIVE if PostToolUse loaded go/astack-go, SUBAGENT if it listed a non-lead role, else None."""
+    tool_call = event.get("toolCall") if isinstance(event.get("toolCall"), dict) else {}
+    tool_name = str(event.get("tool_name") or tool_call.get("name") or "").strip()
+    tool_input = event.get("tool_input") if isinstance(event.get("tool_input"), dict) else (
+        tool_call.get("args") if isinstance(tool_call.get("args"), dict) else {}
+    )
+
+    if tool_name.lower() == "skill":
+        skill_val = str(tool_input.get("skill") or tool_input.get("name") or "").strip()
+        if SKILL_TOOL_ACTIVATE_RE.match(skill_val):
+            return GoModeState.ACTIVE
+
+    for key in ("file_path", "path", "Path", "TargetFile", "AbsolutePath"):
+        val = tool_input.get(key)
+        if isinstance(val, str) and SKILL_PATH_ACTIVATE_RE.search(val):
+            return GoModeState.ACTIVE
+
+    cmd = str(
+        tool_input.get("command")
+        or tool_input.get("CommandLine")
+        or event.get("command")
+        or ""
+    )
+    if cmd:
+        if SUBAGENT_LIST_ROLE_RE.search(cmd):
+            return GoModeState.SUBAGENT
+        if SHELL_GET_GO_RE.search(cmd) or SKILL_PATH_ACTIVATE_RE.search(cmd):
+            return GoModeState.ACTIVE
+
+    return None
+
+
+def build_bap_notice(skills_dir: Path) -> str:
+    bap_path = skills_dir / "bap" / "SKILL.md"
+    return (
+        f"[astack BAP — immediate course correction] The user had to repeat a correction/reminder. "
+        f"Load and follow `{bap_path}` (`astack-tools skills get bap`) BEFORE replying or editing: "
+        f"zero sycophantic apologies, audit why the miss slipped, repair the immediate miss + live session state/workers now, "
+        f"and lock in a structural guard (`make-it-stick`) so they never have to repeat it."
+    )
+
+
+def build_reminder(harness: str, skills_dir: Path, *, post_compact: bool = False, bap: bool = False) -> str:
+    go_path = _go_skill_path(skills_dir)
+    lead_path = _lead_skill_path(skills_dir)
+    if harness == "claude-code":
+        roles = "`astack:worker`, `astack:reviewer`, `astack:researcher`"
+    elif harness == "codex":
+        roles = "`astack-worker`, `astack-reviewer`, `astack-researcher`"
+    else:
+        roles = "`astack-worker`, `astack-reviewer`, `astack-researcher`"
+    exit_hint = '"exit go mode" or "leave astack"'
+
+    compact_note = (
+        f" Context was compacted/resumed — reload `{go_path}` and `{lead_path}` (plus `whatsup` if a program is active) before acting."
+        if post_compact
+        else ""
+    )
+    prefix = f"{build_bap_notice(skills_dir)}\n\n" if bap else ""
+    return (
+        f"{prefix}"
+        f"[astack Go mode — ACTIVE (Lead role)]{compact_note}\n"
+        f"You are the **Lead** (`lead` role) in sticky Go mode for this entire session; finishing a prior task does NOT exit Go mode or drop the Lead role. "
+        f"For this prompt: (1) classify the request and load every matching hidden skill BEFORE acting via `astack-tools skills get <name>` (one per call) or reading `{skills_dir}/<name>/SKILL.md` (never call the Skill tool on hidden skills; run `astack-tools skills list --role lead` if unsure); "
+        f"(2) route immediately as Lead — reported issue/error/crash/regression -> `bugbash` (do not solo-debug); multi-step build/refactor -> `dagify`/`treeify`/`lead`; multi-repo PR/deploy -> `cross-repo`; PR -> `watch-pr`; live incident -> `triage`/`net-trace`; audit -> `review`; "
+        f"(3) delegate execution, audits, and discovery to dedicated {roles} subagents with `{skills_dir}` on line 1 of every brief, enforce `settings.json` timers/autonomy, and run `review` before landing. "
+        f"Only leave Go mode if the user explicitly says {exit_hint}."
+    )
+
+
+def format_output(harness: str, event_name: str, message: Optional[str]) -> Dict[str, Any]:
+    if harness == "antigravity":
+        if event_name == "PostToolUse":
+            return {}
+        if message:
+            return {
+                "injectSteps": [
+                    {"systemMessage": {"systemMessage": message}}
+                ]
+            }
+        return {}
+
+    if harness == "cursor":
+        if event_name == "beforeSubmitPrompt":
+            return {"continue": True}
+        if event_name == "sessionStart" and message:
+            return {"additional_context": message}
+        return {}
+
+    # claude-code and codex share the hookSpecificOutput.additionalContext contract
+    if message:
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": event_name,
+                "additionalContext": message,
+            }
+        }
+    return {}
+
+
+def handle_hook(
+    event: Dict[str, Any],
+    *,
+    harness: str,
+    event_name: str,
+    state_dir: Path,
+    skills_dir: Path,
+) -> Dict[str, Any]:
+    session_id = extract_session_id(event)
+    if not session_id:
+        return format_output(harness, event_name, None)
+
+    if is_subagent_event(event):
+        return format_output(harness, event_name, None)
+
+    record = load_session(state_dir, session_id)
+    current_state = str(record.get("state") or GoModeState.INACTIVE.value) if record else GoModeState.INACTIVE.value
+    if current_state == GoModeState.SUBAGENT.value:
+        return format_output(harness, event_name, None)
+
+    now = utc_now()
+    prompt = extract_prompt(event)
+    p_hash = _prompt_hash(prompt) if prompt else ""
+    step_count = event.get("initialNumSteps") if isinstance(event.get("initialNumSteps"), int) else None
+
+    # 1. SessionStart (Claude Code, Codex, Cursor)
+    if event_name in ("SessionStart", "sessionStart"):
+        source = str(event.get("source") or "").strip().lower()
+        if source == "clear":
+            if record and current_state == GoModeState.ACTIVE.value:
+                record["state"] = GoModeState.INACTIVE.value
+                record["updated_at"] = now
+                save_session(state_dir, session_id, record)
+            return format_output(harness, event_name, None)
+        if current_state == GoModeState.ACTIVE.value:
+            is_compact = source in ("compact", "resume", "")
+            return format_output(harness, event_name, build_reminder(harness, skills_dir, post_compact=is_compact))
+        return format_output(harness, event_name, None)
+
+    # 2. PostToolUse (detects model auto-loading go/astack-go or subagent listing non-lead role)
+    if event_name == "PostToolUse":
+        signal = _detect_post_tool_signal(event)
+        if signal == GoModeState.SUBAGENT:
+            save_session(state_dir, session_id, {
+                "schema_version": SCHEMA_VERSION,
+                "state": GoModeState.SUBAGENT.value,
+                "session_id": session_id,
+                "harness": harness,
+                "updated_at": now,
+            })
+        elif signal == GoModeState.ACTIVE and current_state != GoModeState.ACTIVE.value:
+            save_session(state_dir, session_id, {
+                "schema_version": SCHEMA_VERSION,
+                "state": GoModeState.ACTIVE.value,
+                "session_id": session_id,
+                "harness": harness,
+                "skills_dir": str(skills_dir),
+                "activated_at": now,
+                "updated_at": now,
+                "last_prompt_hash": p_hash,
+                "last_step_count": step_count,
+            })
+        return format_output(harness, event_name, None)
+
+    # 3. UserPromptSubmit / beforeSubmitPrompt / PreInvocation
+    if prompt and EXIT_PROMPT_RE.match(prompt):
+        if current_state == GoModeState.ACTIVE.value:
+            save_session(state_dir, session_id, {
+                "schema_version": SCHEMA_VERSION,
+                "state": GoModeState.INACTIVE.value,
+                "session_id": session_id,
+                "harness": harness,
+                "updated_at": now,
+                "last_prompt_hash": p_hash,
+                "last_step_count": step_count,
+            })
+            return format_output(
+                harness,
+                event_name,
+                "[astack Go mode — EXITED for this session] The user explicitly left Go mode.",
+            )
+        return format_output(harness, event_name, None)
+
+    if prompt and ACTIVATE_PROMPT_RE.match(prompt):
+        save_session(state_dir, session_id, {
+            "schema_version": SCHEMA_VERSION,
+            "state": GoModeState.ACTIVE.value,
+            "session_id": session_id,
+            "harness": harness,
+            "skills_dir": str(skills_dir),
+            "activated_at": (record or {}).get("activated_at") or now,
+            "updated_at": now,
+            "last_prompt_hash": p_hash,
+            "last_step_count": step_count,
+        })
+        # Don't duplicate instructions on the exact turn the user invoked /astack:go
+        return format_output(harness, event_name, None)
+
+    explicit_bap = bool(prompt and BAP_EXPLICIT_RE.match(prompt))
+    if current_state != GoModeState.ACTIVE.value:
+        if explicit_bap:
+            # Explicit /astack:bap works even outside Go mode (deduped per prompt hash for PreInvocation)
+            prev_hash = str((record or {}).get("last_prompt_hash") or "")
+            if event_name == "PreInvocation" and p_hash and p_hash == prev_hash:
+                return format_output(harness, event_name, None)
+            save_session(state_dir, session_id, {
+                "schema_version": SCHEMA_VERSION,
+                "state": GoModeState.INACTIVE.value,
+                "session_id": session_id,
+                "harness": harness,
+                "updated_at": now,
+                "last_prompt_hash": p_hash,
+                "last_step_count": step_count,
+            })
+            return format_output(harness, event_name, build_bap_notice(skills_dir))
+        return format_output(harness, event_name, None)
+
+    # Active Go mode on a follow-up prompt (or Antigravity PreInvocation)
+    prev_hash = str((record or {}).get("last_prompt_hash") or "")
+    prev_steps = (record or {}).get("last_step_count")
+    compacted = (
+        isinstance(step_count, int)
+        and isinstance(prev_steps, int)
+        and step_count < prev_steps
+    )
+    bap_triggered = explicit_bap or bool(prompt and BAP_REPEAT_REMINDER_RE.search(prompt))
+
+    if event_name == "PreInvocation":
+        # Antigravity PreInvocation fires before every model call; inject ONLY once per new user prompt or compaction!
+        if not compacted and (not p_hash or p_hash == prev_hash):
+            if isinstance(step_count, int) and step_count != prev_steps and record is not None:
+                record["last_step_count"] = step_count
+                record["updated_at"] = now
+                save_session(state_dir, session_id, record)
+            return format_output(harness, event_name, None)
+
+    updated = dict(record or {})
+    updated.update({
+        "schema_version": SCHEMA_VERSION,
+        "state": GoModeState.ACTIVE.value,
+        "session_id": session_id,
+        "harness": harness,
+        "skills_dir": str(skills_dir),
+        "updated_at": now,
+        "last_prompt_hash": p_hash or prev_hash,
+        "last_step_count": step_count if step_count is not None else prev_steps,
+    })
+    save_session(state_dir, session_id, updated)
+    return format_output(harness, event_name, build_reminder(harness, skills_dir, post_compact=compacted, bap=bap_triggered))
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="astack-go-mode",
+        description="Maintain sticky session-scoped astack Go mode (Lead role) across turns and compaction.",
+    )
+    parser.add_argument("--hook", action="store_true", help="Run as a lifecycle hook reading JSON from stdin")
+    parser.add_argument(
+        "--harness",
+        choices=("claude-code", "codex", "antigravity", "cursor"),
+        default="claude-code",
+        help="Target host harness schema for hook output",
+    )
+    parser.add_argument("--event", default="", help="Hook event name (UserPromptSubmit, SessionStart, PostToolUse, PreInvocation, beforeSubmitPrompt, sessionStart)")
+    parser.add_argument("--state-dir", type=Path, default=None, help="Override session state directory")
+
+    sub = parser.add_subparsers(dest="command")
+    p_status = sub.add_parser("status", help="Inspect Go mode state for a session ID")
+    p_status.add_argument("--session", required=True)
+    p_status.add_argument("--state-dir", type=Path, default=None)
+    p_status.add_argument("--json", dest="as_json", action="store_true")
+
+    p_on = sub.add_parser("on", help="Activate sticky Go mode for a session ID")
+    p_on.add_argument("--session", required=True)
+    p_on.add_argument("--harness", choices=("claude-code", "codex", "antigravity", "cursor"), default="claude-code")
+    p_on.add_argument("--state-dir", type=Path, default=None)
+
+    p_off = sub.add_parser("off", help="Deactivate Go mode for a session ID")
+    p_off.add_argument("--session", required=True)
+    p_off.add_argument("--state-dir", type=Path, default=None)
+    return parser
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    state_dir = (args.state_dir.expanduser() if args.state_dir else default_state_dir())
+    skills_dir = resolve_skills_dir(getattr(args, "harness", ""))
+
+    if args.hook:
+        raw = sys.stdin.read()
+        try:
+            event = json.loads(raw) if raw.strip() else {}
+            if not isinstance(event, dict):
+                event = {}
+        except ValueError:
+            event = {}
+        event_name = args.event or str(event.get("hook_event_name") or event.get("hookEventName") or "")
+        out = handle_hook(event, harness=args.harness, event_name=event_name, state_dir=state_dir, skills_dir=skills_dir)
+        if out or args.harness in ("antigravity", "cursor"):
+            sys.stdout.write(json.dumps(out) + "\n")
+        return 0
+
+    if args.command == "status":
+        rec = load_session(state_dir, args.session) or {"session_id": args.session, "state": GoModeState.INACTIVE.value}
+        if args.as_json:
+            print(json.dumps(rec, indent=2))
+        else:
+            print(f"{args.session}: {rec.get('state', GoModeState.INACTIVE.value)}")
+        return 0
+
+    if args.command == "on":
+        now = utc_now()
+        save_session(state_dir, args.session, {
+            "schema_version": SCHEMA_VERSION,
+            "state": GoModeState.ACTIVE.value,
+            "session_id": args.session,
+            "harness": args.harness,
+            "skills_dir": str(skills_dir),
+            "activated_at": now,
+            "updated_at": now,
+            "last_prompt_hash": "",
+            "last_step_count": None,
+        })
+        print(f"{args.session}: active")
+        return 0
+
+    if args.command == "off":
+        save_session(state_dir, args.session, {
+            "schema_version": SCHEMA_VERSION,
+            "state": GoModeState.INACTIVE.value,
+            "session_id": args.session,
+            "updated_at": utc_now(),
+        })
+        print(f"{args.session}: inactive")
+        return 0
+
+    parser.print_help()
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

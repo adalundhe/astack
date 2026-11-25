@@ -5,7 +5,7 @@ description: "Make state-changing operations idempotent and crash-recoverable so
 
 # Safe to rerun
 
-Make state-changing operations end in the right state regardless of how many times they run or where a previous run crashed.
+Make state-changing operations end in the right state regardless of how many times they run or where a previous run crashed. For keeping live workloads and rollbacks working across deploy steps and breaking cutovers, also apply **safe-to-deploy**.
 
 ## Start with
 
@@ -33,6 +33,6 @@ Make state-changing operations end in the right state regardless of how many tim
 
 **Showing it:** run it twice, or kill it mid-run and rerun, and show the corrupted result (duplicate row, half-written file, stuck lock, double charge).
 
-Referenced skills: `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `safe-to-deploy` (`../safe-to-deploy/SKILL.md`), `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's make-operations-idempotent principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

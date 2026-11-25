@@ -18,6 +18,12 @@ PUSHED, NOT MERGED
 EVIDENCE
 - <the done-when check>: `<command>` -> <result>
 
+DIAGRAMS
+- <title / scope>: inline Mermaid block (e.g. `stateDiagram-v2` / flow / architecture) + doc/file path if created or updated (so the lead presents it and includes it in PRs/docs)
+
+DOCS
+- <repo doc updated, confirmed unaffected, or flagged outside writable paths for the lead>
+
 SKILLS READ
 - <skill>: <the choice it changed>
 

@@ -1,12 +1,14 @@
 ---
 name: find-it
-description: "Replicate bugs deterministically from provided or correlated real data (logs, traces, metrics, monitoring, usage analytics) and full failure-environment conditions across the end-to-end path, collect runtime evidence (<file>_DEBUG_<shorthash>.<type>) preferring built-in language debuggers then astack tools then third-party tools, shrink the repro before narrowing root causes (binary search/bisect, live dumps, profile pairs), and clean all debug artifacts once fixed. Use for suspected bugs, failing tests, flakes, hangs, leaks, or slowdowns."
+description: "Replicate bugs deterministically from provided or correlated real data (logs, traces, metrics, monitoring, usage analytics) and full failure-environment conditions across the end-to-end path, collect runtime evidence (<file>_DEBUG_<shorthash>.<type>) preferring built-in language debuggers then astack tools then third-party tools, shrink the repro before narrowing root causes (binary search/bisect, live dumps, profile pairs), and clean all debug artifacts once fixed. Use inside bugbash reviewers, inside a worker investigating a scoped failure, or directly when subagents are unavailable."
 disable-model-invocation: true
 ---
 
 # Find it
 
 Replicate the failure from real data and conditions, capture targeted runtime evidence, shrink the repro **before** diagnosing, narrow the root cause, and clean up every debug artifact once fixed.
+
+**In Go/Lead mode when subagents are available:** do not run **find-it** or investigate reported issues yourself—route to **bugbash** and dispatch blind read-only `astack:reviewer` subagents to run **find-it** across complementary reproduction methods. Run **find-it** directly only as a spawned reviewer, worker, or researcher, or when subagents are unavailable.
 
 ## 1. Replicate the real scenario, data, and environment first
 
@@ -29,7 +31,7 @@ Save **every** collected debug artifact as **`<file>_DEBUG_<shorthash>.<type>`**
 ## 3. Signals and tools (helpful starting set, not exhaustive)
 
 - **Logs & `stdout`/`stderr` capture:** split `stdout` and `stderr` with timestamps and exit codes (`tee`), enable targeted debug levels for only the suspect module, and preserve correlation/request IDs.
-- **OpenTelemetry (OTel) tracing & HTTP/1.1 / HTTP/2 / HTTP/3 inspection:** enable OTel spans and `traceparent` propagation, export to console/OTLP capture, and inspect HTTP/2 & HTTP/3 streams, headers, trailers, and resets (`curl --http2`/`--http3`, proxy captures, `tshark`).
+- **OpenTelemetry (OTel) tracing & HTTP/1.1 / HTTP/2 / HTTP/3 inspection:** enable OTel spans and `traceparent` propagation, export to console/OTLP capture, and inspect HTTP/2 & HTTP/3 streams, headers, trailers, and resets (`curl --http2`/`--http3`, proxy captures, `tshark`; use **net-trace** for deeper packet, DNS, TLS/mTLS, SG/NACL/NetworkPolicy, and VPC flow-log tracing).
 - **Screenshots & browser/UI captures:** use Playwright (screenshots, trace zips, HAR network logs, console errors) or your repo's **test-drive** `drive-<app>` flow for visual, layout, or client-side failures.
 - **Telemetry & metrics:** sample counters, histograms, queue depths, retry/error rates, GC pauses, RSS/heap, and open FDs/sockets across the failure window.
 - **Profiling & live dumps:** capture CPU flamegraphs (`perf`, `py-spy`, `samply`, `pprof`), allocation/lock profiles, stack/thread/goroutine/task dumps, open FDs/sockets, or syscall/network probes (`strace`, `lsof`, `tcpdump`) **before** restarting a stuck process.

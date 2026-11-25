@@ -1,6 +1,6 @@
 # astack
 
-A multi-harness agent toolkit for Claude Code, Codex, Cursor / Cursor CLI, Antigravity (`agy`), Pi, Devin, and other Agent Skills hosts with one entry point (`go`) that routes on demand to 72 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, root-cause diagnosis, cross-harness vectored review, σ-grounded benchmarking, graded research, and coding rules.
+A multi-harness agent toolkit for Claude Code, Codex, Cursor / Cursor CLI, Antigravity (`agy`), Pi, Devin, and other Agent Skills hosts with one entry point (`go`) that routes on demand to 82 hidden skills: DAG and component-tree planning, multi-repo infra/app choreography, automated workflows, checkpoint/suspend/resume, parallel workers, live infra triage and network tracing, root-cause diagnosis, cross-harness vectored review, σ-grounded benchmarking, graded research, and coding/infra rules.
 
 Only `go` stays in the model catalog, so idle sessions cost one skill's worth of context instead of thousands of tokens. Adapted in part from [pstack](https://github.com/cursor/plugins/tree/main/pstack) and [mattpocock/skills](https://github.com/mattpocock/skills).
 
@@ -29,10 +29,14 @@ Start a new session and run `$astack-go setup` (installs `astack-worker.toml` pl
 **Antigravity (`agy`)**
 
 ```
+agy plugin install https://github.com/adalundhe/astack
+# Or from a local clone (or inside agy TUI: /plugin install ~/Projects/astack):
+agy plugin install ~/Projects/astack
+# Or install the pre-built Antigravity bundle directly:
 agy plugin install ./harness/antigravity
 ```
 
-Ships native `plugin.json`, root `hooks.json` (`PostToolUse` lane-log stamper), all 73 skills, `bin/astack-*`, and all four native agents (`astack-lead`, `astack-worker`, `astack-reviewer`, `astack-researcher`). Validate anytime with `agy plugin validate harness/antigravity --strict`.
+Ships native `.antigravity-plugin/plugin.json` (and `harness/antigravity/plugin.json`), root `hooks.json` (`PostToolUse` lane-log stamper + `PreInvocation` sticky Go mode), all 83 skills, `bin/astack-*`, and all four native agents (`astack-lead`, `astack-worker`, `astack-reviewer`, `astack-researcher`). Validate anytime with `agy plugin validate . --strict` or `agy plugin validate harness/antigravity --strict`.
 
 **Pi, Devin, Cursor CLI (`agent`), and other Agent Skills hosts**
 
@@ -45,7 +49,7 @@ harness/portable/bin/astack-tools link-bin
 
 ## How it works
 
-Start with `/astack:go` (Cursor / Cursor CLI: `/astack-go`, Codex: `$astack-go`, Antigravity / Pi / Devin: `astack-go` from `harness/portable/skills/astack-go/SKILL.md`). Every other skill is hidden from auto-invocation (`disable-model-invocation: true` in Claude Code/Cursor/portable; `agents/openai.yaml` with `allow_implicit_invocation: false` in Codex) and read on demand by path—including when skills reference each other directly.
+Start with `/astack:go` (Cursor / Cursor CLI: `/astack-go`, Codex: `$astack-go`, Antigravity / Pi / Devin: `astack-go` from `harness/portable/skills/astack-go/SKILL.md`). Running `go` puts the main session agent directly into the **Lead** role in **sticky Go mode** for the entire session (backed by per-session lifecycle hooks `astack-go-hook` / `astack-go-mode` across Claude Code, Codex, Antigravity, and Cursor) so finishing a task or hitting context compaction never drops back to un-orchestrated behavior; say `"exit go mode"` or `"leave astack"` to leave it. Every other skill is hidden from auto-invocation (`disable-model-invocation: true` in Claude Code/Cursor/portable; `agents/openai.yaml` with `allow_implicit_invocation: false` in Codex) and read on demand by path—including when skills reference each other directly.
 
 Optional one-time setup (`/astack:setup`) configures worker timing (default 60/5/5 min), per-role models/effort (`~/.config/astack/settings.json`), and whether to provision an isolated `uv` Python `>=3.11` venv (`astack-tools`) for `taskex`, `orchestral`, and `werkflow` + `werkflow-modules` (declining defaults to pure-agentic workflows).
 
@@ -64,12 +68,14 @@ measured against the current release on the same machine. Merges go to main afte
 
 ## Skills
 
-73 skills total (`go` + 72 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
+83 skills total (`go` + 82 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
 
 ### Entry point, planning, and catch-up
 
-- `go`: single catalog-visible entry point routing to every skill and coding rule by path.
+- `go`: single catalog-visible entry point that places the main session agent in the **Lead** role in sticky Go mode across turns/compaction and routes to every hidden skill and coding rule by path.
 - `dagify`: breaks a goal into a reviewed dependency DAG of small, parallelizable tasks.
+- `treeify`: decomposes work into a reviewed component tree down to the smallest testable, verifiable, documentable units and builds, vectored-reviews, and merges bottom-up in waves with escalating testing, review rigor, and documentation.
+- `cross-repo`: coordinates multi-repo infra, edge, and app programs from one program folder using `astack-release` (`release.json` + rendered `RELEASE.md` Mermaid graph), immutable upstream output handoffs, `astack-watch-pr` PR sync, expand-switch-contract deploy gates, and reverse-order rollback runbooks.
 - `workflow-this`: turns a `dagify` graph into a resumable automated workflow with explicit task states.
 - `lead`: executes a task DAG with parallel time-boxed workers in isolated [Slates](https://github.com/hyper-light/slates) in-memory VFS volumes (preferred when available) or git worktrees, verified merges, and durable logs.
 - `slates`: provisions, mounts, snapshots, clones, merges (`green`/`work`/`submit`), lands (human-gated `grant`), and cleans up RAM-backed copy-on-write VFS agent workspaces with [Slates](https://github.com/hyper-light/slates) (preferred over git worktrees when `slates status` succeeds or Slates MCP is attached).
@@ -108,7 +114,9 @@ measured against the current release on the same machine. Merges go to main afte
 - `full-spectrum-testing`: writes acceptance tests across unit/integration/E2E layers including failures, races, fuzzing, and faults.
 - `find-it`: replicates bugs from provided or correlated real data (logs, traces, metrics, monitoring, usage analytics) and full failure-environment conditions (OS/arch, memory/CPU/disk, network, correlated services) across the end-to-end path, collects runtime evidence (`<file>_DEBUG_<shorthash>.<type>`, built-in -> astack -> third-party tools), shrinks repros before diagnosing, narrows root causes (bisect, live dumps, profile pairs), and cleans debug artifacts once fixed.
 - `fix-it`: applies disciplined, minimal, behavior-proven bug fixes using the desired/expected behavior matrix, strict state/concurrency/scope/system-impact rules, tests hardened against lead review, and before/after proof.
-- `bugbash`: lead-only multi-reviewer bug workflow—gathers full bug/linked context, swarms read-only reviewers split by reproduction method with `find-it` (shrinking repros first; never editing code) and peer `challenge` (fresh runs, reset timers, convergence stop rule, logging rejected theories as `decided:`), routes converged/competing fixes to workers (`fix-it`) in isolated Slates VFS volumes/worktrees who resubmit to post-fix reviewers (`prove-it` + PR proof attachment), and runs `make-it-stick` (dispatching workers + review for structural guards).
+- `bugbash`: lead-only default bug workflow—gathers the bug dossier fast, swarms read-only reviewers split by reproduction method with `find-it` (shrinking repros first; never editing code) and peer `challenge` (fresh runs, reset timers, convergence stop rule, logging rejected theories as `decided:`), routes converged/competing fixes to workers (`fix-it`) in isolated Slates VFS volumes/worktrees who resubmit to post-fix reviewers (`prove-it` + PR proof attachment), and runs `make-it-stick` (dispatching workers + review for structural guards).
+- `triage`: structured live-infrastructure and multi-layer systems debugging across any cloud, edge, cluster, serverless, or host platform—verifies target context, preserves volatile state before restarts, correlates recent changes/audit logs, isolates layers read-only, separates reversible mitigation from root cause, and hands confirmed bugs to `bugbash`.
+- `net-trace`: packet-to-cloud/edge network diagnostics across DNS, edge/CDN/WAF, routing, bidirectional firewall/network policies, flow logs, TLS/SSL/mTLS handshakes, sockets/`conntrack`, and secret-safe packet captures.
 
 ### Refactoring and cleanup
 
@@ -130,6 +138,11 @@ Indexed in `go` and checked by `review`:
 - `check-your-boundaries`: parse untrusted input once at the edge into domain types, then trust them inside.
 - `no-shared-writes`: give concurrent writers isolated state and merge on read before reaching for locks.
 - `safe-to-rerun`: make state-changing operations idempotent and crash-safe (converge from state, atomic write-then-rename).
+- `safe-to-deploy`: keep live workloads and rollbacks working across every deploy step (expand -> switch -> contract) and test pre-change non-privileged callers against post-migration state.
+- `least-privilege`: scope identities, tokens, roles, RBAC, DB grants, encryption keys, and network rules to exact needed actions/resources/conditions and prove both allow and deny as the real non-privileged identity.
+- `safe-iac`: inspect real plans/diffs against live state before applying, protect stateful and routing/DNS resources from surprise destroys, check live drift, pin immutable versions/digests, and bound quotas and spend.
+- `fail-safely`: bound timeouts, queues, pools, and retries (backoff + jitter + budget), decouple liveness probes from downstreams, shield origins, and drain gracefully across failure domains.
+- `observable-by-default`: make services, scheduled jobs, workers, queues, and infra operable with bounded-cardinality telemetry, trace correlation, symptom/SLO alerts, dead-letter visibility, and code-verified runbooks.
 - `no-bolt-ons`: fold new requirements cleanly into the design instead of special-case flags or `_v2` copies.
 - `yagni`: migrate callers and delete legacy paths together—no shims, deprecated aliases, or dead flags.
 - `comment-cop`: cut narrating comments; keep only API contracts, external constraints, legal headers, and links.
@@ -146,8 +159,9 @@ Indexed in `go` and checked by `review`:
 - `run-it-back`: restates goal, scope, exclusions, and assumptions in short checkable lines before coding.
 - `play-with-me`: builds a quick throwaway mockup, script, or demo proactively so you can try an idea first.
 - `talk-to-me`: explains unfamiliar concepts with domain terms, a diagram, a worked example, and an analogy.
-- `technical-writing`: standard for concise, concrete, code-verified technical docs.
+- `technical-writing`: analyzes documentation impact on every change (updating or removing stale repo docs in the same change) and sets the standard for concise, concrete, code-verified technical docs.
 - `wat`: rewrites the last message to lead with the bottom line and cut jargon and meta-commentary.
+- `bap`: immediate mid-session course correction when the person has to repeat a reminder or correction—drops apologies, audits why it slipped, repairs live state/workers, and locks in a structural guard (`make-it-stick`).
 - `rtfm`: checks your prompt, repo docs/code/history, local environment, and official docs before asking questions.
 - `analyze-environment`: discovers local/external CLIs, APIs, MCP servers, services, and env-var names, runs safe read-only/dry-run and auth-status probes, installs missing user-space tooling under `unattended`, publishes a shared `TOOLS.md` catalog for all agents, and isolates only human-only auth steps.
 - `research-this`: investigates internal + external sources, checks quotes in place, and grades findings A–F (`kiln`-compatible).
@@ -175,9 +189,11 @@ Indexed in `go` and checked by `review`:
   - `astack-check-gates`: structural tripwire auditing a git range (`<base>..<head>`) or commit for deleted/renamed tests, skips, lint/typecheck suppressions, assertion downgrades, cross-diff test swaps, tautologies, loosened numeric tolerances, and CI/lint/gate config edits.
   - `astack-review-ledger`: evaluates vectored review saturation over proven blocking bugs with fix-equivalence overlap verification, 2-reviewer Chapman + exact hypergeometric lower/upper bounds, 3+-reviewer Burnham–Overton $M_h$ jackknife + Beta-Binomial $M_h$ profile-likelihood bounds (observable-class saturation: "these models stopped finding new bugs", never falsely claiming 95% proof that hard bugs are absent), empirical catch-rate calibration from `scripts/eval.py --calibrate` (no picked 0.5 constant), landing-block gating on non-saturated risky vectors, internal Markdown coverage maps, and `LANES.md` review-count lines.
   - `astack-dispatch`: cross-harness dispatcher and `reviewer_pool` reachability checker supporting Claude (`claude`), Codex (`codex`), Antigravity (`agy`), Cursor CLI (`cursor-agent`/`agent`), Devin (`devin`), Pi (`pi`), Gemini (`gemini`), and custom CLI templates, enforcing pool approval and writing auditable JSON receipts.
-  - `astack-watch-pr`, `astack-watch-github`, `astack-watch-gitlab`, `astack-watch-bitbucket`: stdlib-only PR/MR watchers for GitHub (`github.com` + GHES), GitLab (`gitlab.com` + self-hosted with nested subgroups), and Bitbucket (Cloud REST 2.0 + Server/Data Center REST 1.0) with good-citizen rate-limit pacing (`ETag`/`304`, consolidated GraphQL with automatic REST fallback, `Retry-After`/`X-RateLimit-*`/`RateLimit-*`/`X-RateLimit-NearLimit` adaptation, idle backoff, per-PR locks), fork-isolated stacked PR/MR ordering, crash-safe `watch/<PR>.md` handoff markers, `patch-id-check` (`git patch-id` + `git range-diff` rebase verification), `diff-guard` (review-round diff-growth guard), `authorship-check` (takeover credit & `Co-authored-by` preservation), `autonomy`-enforced & `/leave-feedback`-audited `reply` subcommands, and idempotent lead remediation dispatch (`--role lead`, delegating edits to workers while running lead-owned vectored review and reply audits).
+  - `astack-watch-pr`, `astack-watch-github`, `astack-watch-gitlab`, `astack-watch-bitbucket`: stdlib-only PR/MR watchers for GitHub (`github.com` + GHES), GitLab (`gitlab.com` + self-hosted with nested subgroups), and Bitbucket (Cloud REST 2.0 + Server/Data Center REST 1.0) with good-citizen rate-limit pacing (`ETag`/`304`, consolidated GraphQL with automatic REST fallback, `Retry-After`/`X-RateLimit-*`/`RateLimit-*`/`X-RateLimit-NearLimit` adaptation, idle backoff, per-PR locks), fork-isolated stacked PR/MR ordering, **hold & external-guard gating** (`PRState.HELD` / exit `6` via forge `do-not-merge`/`hold` labels, `--hold`, `--gate-cmd`, and `--release-file`/`--release-step` DAG gates with forge auto-merge warnings), crash-safe `watch/<PR>.md` handoff markers, `patch-id-check` (`git patch-id` + `git range-diff` rebase verification), `diff-guard` (review-round diff-growth guard), `authorship-check` (takeover credit & `Co-authored-by` preservation), `autonomy`-enforced & `/leave-feedback`-audited `reply` subcommands, and idempotent lead remediation dispatch (`--role lead`, delegating edits to workers while running lead-owned vectored review and reply audits).
+  - `astack-release`: stdlib-only multi-repo and multi-step PR merge & deploy train manager (`init`, `load`, `add-step`, `set-pr`, `status`, `ready`, `sync`, `start`, `verify`, `complete`, `fail`, `rollback-plan`, `mark-rolled-back`, `render`) with DAG cycle/ancestor-output validation, atomic persistence, `astack-watch-pr` live PR syncing, `{{step.key}}` cross-repo output interpolation, secret-leak refusal, `settings.json` `autonomy` human gates, reverse-topological rollback planning, and rendered Mermaid `flowchart LR` release runbooks.
   - `astack-statechart`: runs TLC in `-tool` mode with `-dump dot,actionlabels`, single-worker minimum-depth BFS default (`--workers 1`), `--timeout`, and `--no-deadlock` (or parses DOT/trace output offline, rejecting malformed input), follows TLC exit status strictly, preserves multiple broken invariants per state, finds shortest paths via full untruncated state matching, and renders collision-safe Mermaid `stateDiagram-v2` (tested against 40 real `.tla`/`.cfg` specs recorded with TLC 2.19 and re-checked live in CI, plus a 10-spec live BFS differential fuzzer).
   - `astack-stamp` (+ post-edit hook): timestamps new lines appended to `LANES.md`.
+  - `astack-go-mode` (+ `astack-go-hook` lifecycle hooks): keeps Go mode (in the Lead role) sticky per session across follow-up prompts and context compaction/resume across Claude Code, Codex, Antigravity, and Cursor (`status`, `on`, `off`, `--hook`), without leaking into unrelated sessions or spawned subagents.
   - `astack-tools`: puts launchers for the `astack-*` CLI scripts onto `PATH` (`link-bin`; each runs the newest installed astack), provisions Python `>=3.11` via `uv` across macOS/Linux/Windows (arm64 & amd64), and manages an isolated venv for `taskex`, `orchestral`, and `werkflow` (`doctor`, `install`, `link-bin`, `python`, `werkflow`, `env`, `path`).
 - **Evals & CI:** 21 multi-harness, zero-hint outcome evals under `evals/` (cold-start skill discovery without `/astack:go`, worker wind-down/reports, Go-mode routing & dedicated agent spawning, multi-file planted-bug & decoy review, cross-harness review, context/contradiction/coding-rule review, pre-post PR comment auditing via `leave-feedback`, multi-file gamed-gate rejection, `find-it`/`fix-it` repro-shrinking and explicit-state bug fixing, lead `bugbash` reviewer-swarm convergence + `prove-it` PR evidence, 6 coding rules) with behavioral reproduction verifiers (`verify.py` + `evals/_repro_verify.py` executing saved reproductions against buggy, all-fixed, and leave-one-bug-in copies), `--calibrate` empirical per-model catch-rate measurement, and `--ablation with-without`, runnable on Claude Code, Codex, Antigravity (`agy`), Cursor CLI, Devin, or Pi via `python3 scripts/eval.py --harness <name>`, plus GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).
 

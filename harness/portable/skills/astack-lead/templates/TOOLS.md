@@ -1,6 +1,7 @@
 # <program>: shared tools & environment catalog
 
 Environment summary: <OS / arch, key runtime/toolchain versions, local dev services>.
+Active target contexts (cloud / edge / cluster / IaC): <account, project/subscription, edge zone, cluster/namespace, IaC workspace/stack, or none>.
 Updated by: <lead / researcher / worker>. Never write secret values, tokens, or credentials here (`no-leaked-secrets`).
 
 ## Tools & Access Catalog

@@ -1,0 +1,37 @@
+{
+  "astack-lane-stamp": {
+    "PostToolUse": [
+      {
+        "matcher": "write_file|edit_file|replace_file_content|multi_replace_file_content|run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./bin/astack-stamp-hook",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "astack-go-mode": {
+    "PostToolUse": [
+      {
+        "matcher": "read_file|view_file|run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./bin/astack-go-hook --harness antigravity --event PostToolUse",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "./bin/astack-go-hook --harness antigravity --event PreInvocation",
+        "timeout": 10
+      }
+    ]
+  }
+}

@@ -73,6 +73,14 @@ query WatchPR($owner: String!, $repo: String!, $number: Int!) {
       mergeable
       mergeStateStatus
       reviewDecision
+      autoMergeRequest {
+        enabledAt
+      }
+      labels(first: 50) {
+        nodes {
+          name
+        }
+      }
       headRefName
       headRefOid
       baseRefName
@@ -919,6 +927,12 @@ class GitHubAdapter(core.ForgeAdapter):
 
         bot_pending, bot_done = _detect_bot_states(checks, top_comments, [], head_sha, cfg)
         checks_final = self._enrich_failed_logs(target, checks, fetch_logs)
+        rest_labels = tuple(
+            str(lbl.get("name") or "").strip()
+            for lbl in (pr.get("labels") or [])
+            if isinstance(lbl, dict) and str(lbl.get("name") or "").strip()
+        )
+        rest_auto_merge = bool(pr.get("auto_merge"))
         snap = core.PRSnapshot(
             target=target,
             lifecycle=lifecycle,
@@ -947,6 +961,8 @@ class GitHubAdapter(core.ForgeAdapter):
             base_overlap_files=overlap,
             review_bot_pending=bot_pending,
             review_bot_done=bot_done,
+            labels=rest_labels,
+            auto_merge_enabled=rest_auto_merge,
             raw_merge_status=mergeable_state,
             observed_at=core.utc_iso(),
         )
@@ -1141,6 +1157,12 @@ class GitHubAdapter(core.ForgeAdapter):
         bot_pending, bot_done = _detect_bot_states(checks, top_comments, reviews_raw, head_sha, cfg)
         checks_final = self._enrich_failed_logs(target, checks, fetch_logs)
 
+        gql_labels = tuple(
+            str(node.get("name") or "").strip()
+            for node in ((pr.get("labels") or {}).get("nodes") or [])
+            if isinstance(node, dict) and str(node.get("name") or "").strip()
+        )
+        gql_auto_merge = bool(pr.get("autoMergeRequest"))
         snap = core.PRSnapshot(
             target=target,
             lifecycle=lifecycle,
@@ -1169,6 +1191,8 @@ class GitHubAdapter(core.ForgeAdapter):
             base_overlap_files=overlap,
             review_bot_pending=bot_pending,
             review_bot_done=bot_done,
+            labels=gql_labels,
+            auto_merge_enabled=gql_auto_merge,
             raw_merge_status=merge_state_raw,
             observed_at=core.utc_iso(),
         )

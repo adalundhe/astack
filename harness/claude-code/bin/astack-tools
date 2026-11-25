@@ -632,7 +632,7 @@ from pathlib import Path
 NAME = @NAME@
 HINT = @HINT@
 SKIP = {".git", "node_modules", "__pycache__", "skills", "evals", "docs", "files", "sessions"}
-MANIFESTS = (".claude-plugin/plugin.json", ".cursor-plugin/plugin.json", ".codex-plugin/plugin.json", "plugin.json")
+MANIFESTS = (".claude-plugin/plugin.json", ".cursor-plugin/plugin.json", ".codex-plugin/plugin.json", ".antigravity-plugin/plugin.json", "plugin.json")
 
 
 def roots():

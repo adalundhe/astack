@@ -1505,5 +1505,266 @@ class PatchIdCarryOverTest(unittest.TestCase):
             self.assertIn("user_space_tool_install", core.DEFAULT_AUTONOMY_ALLOW)
 
 
+class ExternalGateAndHoldTests(unittest.TestCase):
+    """Verify PRState.HELD, forge hold labels, auto-merge warnings, --gate-cmd, and --release-file DAG gates."""
+
+    def _approved_green_snap(self, *, labels=(), auto_merge_enabled=False, checks=None, review_verdict=None):
+        target = core.PRTarget(
+            core.ForgeKind.GITHUB, "github.com", "acme/security-repo", 22,
+            url="https://github.com/acme/security-repo/pull/22",
+        )
+        return core.PRSnapshot(
+            target=target,
+            lifecycle=core.PRLifecycle.OPEN,
+            title="Grant KMS policy to new IAM role",
+            url=target.url,
+            head_branch="feat/iam-policy",
+            head_sha="1122334455667",
+            base_branch="main",
+            base_sha="9988776655443",
+            author="alice",
+            viewer="alice",
+            is_draft=False,
+            mergeability=core.Mergeability.CLEAN,
+            behind_by=0,
+            review_verdict=review_verdict or core.ReviewVerdict.APPROVED,
+            approvals_count=1 if (review_verdict or core.ReviewVerdict.APPROVED) == core.ReviewVerdict.APPROVED else 0,
+            approvals_required=1,
+            created_at="2026-11-24T10:00:00Z",
+            updated_at="2026-11-24T11:00:00Z",
+            checks=checks if checks is not None else (core.CheckRun("ci/test", core.CheckState.PASSED, required=True),),
+            labels=tuple(labels),
+            auto_merge_enabled=auto_merge_enabled,
+        )
+
+    def test_hold_label_and_auto_merge_warning_prevent_merge_ready(self):
+        snap = self._approved_green_snap(labels=("do-not-merge", "infra"), auto_merge_enabled=True)
+        cfg = core.PolicyConfig(require_approval=True)
+        dec = core.evaluate_snapshot(snap, cfg)
+        self.assertEqual(dec.state, core.PRState.HELD)
+        self.assertEqual(dec.exit_code, core.EXIT_MERGE_GATE)
+        self.assertIn("label:do-not-merge", dec.waiting_on)
+        self.assertIn("WARNING: forge auto-merge is enabled", dec.reason)
+
+        marker = core.render_handoff_marker(snap, dec, core.RateLimitState(), cfg, {})
+        self.assertIn("## Active Holds & External Gates", marker)
+        self.assertIn("forge auto-merge is enabled", marker)
+        self.assertIn("label:do-not-merge", marker)
+
+        # Auto-merge race warning also fires early while waiting on approval with active external hold
+        waiting_snap = self._approved_green_snap(
+            labels=("hold",),
+            auto_merge_enabled=True,
+            review_verdict=core.ReviewVerdict.REVIEW_REQUIRED,
+        )
+        waiting_dec = core.evaluate_snapshot(
+            waiting_snap,
+            cfg,
+            now_dt=datetime(2026, 11, 24, 12, 0, tzinfo=timezone.utc),
+        )
+        self.assertEqual(waiting_dec.state, core.PRState.WAITING_APPROVAL)
+        self.assertIn("WARNING: forge auto-merge is enabled", waiting_dec.reason)
+
+        # Actionable blockers (CI failure) still take priority over holds so workers fix CI while held
+        ci_fail_snap = self._approved_green_snap(
+            labels=("do-not-merge",),
+            checks=(core.CheckRun("ci/test", core.CheckState.FAILED, required=True),),
+        )
+        ci_dec = core.evaluate_snapshot(ci_fail_snap, cfg, external_holds=("hold:wait for terraform",))
+        self.assertEqual(ci_dec.state, core.PRState.CI_FAILED)
+        self.assertEqual(ci_dec.exit_code, core.EXIT_CI_FAILED)
+
+    def test_release_file_dag_gate_and_dynamic_watch_polling(self):
+        with tempfile.TemporaryDirectory(prefix="astack-dag-gate-") as td:
+            root = Path(td)
+            release_path = root / "release.json"
+            gate_flag = root / "terraform-applied.flag"
+
+            def write_release(apply_status: str, outputs: dict):
+                release_path.write_text(json.dumps({
+                    "schema_version": 1,
+                    "name": "roles-to-security",
+                    "steps": [
+                        {
+                            "id": "iam-roles-apply",
+                            "kind": "deploy",
+                            "title": "Apply IAM roles",
+                            "status": apply_status,
+                            "outputs": outputs,
+                        },
+                        {
+                            "id": "security-pr",
+                            "kind": "pr",
+                            "title": "Reference {{iam-roles-apply.app_role_arn}}",
+                            "depends_on": ["iam-roles-apply"],
+                            "requires_outputs": ["iam-roles-apply.app_role_arn"],
+                            "gate_cmds": [
+                                f"test -f {gate_flag} && test '{{{{iam-roles-apply.app_role_arn}}}}' = 'arn:aws:iam::123:role/app'"
+                            ],
+                            "status": "in_progress",
+                        },
+                    ],
+                }))
+
+            # 1. Upstream apply still verifying (external guard not done) -> HELD
+            write_release("verifying", {})
+            cfg = core.PolicyConfig(
+                require_approval=True,
+                settle_polls=1,
+                release_file=release_path,
+                release_step="security-pr",
+            )
+            unmet, has_static, has_dynamic = core.evaluate_external_gates(cfg)
+            self.assertFalse(has_static)
+            self.assertTrue(has_dynamic)
+            self.assertTrue(any("release_dep:iam-roles-apply(verifying)" in u for u in unmet))
+            self.assertTrue(any("release_output:iam-roles-apply.app_role_arn" in u for u in unmet))
+
+            snap = self._approved_green_snap()
+            dec_held = core.evaluate_snapshot(snap, cfg, external_holds=unmet)
+            self.assertEqual(dec_held.state, core.PRState.HELD)
+            self.assertEqual(dec_held.exit_code, core.EXIT_MERGE_GATE)
+
+            # 2. Upstream apply done with output, BUT step gate_cmd flag file still missing -> still HELD on gate_cmd!
+            write_release("done", {"app_role_arn": "arn:aws:iam::123:role/app"})
+            unmet2, _, _ = core.evaluate_external_gates(cfg)
+            self.assertTrue(any(u.startswith("gate_cmd:") for u in unmet2), unmet2)
+
+            # 3. Continuous watch loop polls politely while dynamic gate is unmet, then exits 0 MERGE_READY once cleared!
+            poll_counter = {"n": 0}
+
+            class _DynamicAdapter(core.ForgeAdapter):
+                forge_kind = core.ForgeKind.GITHUB
+
+                def fetch_snapshot(self, target, cfg, *, prev_base_sha=None, fetch_logs=False, lightweight_probe=False):
+                    poll_counter["n"] += 1
+                    if poll_counter["n"] == 2:
+                        gate_flag.write_text("ok")
+                    return snap, poll_counter["n"] == 1
+
+            buf = io.StringIO()
+            rc = core.run_watch_session(
+                _DynamicAdapter(),
+                snap.target,
+                core.RateLimitGovernor(base_interval=5.0, max_interval=5.0, jitter_ratio=0.0),
+                cfg,
+                once=False,
+                fmt="json",
+                state_dir=root / "state",
+                marker_dir=root / "markers",
+                sleep_fn=lambda _: None,
+                stdout=buf,
+            )
+            self.assertEqual(rc, core.EXIT_OK)
+            self.assertEqual(poll_counter["n"], 2)
+            # Last JSON object emitted should be merge_ready
+            last_obj = json.loads(buf.getvalue().strip().split("\n}\n")[-1].rstrip() + ("\n}" if not buf.getvalue().strip().endswith("}") else ""))
+            self.assertEqual(last_obj["state"], "merge_ready")
+
+            # 4. Static --hold exits 6 immediately (not polled forever)
+            static_cfg = core.PolicyConfig(require_approval=True, settle_polls=1, holds=("freeze window",))
+            buf_static = io.StringIO()
+            rc_static = core.run_watch_session(
+                _DynamicAdapter(),
+                snap.target,
+                core.RateLimitGovernor(base_interval=5.0, max_interval=5.0, jitter_ratio=0.0),
+                static_cfg,
+                once=False,
+                fmt="json",
+                state_dir=root / "state-static",
+                sleep_fn=lambda _: None,
+                stdout=buf_static,
+            )
+            self.assertEqual(rc_static, core.EXIT_MERGE_GATE)
+            self.assertEqual(json.loads(buf_static.getvalue())["state"], "held")
+
+    def test_github_graphql_and_gitlab_extract_hold_labels_and_auto_merge(self):
+        # GitHub GraphQL extraction
+        def gh_handler(method, path, headers, body):
+            if path.endswith("/graphql"):
+                return 200, {"X-RateLimit-Remaining": "4999", "X-RateLimit-Limit": "5000"}, {
+                    "data": {
+                        "rateLimit": {"cost": 1, "remaining": 4999, "limit": 5000, "resetAt": "2026-11-25T12:00:00Z"},
+                        "viewer": {"login": "alice"},
+                        "repository": {
+                            "pullRequest": {
+                                "number": 77,
+                                "url": "https://github.com/acme/repo/pull/77",
+                                "title": "Gated PR",
+                                "state": "OPEN",
+                                "isDraft": False,
+                                "createdAt": "2026-11-24T10:00:00Z",
+                                "updatedAt": "2026-11-24T11:00:00Z",
+                                "mergeable": "MERGEABLE",
+                                "mergeStateStatus": "CLEAN",
+                                "reviewDecision": "APPROVED",
+                                "autoMergeRequest": {"enabledAt": "2026-11-24T11:00:00Z"},
+                                "labels": {"nodes": [{"name": "wait-for-gate"}]},
+                                "headRefName": "feat/x",
+                                "headRefOid": "abc1234",
+                                "baseRefName": "main",
+                                "baseRef": {"target": {"oid": "def5678"}},
+                                "author": {"login": "alice", "__typename": "User"},
+                                "comments": {"nodes": []},
+                                "reviews": {"nodes": []},
+                                "reviewThreads": {"pageInfo": {"hasNextPage": False}, "nodes": []},
+                                "commits": {"nodes": [{"commit": {"oid": "abc1234", "statusCheckRollup": {"state": "SUCCESS", "contexts": {"pageInfo": {"hasNextPage": False}, "nodes": []}}}}]},
+                            }
+                        },
+                    }
+                }
+            return 404, {}, {}
+
+        with mock_http_boundary(gh_handler) as base_url:
+            gov = core.RateLimitGovernor()
+            adapter = gh_mod.GitHubAdapter(gov, token="tok")
+            target = core.PRTarget(core.ForgeKind.GITHUB, "127.0.0.1", "acme/repo", 77, url="https://github.com/acme/repo/pull/77", api_url=base_url)
+            snap, _ = adapter.fetch_snapshot(target, core.PolicyConfig())
+            self.assertEqual(snap.labels, ("wait-for-gate",))
+            self.assertTrue(snap.auto_merge_enabled)
+            dec = core.evaluate_snapshot(snap, core.PolicyConfig())
+            self.assertEqual(dec.state, core.PRState.HELD)
+            self.assertIn("WARNING: forge auto-merge is enabled", dec.reason)
+
+        # GitLab REST extraction
+        def gl_handler(method, path, headers, body):
+            if "/merge_requests/15?" in path:
+                return 200, {}, {
+                    "iid": 15,
+                    "title": "Gated MR",
+                    "state": "opened",
+                    "draft": False,
+                    "web_url": "https://gitlab.com/org/repo/-/merge_requests/15",
+                    "sha": "111aaaa",
+                    "source_branch": "feat/gl",
+                    "target_branch": "main",
+                    "diff_refs": {"base_sha": "222bbbb", "head_sha": "111aaaa"},
+                    "author": {"username": "alice"},
+                    "detailed_merge_status": "mergeable",
+                    "labels": ["do-not-merge"],
+                    "merge_when_pipeline_succeeds": True,
+                    "created_at": "2026-11-24T10:00:00Z",
+                    "updated_at": "2026-11-24T11:00:00Z",
+                }
+            if path.endswith("/user"):
+                return 200, {}, {"username": "alice"}
+            if "/discussions" in path:
+                return 200, {}, []
+            if "/approvals" in path:
+                return 200, {}, {"approved": True, "approved_by": [{"user": {"username": "bob"}}], "approvals_left": 0}
+            return 404, {}, {}
+
+        with mock_http_boundary(gl_handler) as base_url:
+            gov = core.RateLimitGovernor()
+            adapter = gl_mod.GitLabAdapter(gov, token="tok")
+            target = core.PRTarget(core.ForgeKind.GITLAB, "127.0.0.1", "org/repo", 15, url="https://gitlab.com/org/repo/-/merge_requests/15", api_url=base_url)
+            snap, _ = adapter.fetch_snapshot(target, core.PolicyConfig())
+            self.assertEqual(snap.labels, ("do-not-merge",))
+            self.assertTrue(snap.auto_merge_enabled)
+            dec = core.evaluate_snapshot(snap, core.PolicyConfig())
+            self.assertEqual(dec.state, core.PRState.HELD)
+            self.assertIn("WARNING: forge auto-merge is enabled", dec.reason)
+
+
 if __name__ == "__main__":
     unittest.main()

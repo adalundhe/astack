@@ -516,6 +516,10 @@ class GitLabAdapter(core.ForgeAdapter):
                         )
                     )
 
+        gl_labels = tuple(
+            str(lbl).strip() for lbl in (mr.get("labels") or []) if str(lbl).strip()
+        )
+        gl_auto_merge = bool(mr.get("auto_merge") or mr.get("merge_when_pipeline_succeeds"))
         snap = core.PRSnapshot(
             target=target,
             lifecycle=lifecycle,
@@ -544,6 +548,8 @@ class GitLabAdapter(core.ForgeAdapter):
             base_overlap_files=overlap,
             review_bot_pending=(),
             review_bot_done=(),
+            labels=gl_labels,
+            auto_merge_enabled=gl_auto_merge,
             raw_merge_status=raw_dms,
             observed_at=core.utc_iso(),
         )

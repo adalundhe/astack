@@ -6,6 +6,30 @@
           {
             "type": "command",
             "command": "\"$PLUGIN_ROOT/bin/astack-stamp-hook\""
+          },
+          {
+            "type": "command",
+            "command": "\"$PLUGIN_ROOT/bin/astack-go-hook\" --harness codex --event PostToolUse"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$PLUGIN_ROOT/bin/astack-go-hook\" --harness codex --event UserPromptSubmit"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$PLUGIN_ROOT/bin/astack-go-hook\" --harness codex --event SessionStart"
           }
         ]
       }

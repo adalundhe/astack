@@ -31,7 +31,7 @@ Read `<ASTACK_SKILLS_DIR>/go/SKILL.md` (or `astack-go/SKILL.md`) for the full in
 
 If `astack-tools` isn't on `PATH`, or a `get` doesn't end with its `[end of <name>` line, read that skill's `SKILL.md` by path from your brief's skills directory.
 
-**Your skills.** Required, every time: `/astack:check-your-boundaries`, `/astack:cleanup`, `/astack:comment-cop`, `/astack:data-structures-first`, `/astack:decisions-in-plain-words`, `/astack:go`, `/astack:no-bolt-ons`, `/astack:rtfm`, `/astack:run-it-back`, `/astack:tests-assert-behaviour`, `/astack:yagni`. Load when the work calls for it: `/astack:ab-test`, `/astack:address-feedback`, `/astack:analyze-environment`, `/astack:automate-this`, `/astack:baseline`, `/astack:benchmarking`, `/astack:blast-radius`, `/astack:challenge`, `/astack:checkpoint`, `/astack:clamber`, `/astack:decide-by-data`, `/astack:delight-users`, `/astack:event-driven`, `/astack:find-it`, `/astack:fix-it`, `/astack:formal-validate`, `/astack:full-spectrum-testing`, `/astack:how-it-works`, `/astack:leave-it-better`, `/astack:minimize-state-stores`, `/astack:modularize`, `/astack:never-trade-functionality`, `/astack:no-hidden-config`, `/astack:no-hidden-flow-control`, `/astack:no-implicit-states`, `/astack:no-leaked-secrets`, `/astack:no-picked-constants`, `/astack:no-shared-writes`, `/astack:orchestral`, `/astack:play-with-me`, `/astack:prove-it`, `/astack:research-this`, `/astack:resume`, `/astack:safe-to-rerun`, `/astack:show-the-states`, `/astack:simplify-me`, `/astack:slates`, `/astack:suspend`, `/astack:swarm-hypothesis`, `/astack:talk-to-me`, `/astack:taskex`, `/astack:technical-writing`, `/astack:test-drive`, `/astack:wat`, `/astack:werkflow`, `/astack:worrywart`.
+**Your skills.** Required, every time: `/astack:check-your-boundaries`, `/astack:cleanup`, `/astack:comment-cop`, `/astack:data-structures-first`, `/astack:decisions-in-plain-words`, `/astack:go`, `/astack:no-bolt-ons`, `/astack:rtfm`, `/astack:run-it-back`, `/astack:tests-assert-behaviour`, `/astack:yagni`. Load when the work calls for it: `/astack:ab-test`, `/astack:address-feedback`, `/astack:analyze-environment`, `/astack:automate-this`, `/astack:bap`, `/astack:baseline`, `/astack:benchmarking`, `/astack:blast-radius`, `/astack:challenge`, `/astack:checkpoint`, `/astack:clamber`, `/astack:decide-by-data`, `/astack:delight-users`, `/astack:event-driven`, `/astack:fail-safely`, `/astack:find-it`, `/astack:fix-it`, `/astack:formal-validate`, `/astack:full-spectrum-testing`, `/astack:how-it-works`, `/astack:least-privilege`, `/astack:leave-it-better`, `/astack:minimize-state-stores`, `/astack:modularize`, `/astack:net-trace`, `/astack:never-trade-functionality`, `/astack:no-hidden-config`, `/astack:no-hidden-flow-control`, `/astack:no-implicit-states`, `/astack:no-leaked-secrets`, `/astack:no-picked-constants`, `/astack:no-shared-writes`, `/astack:observable-by-default`, `/astack:orchestral`, `/astack:play-with-me`, `/astack:prove-it`, `/astack:research-this`, `/astack:resume`, `/astack:safe-iac`, `/astack:safe-to-deploy`, `/astack:safe-to-rerun`, `/astack:show-the-states`, `/astack:simplify-me`, `/astack:slates`, `/astack:suspend`, `/astack:swarm-hypothesis`, `/astack:talk-to-me`, `/astack:taskex`, `/astack:technical-writing`, `/astack:test-drive`, `/astack:triage`, `/astack:wat`, `/astack:werkflow`, `/astack:worrywart`.
 
 ## First
 
@@ -73,10 +73,17 @@ Astack skills are hidden from the model catalog to save context; read the matchi
 - failing test, suspected bug, hang, leak, or slow profile: **find-it**
 - implementing a fix for a confirmed bug or regression: **fix-it**
 - designing data shapes, schemas, or state: **data-structures-first**
+- migrations, auth/identity, infra, DNS/edge, deploy waves, or contract cutovers: **safe-to-deploy**
+- auth, identities, tokens, roles, RBAC, DB grants, encryption keys, or network rules: **least-privilege**
+- declarative infra, IaC, edge/DNS/WAF configs, or cluster manifests: **safe-iac**
+- network boundaries, retries, timeouts, queues, pools, probes, drain, or failure domains: **fail-safely**
+- services, scheduled jobs, workers, queues, alerts, telemetry, or runbooks: **observable-by-default**
+- networking, DNS, edge/WAF, routing, flow logs, TLS/mTLS, or packet tracing: **net-trace**
 - limit, size, threshold, timeout, or interval: **no-picked-constants**
 - sleep, timer, poll, or retry loop: **event-driven**
 - speedup that changes user-visible behavior: **never-trade-functionality**
 - writing or fixing a test: **tests-assert-behaviour**
+- any change affecting behavior, interfaces, config, architecture, or operations (audit & update impacted repo docs): **technical-writing**
 - anything written for the person: **decisions-in-plain-words**
 
 ## Check and merge
@@ -84,8 +91,9 @@ Astack skills are hidden from the model catalog to save context; read the matchi
 1. **Scale pre-review checks to change size and risk** as specified in `RULES.md`: low-risk, isolated edits run lint and touched tests before submitting for lead vectored **review** (leaving full suites and whole-system benchmarks for the lead on the target branch); medium/high-risk changes touching shared interfaces, concurrency, persistence, security, or core paths run the broader/full suite before submitting for lead vectored **review**. Every lane clears lead **review** before landing; workers never spawn reviewers themselves.
 2. **Rebase/merge target only when needed; verify with `git range-diff`:** fetch the target branch. If the target has moved since you branched (so untested code would otherwise land), merge or rebase onto the target and run `astack-watch-pr patch-id-check --before <old_base>..<old_head> --after <new_base>..HEAD --json` (which checks both `git patch-id --stable` and `git range-diff` to confirm no behavior was dropped and no old behavior was brought back). Carry your prior verification verdict only when `carry_verdict` is `true` and incoming target commits do not overlap your blast radius—otherwise inspect the `git range-diff` diff-of-diffs and rerun checks on the combined tree before pushing. If the push is rejected, repeat fetch, integrate, verify, and push. Never force-push a shared/protected branch.
 3. **Preserve takeover credit:** when finishing, rebasing, squashing, or grafting another person's commits or branch, preserve original git authorship (`git rebase`/`git cherry-pick`/`--author`) or add `Co-authored-by: Name <email>` trailers, and confirm with `astack-watch-pr authorship-check`.
-4. **Never unilaterally loosen a gate:** only a lead-countersigned revision in `RULES.md` changes a check or acceptance bar.
-5. Include verification commands and numbers in commit messages. When spawned directly from `/astack:go` without a program merge target, commit verified changes on your worktree/branch (or leave scoped edits clean if no worktree was created) and report the exact checks, numbers, and commit SHAs for the parent to review and integrate.
+4. **Audit impacted repo docs (**technical-writing**):** before submitting, inspect what docs the repo maintains, update or remove stale docs within your writable paths, and list any impacted doc outside your writable paths under `DOCS` in your report so the lead updates it.
+5. **Never unilaterally loosen a gate:** only a lead-countersigned revision in `RULES.md` changes a check or acceptance bar.
+6. Include verification commands and numbers in commit messages. When spawned directly from `/astack:go` without a program merge target, commit verified changes on your worktree/branch (or leave scoped edits clean if no worktree was created) and report the exact checks, numbers, and commit SHAs for the parent to review and integrate.
 
 Unmerged green work on a side branch helps no one; merged commits outlive your run.
 
@@ -117,6 +125,12 @@ PUSHED, NOT MERGED
 
 EVIDENCE
 - <the done-when check>: `<command>` -> <result>
+
+DIAGRAMS
+- <title / scope>: inline Mermaid block (e.g. `stateDiagram-v2` / flow / architecture) + doc/file path if created or updated (so the lead presents it and includes it in PRs/docs)
+
+DOCS
+- <repo doc updated, confirmed unaffected, or flagged outside writable paths for the lead>
 
 SKILLS READ
 - <skill>: <the choice it changed>

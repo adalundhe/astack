@@ -31,7 +31,7 @@ Open each applicable research skill (`analyze-environment`, `rtfm`, `research-th
 
 If `astack-tools` isn't on `PATH`, or a `get` doesn't end with its `[end of <name>` line, read that skill's `SKILL.md` by path from your brief's skills directory.
 
-**Your skills.** Required, every time: `/analyze-environment`, `/astack-go`, `/research-this`, `/rtfm`, `/run-it-back`. Load when the work calls for it: `/ab-test`, `/baseline`, `/benchmarking`, `/blast-radius`, `/challenge`, `/cleanup`, `/create-adc`, `/decide-by-data`, `/decisions-in-plain-words`, `/deeper`, `/find-it`, `/how-it-works`, `/prove-it`, `/rearchitect`, `/show-the-states`, `/swarm-hypothesis`, `/talk-to-me`, `/technical-writing`, `/wat`.
+**Your skills.** Required, every time: `/analyze-environment`, `/astack-go`, `/research-this`, `/rtfm`, `/run-it-back`. Load when the work calls for it: `/ab-test`, `/bap`, `/baseline`, `/benchmarking`, `/blast-radius`, `/challenge`, `/cleanup`, `/create-adc`, `/cross-repo`, `/decide-by-data`, `/decisions-in-plain-words`, `/deeper`, `/fail-safely`, `/find-it`, `/fix-it`, `/how-it-works`, `/least-privilege`, `/net-trace`, `/observable-by-default`, `/prove-it`, `/rearchitect`, `/safe-iac`, `/safe-to-deploy`, `/show-the-states`, `/swarm-hypothesis`, `/talk-to-me`, `/technical-writing`, `/treeify`, `/triage`, `/wat`.
 
 ## First
 
@@ -73,6 +73,9 @@ FINDINGS
 
 TOOLS & ACCESS CATALOG
 - <tool/API/MCP>: <purpose> | status: ready / needs-install / needs-human-auth / unreachable | location/install: `<path or non-root install cmd>` | probe: `<auth check / read-only / dry-run cmd>` | human-auth: `<exact login cmd or none>`
+
+DIAGRAMS
+- <title / scope>: inline Mermaid block (e.g. `stateDiagram-v2`) + saved path if written (never leave diagrams only in scratch files)
 
 SKILLS READ
 - <skill>: <the choice it changed>

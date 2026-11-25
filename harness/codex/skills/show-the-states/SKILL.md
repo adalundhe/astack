@@ -28,10 +28,10 @@ Use the tool's verified graph and shortest paths as ground truth, then translate
 4. **Add probabilities when asked or when data exists:** show transition rates/probabilities with their source (counted log/metric events, sample window, and count). If asked without data, run a seeded simulation on recorded or researched inputs with enough runs to report spread, or use **research-this** for published rates—never guess (**no-picked-constants**).
 5. **Highlight failures:** mark invariant-violating states (naming the broken rule) and shortest paths to each failure. When debugging, trace the actual failure path with evidence per step (log line, trace span, test step) and flag the unwanted or missing transition (**find-it**).
 6. **Keep it scannable:** collapse equivalent states and omit irrelevant steps, without merging distinct rule violations, hiding failure steps, or stranding states. Note what you omitted.
-7. **Render in Mermaid** (`stateDiagram-v2`) inline alongside its context in the report, review, brief, or AD.
+7. **Render in Mermaid and hand off—never leave a diagram stranded:** render the `stateDiagram-v2` block inline alongside its context in your report (`DIAGRAMS` section for researchers/workers) so the lead receives and presents it to the person, and include relevant state/transition diagrams in the PR description (**watch-pr**) and matching repo docs, ADs, or runbooks (**technical-writing**) whenever the diagram explains system behavior, cutovers, or failure paths.
 
-During planning, annotate which task builds which states and transitions; include the diagram in briefs and check code against it during review.
+During planning, annotate which task builds which states and transitions; include the diagram in briefs, check code against it during review, and carry the verified final diagram into the user report, PR description, and docs.
 
-Referenced skills: `research-this` (`../research-this/SKILL.md`), `no-picked-constants` (`../no-picked-constants/SKILL.md`), `find-it` (`../find-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `research-this` (`../research-this/SKILL.md`), `no-picked-constants` (`../no-picked-constants/SKILL.md`), `find-it` (`../find-it/SKILL.md`), `watch-pr` (`../watch-pr/SKILL.md`), `technical-writing` (`../technical-writing/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's statechart skill and TLC statechart tool (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

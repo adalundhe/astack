@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Dagify
 
-Break a request into tasks that one agent each can complete and verify, ordered so independent work runs in parallel.
+Break a request into tasks that one agent each can complete and verify, ordered so independent work runs in parallel. For greenfield features, subsystems, UI trees, or IaC stacks built bottom-up by component waves, use **treeify** instead.
 
 1. **Align on the goal** (**run-it-back**): state what users will see when done and what's out of scope. Read the affected code first (**how-it-works**), and diagram states when behavior depends on history (**show-the-states**).
 2. **Pick a workflow shape.** Every shape ends in a review that must pass before dependent tasks start.
@@ -14,6 +14,7 @@ Break a request into tasks that one agent each can complete and verify, ordered 
    - **Feature:** data shape and acceptance criteria -> end-to-end vertical slices -> end-to-end tests -> review.
    - **Performance:** harness and baseline -> candidate variants -> A/B measurement -> review of winner (**benchmarking**, **ab-test**).
    - **Refactor:** tests pinning current behavior -> refactor -> review.
+   - **Migration / Cutover:** expand (additive schema/auth/infra keeping live old workloads + rollback working) -> switch callers & verify zero legacy traffic -> contract/retire in a later release (**safe-to-deploy**).
 
    Adapt as needed, but keep the first task and final review. If no shape fits, build a custom graph: tackle the riskiest unknown first, establish harnesses/baselines before changes, and make each task a verifiable experiment (`verified`, `not verified`, or `inconclusive`).
 3. **Scope each task tightly:** one deliverable, one done-when, doable and provable by a single agent, small enough for a reviewer to hold in their head. Split multi-deliverable tasks; merge tasks that can't be verified independently.
@@ -22,7 +23,7 @@ Break a request into tasks that one agent each can complete and verify, ordered 
    - **Implementation guide:** brief notes, references, examples, and sample inputs/outputs.
    - **Acceptance criteria:** user-observable behavior. Include numeric targets only when set by the person or measured via **benchmarking** / **ab-test**.
    - **Tests:** scoped to the task, checking behavior over implementation, isolated, diamond-shaped, covering failure paths, edge cases, races/deadlocks/livelocks, fuzzing, and injected faults where applicable (**tests-assert-behaviour**, **full-spectrum-testing**).
-   - **Touches:** files, data, and interfaces read or written, plus states introduced.
+   - **Touches:** files, data, interfaces, and any repo docs impacted by the change (**technical-writing**), plus states introduced. (When parallel tasks would collide on shared docs, include a downstream doc-sync task or have the lead update shared docs after lanes merge.)
 5. **Add dependency edges.** Draw an edge only when task B needs task A's output, or when both write the same file, data, or interface (**no-shared-writes**). Order prerequisites cleanly: failing test before fix, deletion before reshape, baseline before optimization.
 6. **Parallelize independent tasks** up to what the machine can handle (**no-picked-constants**). **Isolation & watch/swap:** workers implement all changes and fixes in **slates** in-memory VFS volumes (`https://github.com/hyper-light/slates`, preferred when available) or git worktrees; reviewers run reproductions and verify worker-submitted changes read-only in **slates** volumes or review worktrees—never writing fixes themselves, instead sending recommended fixes and results back to workers to implement and resubmit. Enforce **lead**'s watch/swap clocks across all workers and reviewers (`LANES.md` + `astack-status` every `check_in_minutes`, wind-down reminder, fresh successor with reset timers on overdue runs).
 7. **Write the graph** where requested (or in the program folder, in an astack program): every task with its fields, explicit edges, and a Mermaid diagram. Each task should be directly usable as a worker brief.
@@ -39,6 +40,6 @@ Re-plan if failures share an external root cause, a task needs splitting, or une
 
 **Guard the task contract:** the acceptance criteria and tests in a task are the whole bar—workers must neither invent extra unasked gates nor game existing ones. Check full lane ranges with `astack-check-gates <base>..<head>` (or `astack-verify-merge <sha> --base <base> --strict-gates`) alongside **review**; if a worker games a gate, reset the contract (revert the gamed change, tighten the brief/tests, and dispatch a fresh worker). If a gate itself is genuinely wrong or broken, fix the gate in its own dedicated task/change rather than weakening it inside feature work.
 
-Referenced skills: `run-it-back` (`../run-it-back/SKILL.md`), `how-it-works` (`../how-it-works/SKILL.md`), `show-the-states` (`../show-the-states/SKILL.md`), `find-it` (`../find-it/SKILL.md`), `fix-it` (`../fix-it/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `tests-assert-behaviour` (`../tests-assert-behaviour/SKILL.md`), `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`), `no-shared-writes` (`../no-shared-writes/SKILL.md`), `no-picked-constants` (`../no-picked-constants/SKILL.md`), `slates` (`../slates/SKILL.md`), `lead` (`../astack-lead/SKILL.md`), `review` (`../astack-review/SKILL.md`), `address-feedback` (`../address-feedback/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `treeify` (`../treeify/SKILL.md`), `run-it-back` (`../run-it-back/SKILL.md`), `how-it-works` (`../how-it-works/SKILL.md`), `show-the-states` (`../show-the-states/SKILL.md`), `find-it` (`../find-it/SKILL.md`), `fix-it` (`../fix-it/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `safe-to-deploy` (`../safe-to-deploy/SKILL.md`), `tests-assert-behaviour` (`../tests-assert-behaviour/SKILL.md`), `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`), `technical-writing` (`../technical-writing/SKILL.md`), `no-shared-writes` (`../no-shared-writes/SKILL.md`), `no-picked-constants` (`../no-picked-constants/SKILL.md`), `slates` (`../slates/SKILL.md`), `lead` (`../astack-lead/SKILL.md`), `review` (`../astack-review/SKILL.md`), `address-feedback` (`../address-feedback/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's figure-it-out skill and its sequence-verifiable-units principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->
