@@ -1172,7 +1172,7 @@ def evaluate_snapshot(
                 frontier_target=target,
             )
         waiting_ci = [c.name for c in pending_checks] + [f"missing:{n}" for n in missing_required]
-        if waiting_ci or (gating and not settled):
+        if waiting_ci or not settled:
             return Decision(
                 state=PRState.CI_PENDING,
                 exit_code=EXIT_OK,
@@ -1238,7 +1238,7 @@ def evaluate_snapshot(
         + [f"bot:{b}" for b in pending_bots]
         + [f"automation:{b}" for b in snapshot.review_bot_pending if b not in pending_bots]
     )
-    if waiting_items or (gating and not settled):
+    if waiting_items or not settled:
         return Decision(
             state=PRState.CI_PENDING,
             exit_code=EXIT_OK,
@@ -2534,8 +2534,8 @@ def detect_forge_from_input(raw_target: Optional[str], host: Optional[str], cwd:
     )
 
 
-def _check_signature(snap: PRSnapshot) -> Tuple[Tuple[str, str], ...]:
-    return tuple(sorted((c.name, c.state.value) for c in snap.checks if not c.advisory))
+def _check_signature(snap: PRSnapshot) -> Tuple[str, Tuple[Tuple[str, str], ...]]:
+    return (snap.head_sha, tuple(sorted((c.name, c.state.value) for c in snap.checks if not c.advisory)))
 
 
 def _collect_new_events(
@@ -2674,7 +2674,7 @@ def run_watch_session(
         started = clock_fn()
         consecutive_errors = 0
         idle_polls = 0
-        prev_check_sigs: Dict[int, Tuple[Tuple[str, str], ...]] = {}
+        prev_check_sigs: Dict[int, Tuple[str, Tuple[Tuple[str, str], ...]]] = {}
         settled_counts: Dict[int, int] = {}
         cached_snapshots: Dict[int, PRSnapshot] = {}
         poll_num = 0
@@ -2687,8 +2687,9 @@ def run_watch_session(
                 for t in targets:
                     prev_snap = cached_snapshots.get(t.number)
                     prev_base = state.data.get("base_sha") if t.number == target.number else (prev_snap.base_sha if prev_snap else None)
-                    # Use lightweight conditional ETag probe on idle follow-up polls
-                    use_probe = (not once) and (poll_num > 1) and (t.number in cached_snapshots) and (poll_num % 5 != 0)
+                    # Use lightweight conditional ETag probe only once the PR has settled (never skip full reads during the settle window)
+                    is_settled = settled_counts.get(t.number, 0) >= cfg.settle_polls
+                    use_probe = (not once) and (poll_num > 1) and is_settled and (t.number in cached_snapshots) and (poll_num % 5 != 0)
                     snap, changed = adapter.fetch_snapshot(
                         t,
                         cfg,

@@ -324,6 +324,103 @@ class GoodCitizenRateLimitAndPolicyTest(unittest.TestCase):
         self.assertEqual(dec_both.state, core.PRState.NEEDS_FEEDBACK)
         self.assertEqual({a.kind for a in dec_both.all_actions}, {core.ActionKind.ADDRESS_COMMENTS, core.ActionKind.FIX_CI})
 
+    def test_zero_checks_fresh_push_waits_for_settle_window_before_declaring_merge_ready(self):
+        target = core.PRTarget(
+            core.ForgeKind.GITHUB, "github.com", "acme/app", 55,
+            url="https://github.com/acme/app/pull/55", api_url="http://127.0.0.1:18080",
+        )
+
+        def make_snap(head_sha: str, checks=()) -> core.PRSnapshot:
+            return core.PRSnapshot(
+                target=target,
+                lifecycle=core.PRLifecycle.OPEN,
+                title="Fresh push",
+                url=target.url,
+                head_branch="feat/fresh",
+                head_sha=head_sha,
+                base_branch="main",
+                base_sha="base0000001",
+                author="alice",
+                viewer="alice",
+                is_draft=False,
+                mergeability=core.Mergeability.CLEAN,
+                behind_by=0,
+                review_verdict=core.ReviewVerdict.APPROVED,
+                approvals_count=1,
+                approvals_required=1,
+                created_at="2026-11-24T10:00:00Z",
+                updated_at="2026-11-24T10:01:00Z",
+                checks=tuple(checks),
+            )
+
+        # 1. Direct evaluate_snapshot with 0 checks & settled=False MUST wait for CI settle (both ready & green)!
+        for until in ("ready", "green"):
+            dec = core.evaluate_snapshot(make_snap("aaa1111"), core.PolicyConfig(until=until), settled=False)
+            self.assertEqual(dec.state, core.PRState.CI_PENDING, f"until={until} called unsettled 0-check PR ready!")
+            self.assertEqual(dec.waiting_on, ("ci-settle",))
+
+        class SequenceAdapter(core.ForgeAdapter):
+            forge_kind = core.ForgeKind.GITHUB
+
+            def __init__(self, seq):
+                self._seq = list(seq)
+                self.calls = []
+
+            def fetch_snapshot(self, target, cfg, *, prev_base_sha=None, fetch_logs=False, lightweight_probe=False):
+                self.calls.append(lightweight_probe)
+                idx = min(len(self.calls) - 1, len(self._seq) - 1)
+                return self._seq[idx], True
+
+        with tempfile.TemporaryDirectory(prefix="astack-settle-") as td:
+            root = Path(td)
+
+            # 2. Fresh push: Poll 1 has 0 checks -> waits (no premature exit 0!); Poll 2 CI starts pending -> waits;
+            #    Poll 3 CI fails -> catches real CI failure (exit 5)!
+            adapter_late_ci = SequenceAdapter([
+                make_snap("aaa1111", checks=()),
+                make_snap("aaa1111", checks=(core.CheckRun("ci-tests", core.CheckState.PENDING),)),
+                make_snap("aaa1111", checks=(core.CheckRun("ci-tests", core.CheckState.FAILED, url="https://ci/fail"),)),
+            ])
+            gov1 = core.RateLimitGovernor(base_interval=0.0, max_interval=0.0, jitter_ratio=0.0)
+            out1 = io.StringIO()
+            rc1 = core.run_watch_session(
+                adapter_late_ci, target, gov1, core.PolicyConfig(settle_polls=2),
+                state_dir=root / "s1", sleep_fn=lambda _: None, stdout=out1, stderr=io.StringIO(),
+            )
+            self.assertEqual(rc1, core.EXIT_CI_FAILED)
+            self.assertEqual(len(adapter_late_ci.calls), 3)
+            # Never used lightweight_probe during settle window!
+            self.assertEqual(adapter_late_ci.calls[:2], [False, False])
+
+            # 3. New commit pushed with 0 checks resets settle counter (Poll 1: aaa/0 -> Poll 2: bbb/0 -> Poll 3: bbb/0 -> ready)!
+            adapter_repush = SequenceAdapter([
+                make_snap("aaa1111", checks=()),
+                make_snap("bbb2222", checks=()),
+                make_snap("bbb2222", checks=()),
+            ])
+            gov2 = core.RateLimitGovernor(base_interval=0.0, max_interval=0.0, jitter_ratio=0.0)
+            out2 = io.StringIO()
+            rc2 = core.run_watch_session(
+                adapter_repush, target, gov2, core.PolicyConfig(settle_polls=2),
+                state_dir=root / "s2", sleep_fn=lambda _: None, stdout=out2, stderr=io.StringIO(),
+            )
+            self.assertEqual(rc2, core.EXIT_OK)
+            self.assertEqual(len(adapter_repush.calls), 3)
+
+            # 4. Repo truly with zero CI settles cleanly after settle_polls=2 (never hangs forever)!
+            adapter_zero_ci = SequenceAdapter([
+                make_snap("ccc3333", checks=()),
+                make_snap("ccc3333", checks=()),
+            ])
+            gov3 = core.RateLimitGovernor(base_interval=0.0, max_interval=0.0, jitter_ratio=0.0)
+            out3 = io.StringIO()
+            rc3 = core.run_watch_session(
+                adapter_zero_ci, target, gov3, core.PolicyConfig(settle_polls=2),
+                state_dir=root / "s3", sleep_fn=lambda _: None, stdout=out3, stderr=io.StringIO(),
+            )
+            self.assertEqual(rc3, core.EXIT_OK)
+            self.assertEqual(len(adapter_zero_ci.calls), 2)
+
     def test_remote_aggressive_interval_rejected_and_lock_blocks_duplicate_watcher(self):
         res = run_cli_subprocess("astack-watch-github", "https://github.com/acme/app/pull/5", "--interval", "1")
         self.assertEqual(res.returncode, core.EXIT_BAD_INPUT)
