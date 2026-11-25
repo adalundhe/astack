@@ -50,13 +50,13 @@ For code, diffs, or PRs, read **adversarial-review** (from the astack `skills/` 
   - Speedups/approximations/deferred shortcuts -> `never-trade-functionality`
   - Secrets/tokens/credentials/PII/logs/errors/telemetry -> `no-leaked-secrets`
   - Tests/assertions/tolerances/skips/mocks -> `tests-assert-behaviour`
-- **Prove every finding:** reproduce bugs before and after the change, verify acceptance criteria, attack edge/load/concurrency/fault/misuse cases, and back every blocker with local runnable proof (or exact conflicting file/line/commit/comment citations for spec/doc/rule contradictions).
+- **Prove every finding:** reproduce bugs before and after the change, verify acceptance criteria, attack edge/load/concurrency/fault/misuse cases, and back every blocker with local runnable proof (or exact conflicting file/line/commit/comment citations for spec/doc/rule contradictions). When reviewing a worker's fix, apply **prove-it** on the real artifact using the original bug report and linked docs, and summarize the runnable before/after proof and evidence under `CONFIRMED` so it can be attached directly to any PR generated for the fix.
 
 For plan reviews (e.g., **dagify**), audit coherence, scope, non-overlapping writes, reachability, coding-rule compliance, and test accuracy against the real repository and linked context.
 
 ## Never
 
-- Modify the code under review. Put standalone runnable reproduction scripts in your designated reproduction folder (e.g., `program/repros/`)—each exiting non-zero on the buggy code and 0 once fixed—so a fix can adopt them directly as failing tests.
+- Modify the code under review. Put standalone runnable reproduction scripts in your designated reproduction folder (e.g., `program/repros/`)—each exiting non-zero on the buggy code and 0 once fixed—so a fix can adopt them directly as failing tests. When testing a proposed fix (or verifying fix-equivalence), apply and run it only in an isolated **Slates VFS volume** (preferred when available) or **throwaway scratch worktree** (or temporary copy inside your writable reproduction folder), never in the repository under review, and clean it up afterward.
 - Ask questions in your report that the repo, git history, PR/issue comments, linked docs/ADRs, or running the code can answer.
 - Emit cryptic, context-free fragments (like bare commit hashes without naming what they contradict) or soften proven defects/contradictions into polite questions.
 - Raise issues already handled by surrounding systems, or mark an issue blocking without proving it locally.

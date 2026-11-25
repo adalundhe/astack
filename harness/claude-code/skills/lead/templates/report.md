@@ -19,7 +19,7 @@ EVIDENCE
 - <the done-when check>: `<command>` -> <result>
 
 DECISIONS
-- <the question> -> <the choice>: <the options>; settled by <an earlier decision | the repository | research | an A/B | a proof of concept>; evidence: <numbers, link or path>
+- <the question, rejected theory, or failed/reverted fix attempt> -> <the choice or why rejected>: <the options or approach tried>; settled by <an earlier decision | the repository | research | an A/B | a proof of concept | failing test/repro>; evidence: <numbers, link or path>
 
 SIDE FINDINGS (left alone)
 - <one line each>
@@ -35,5 +35,5 @@ NEXT
 - LOSSES come before wins: the lead plans the successor from what is missing.
 - MERGED carries its checks: the lead verifies every claimed merge, and the SHA and commands make that quick.
 - SIDE FINDINGS stand apart: they are logged, not worked.
-- DECISIONS lists every choice, not only measured ones, with what settled it. The lead logs each.
+- DECISIONS lists every choice—including rejected theories and failed/reverted fix approaches or attempts—with what settled or disproved it. The lead logs each as a `decided:` line, passes them to post-fix reviewers, and folds key lessons into `make-it-stick`.
 - NEEDS THE PERSON holds only what nothing else could settle; the lead tries again before asking.

@@ -22,7 +22,7 @@ Benchmarks follow **tests-assert-behaviour** and **full-spectrum-testing**, exce
    - **Contention:** peak concurrent clients, lock convoys, fairness.
    - **Fuzzed workloads:** seeded, generated request mixes.
    - **Chaos:** injected faults under load (node crash, slow disk, dropped messages) and user-visible impact.
-4. **Control the environment.** Use production builds and settings. Place load generators realistically (e.g., separate machine from server) using whatever machines you can reach; only ask the person for resources only they can provision. Record any environment limitation you can't remove. When comparing against another system, also follow **fair-benchmarks**.
+4. **Control the environment.** Use production builds and settings. Place load generators realistically (e.g., separate machine from server) using whatever machines you can reach; only ask the person for resources only they can provision. Record any environment limitation you can't remove. When comparing against another system, also follow **baseline**.
 5. **Isolate runs.** Run one benchmark at a time per machine with identical data and warm-up state. Seed every generated workload and fault schedule.
 6. **Measure baseline median, standard deviation ($\sigma$), and variance first.** Run the baseline until each metric's sample standard deviation ($\sigma$), robust spread (IQR/MAD), and 95% CI for the median stabilize. Treat **minimizing measured variance ($\sigma$ and tail spread)** as a first-class objective alongside improving the baseline median. Set the acceptance bar before testing changes, sizing the run count $n$ for the specific regime you are testing:
    - **Location (baseline improvement):** use a 95% Mann-Whitney U test or bootstrap CI on the median/mean difference. Treat $\ge 1\sigma$ as the **step goal / minimum detectable effect** and size $n$ per arm for $\ge 80\%$ power (typically $\sim 16\text{--}20+$ alternating runs per arm)—never require the noisy sample point estimate itself to exceed $1\sigma$, which rejects half of true $1\sigma$ wins.
@@ -42,6 +42,6 @@ Benchmarks follow **tests-assert-behaviour** and **full-spectrum-testing**, exce
 
 Done when every performance criterion has benchmarks on the right layer, across applicable workloads, proven to catch regressions, sanity-checked against hard limits and dead work, measured against baseline $\sigma$ and a pre-set bar, and written up. Only numbers measured this way (or explicitly set by the person) belong in acceptance criteria.
 
-Referenced skills: `tests-assert-behaviour` (`../tests-assert-behaviour/SKILL.md`), `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`), `fair-benchmarks` (`../fair-benchmarks/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `tests-assert-behaviour` (`../tests-assert-behaviour/SKILL.md`), `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`), `baseline` (`../baseline/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's benchmark-checklist and explain-the-number skills and its Hillclimb playbook (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

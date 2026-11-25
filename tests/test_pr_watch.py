@@ -1416,6 +1416,89 @@ class PatchIdCarryOverTest(unittest.TestCase):
             self.assertEqual(rc_deny, core.EXIT_BAD_INPUT)
             self.assertIn("post_audited_pr_replies", err_deny)
 
+    def test_autonomous_dispatch_uses_lead_role_and_keeps_workers_subagent_free(self):
+        with tempfile.TemporaryDirectory(prefix="astack-lead-dispatch-") as td:
+            root = Path(td)
+            lead_settings = root / "lead-settings.json"
+            lead_settings.write_text(json.dumps({
+                "roles": {
+                    "lead": {"provider": "anthropic", "model": "opus", "effort": "high"},
+                    "worker": {"provider": "anthropic", "model": "haiku", "effort": "medium"},
+                },
+                "autonomy": {
+                    "mode": "unattended",
+                    "allow": ["watch_pr_and_fix_ci"],
+                    "deny": ["merge_pr"],
+                },
+            }))
+            worker_only_settings = root / "worker-only-settings.json"
+            worker_only_settings.write_text(json.dumps({
+                "roles": {
+                    "worker": {"provider": "openai", "model": "gpt-5.4-mini", "effort": "medium"},
+                },
+                "autonomy": {
+                    "mode": "unattended",
+                    "allow": ["watch_pr_and_fix_ci"],
+                    "deny": ["merge_pr"],
+                },
+            }))
+
+            target = core.PRTarget(core.ForgeKind.GITHUB, "github.com", "acme/app", 44, url="https://github.com/acme/app/pull/44")
+            snap = core.PRSnapshot(
+                target=target,
+                lifecycle=core.PRLifecycle.OPEN,
+                title="Fix CI regression",
+                url=target.url,
+                head_branch="fix/ci",
+                head_sha="abcdef0123456",
+                base_branch="main",
+                base_sha="9999999aaaaaa",
+                author="alice",
+                viewer="alice",
+                is_draft=False,
+                mergeability=core.Mergeability.CLEAN,
+                behind_by=0,
+                review_verdict=core.ReviewVerdict.APPROVED,
+                approvals_count=1,
+                approvals_required=1,
+                created_at="2026-11-24T10:00:00Z",
+                updated_at="2026-11-24T11:00:00Z",
+                checks=(core.CheckRun("pytest", core.CheckState.FAILED, log_excerpt="AssertionError: boom"),),
+            )
+            dec = core.evaluate_snapshot(snap, core.PolicyConfig())
+
+            # 1. Default dispatch uses --role lead with roles.lead when configured
+            res_lead = core.dispatch_remediation(
+                snap, dec, dec.primary_action, core.DurableWatchState(root / "s1.json"),
+                brief_dir=root / "b1", settings_path=lead_settings, dry_run=True,
+            )
+            cmd = res_lead["command"]
+            self.assertIn("--role", cmd)
+            self.assertEqual(cmd[cmd.index("--role") + 1], "lead")
+            self.assertEqual(cmd[cmd.index("--model") + 1], "opus")
+
+            # 2. Fallback to roles.worker model STILL dispatches with --role lead (never --role worker!)
+            res_fb = core.dispatch_remediation(
+                snap, dec, dec.primary_action, core.DurableWatchState(root / "s2.json"),
+                brief_dir=root / "b2", settings_path=worker_only_settings, dry_run=True,
+            )
+            cmd_fb = res_fb["command"]
+            self.assertEqual(cmd_fb[cmd_fb.index("--role") + 1], "lead")
+            self.assertEqual(cmd_fb[cmd_fb.index("--model") + 1], "gpt-5.4-mini")
+
+            # 3. Every action brief separates lead-owned review/audit from subagent-free workers
+            for kind in (
+                core.ActionKind.ADDRESS_COMMENTS,
+                core.ActionKind.FIX_CI,
+                core.ActionKind.REBASE_BRANCH,
+                core.ActionKind.PING_STUCK_24H,
+            ):
+                act = core.RemediationAction(kind, target, snap.head_sha, "test", "fp-" + kind.value)
+                brief = core.build_remediation_brief(snap, dec, act)
+                self.assertIn("# Lead PR Remediation Brief:", brief)
+                self.assertIn("Workers NEVER spawn subagents", brief)
+                self.assertIn("You (the lead)", brief)
+
 
 if __name__ == "__main__":
     unittest.main()

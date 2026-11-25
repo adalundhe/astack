@@ -9,8 +9,8 @@ Remove artifacts left behind by your work—temp files, debug logs/data, build o
 
 ## When to invoke
 
-- **Post-review (mandatory):** run after **review** finishes (before declaring work done or a PR merge-ready) to clear review scratch worktrees, stray repo-side repros, audit drafts, and leftover processes while preserving program records.
-- **During debugging and right after a fix:** invoke during active **find-it** / **diagnose** sessions to prune stale debug logs, captures, traces, and profiles—and always once the issue is fixed so every `<file>_DEBUG_<shorthash>.<type>` file and temporary debug print/instrumentation is removed.
+- **Post-review (mandatory):** run after **review** finishes (before declaring work done or a PR merge-ready) to clear review scratch worktrees / ephemeral Slates VFS volumes, stray repo-side repros, audit drafts, and leftover processes while preserving program records.
+- **During debugging and right after a fix:** invoke during active **find-it** sessions to prune stale debug logs, captures, traces, and profiles—and always once the issue is fixed so every `<file>_DEBUG_<shorthash>.<type>` file and temporary debug print/instrumentation is removed.
 - **At handoff or after experiments:** clear throwaway prototypes, benchmark temp data, and background jobs you started.
 
 ## Steps
@@ -22,6 +22,6 @@ Remove artifacts left behind by your work—temp files, debug logs/data, build o
 5. **Verify cleanup:** confirm no leftovers or `*_DEBUG_*.*` files remain in `git status`, no sensitive captures were left behind (**no-leaked-secrets**), disk space is reclaimed, and builds/tests still run cleanly.
 6. **Report** concisely what you removed and what you intentionally kept.
 
-Referenced skills: `review` (`../astack-review/SKILL.md`), `find-it` (`../find-it/SKILL.md`), `diagnose` (`../diagnose/SKILL.md`), `no-leaked-secrets` (`../no-leaked-secrets/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `review` (`../astack-review/SKILL.md`), `find-it` (`../find-it/SKILL.md`), `no-leaked-secrets` (`../no-leaked-secrets/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's create-verification-skill (stop only what you started, never by process name; evidence survives cleanup) (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

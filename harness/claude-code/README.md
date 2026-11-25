@@ -1,6 +1,6 @@
 # astack
 
-A multi-harness agent toolkit for Claude Code, Codex, Cursor / Cursor CLI, Antigravity (`agy`), Pi, Devin, and other Agent Skills hosts with one entry point (`go`) that routes on demand to 71 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, root-cause diagnosis, cross-harness vectored review, σ-grounded benchmarking, graded research, and coding rules.
+A multi-harness agent toolkit for Claude Code, Codex, Cursor / Cursor CLI, Antigravity (`agy`), Pi, Devin, and other Agent Skills hosts with one entry point (`go`) that routes on demand to 70 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, root-cause diagnosis, cross-harness vectored review, σ-grounded benchmarking, graded research, and coding rules.
 
 Only `go` stays in the model catalog, so idle sessions cost one skill's worth of context instead of thousands of tokens. Adapted in part from [pstack](https://github.com/cursor/plugins/tree/main/pstack) and [mattpocock/skills](https://github.com/mattpocock/skills).
 
@@ -32,7 +32,7 @@ Start a new session and run `$astack-go setup` (installs `astack-worker.toml` pl
 agy plugin install ./harness/antigravity
 ```
 
-Ships native `plugin.json`, root `hooks.json` (`PostToolUse` lane-log stamper), all 72 skills, `bin/astack-*`, and all four native agents (`astack-lead`, `astack-worker`, `astack-reviewer`, `astack-researcher`). Validate anytime with `agy plugin validate harness/antigravity --strict`.
+Ships native `plugin.json`, root `hooks.json` (`PostToolUse` lane-log stamper), all 71 skills, `bin/astack-*`, and all four native agents (`astack-lead`, `astack-worker`, `astack-reviewer`, `astack-researcher`). Validate anytime with `agy plugin validate harness/antigravity --strict`.
 
 **Pi, Devin, Cursor CLI (`agent`), and other Agent Skills hosts**
 
@@ -64,7 +64,7 @@ measured against the current release on the same machine. Merges go to main afte
 
 ## Skills
 
-72 skills total (`go` + 71 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
+71 skills total (`go` + 70 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
 
 ### Entry point, planning, and catch-up
 
@@ -94,21 +94,20 @@ measured against the current release on the same machine. Merges go to main afte
 - `benchmarking`: measures user-visible metrics across load/fault spectra with baseline noise and a statistical bar.
 - `ab-test`: benchmarks variants in isolated worktrees with alternating rounds, grafting winning ideas before deleting losers.
 - `decide-by-data`: settles design or config trade-offs with measurements instead of debate.
-- `fair-benchmarks`: keeps competitor benchmarks fair (same driver/platform, release tuning, error checks, alternating runs).
+- `baseline`: keeps competitor benchmarks and baselines fair (same driver/platform, release tuning, error checks, alternating runs).
 - `clamber`: iterative optimization loop—baseline everything, change one thing at a time, commit gains, revert regressions.
-- `explore-the-limits`: builds competing implementations in parallel worktrees, benchmarks them, grafts best parts, keeps the winner.
+- `swarm-hypothesis`: builds competing implementations in parallel Slates VFS volumes (preferred) or worktrees, benchmarks them, grafts best parts, keeps the winner.
 
 ### Testing and verification
 
-- `prove-it`: verifies claims on the real build (not proxies) with runnable proof, repro shrinking techniques, and a trust ladder.
+- `prove-it`: verifies claims on the real build (not proxies) with runnable proof and a trust ladder.
 - `test-drive`: builds and maintains a `drive-<app>` skill that exercises real user flows and captures evidence.
-- `every-case`: sets up and maintains formal verification (TLA+, code verifiers, property checks) for critical invariants.
+- `formal-validate`: sets up and maintains formal verification (TLA+, code verifiers, property checks) for critical invariants.
 - `tests-assert-behaviour`: keeps tests checking observable behavior rather than internals, mocks, or wall-clock timing.
 - `full-spectrum-testing`: writes acceptance tests across unit/integration/E2E layers including failures, races, fuzzing, and faults.
-- `bugs-by-scenario`: confirms a failing test or suspected bug with a real user scenario before fixing it.
-- `find-it`: collects targeted runtime logs, `stdout`/`stderr`, screenshots, OTel-traced HTTP/2/3 & Playwright captures, telemetry, metrics, traces, and profiles as `<file>_DEBUG_<shorthash>.<type>` (built-in language tools -> astack tools -> third-party) and cleans them once fixed.
-- `diagnose`: narrows confirmed bugs via binary search with runtime evidence, live symptom dumps, and profile attribution, reverting disproved hypotheses.
-- `fix-it`: applies disciplined, minimal, behavior-proven bug fixes using the desired/expected behavior matrix, strict state/concurrency/scope rules, vectored review, and before/after proof.
+- `find-it`: confirms bugs on realistic user scenarios, collects runtime evidence (logs, `stdout`/`stderr`, screenshots, OTel-traced HTTP/2/3, Playwright, telemetry, metrics, traces, profiles as `<file>_DEBUG_<shorthash>.<type>` using built-in -> astack -> third-party tools), shrinks repros before diagnosing, narrows root causes (binary search/bisect, live dumps, profile pairs), and cleans debug artifacts once fixed.
+- `fix-it`: applies disciplined, minimal, behavior-proven bug fixes using the desired/expected behavior matrix, strict state/concurrency/scope/system-impact rules, tests hardened against lead review, and before/after proof.
+- `bugbash`: lead-only multi-reviewer bug investigation and fix workflow—gathers full bug/linked context, swarms read-only reviewers with `find-it` (shrinking repros first, testing candidate fixes in Slates VFS volumes or throwaway scratch worktrees) and peer `challenge` (with fresh runs, reset timers, and convergence fallback) logging rejected theories (`decided:`), dispatches workers with `fix-it` in isolated Slates VFS volumes/worktrees, passes original bug docs plus rejected theories and failed fix attempts to post-fix reviewers instructed to apply `prove-it` and attach PR proof, and turns fixes, rejected theories, and failed attempts into durable lessons via `make-it-stick`.
 
 ### Refactoring and cleanup
 
@@ -174,11 +173,11 @@ Indexed in `go` and checked by `review`:
   - `astack-check-gates`: structural tripwire auditing a git range (`<base>..<head>`) or commit for deleted/renamed tests, skips, lint/typecheck suppressions, assertion downgrades, cross-diff test swaps, tautologies, loosened numeric tolerances, and CI/lint/gate config edits.
   - `astack-review-ledger`: evaluates vectored review saturation over proven blocking bugs with fix-equivalence overlap verification, 2-reviewer Chapman + exact hypergeometric lower/upper bounds, 3+-reviewer Burnham–Overton $M_h$ jackknife + Beta-Binomial $M_h$ profile-likelihood bounds (observable-class saturation: "these models stopped finding new bugs", never falsely claiming 95% proof that hard bugs are absent), empirical catch-rate calibration from `scripts/eval.py --calibrate` (no picked 0.5 constant), landing-block gating on non-saturated risky vectors, internal Markdown coverage maps, and `LANES.md` review-count lines.
   - `astack-dispatch`: cross-harness dispatcher and `reviewer_pool` reachability checker supporting Claude (`claude`), Codex (`codex`), Antigravity (`agy`), Cursor CLI (`cursor-agent`/`agent`), Devin (`devin`), Pi (`pi`), Gemini (`gemini`), and custom CLI templates, enforcing pool approval and writing auditable JSON receipts.
-  - `astack-watch-pr`, `astack-watch-github`, `astack-watch-gitlab`, `astack-watch-bitbucket`: stdlib-only PR/MR watchers for GitHub (`github.com` + GHES), GitLab (`gitlab.com` + self-hosted with nested subgroups), and Bitbucket (Cloud REST 2.0 + Server/Data Center REST 1.0) with good-citizen rate-limit pacing (`ETag`/`304`, consolidated GraphQL with automatic REST fallback, `Retry-After`/`X-RateLimit-*`/`RateLimit-*`/`X-RateLimit-NearLimit` adaptation, idle backoff, per-PR locks), fork-isolated stacked PR/MR ordering, crash-safe `watch/<PR>.md` handoff markers, `patch-id-check` (`git patch-id` + `git range-diff` rebase verification), `diff-guard` (review-round diff-growth guard), `authorship-check` (takeover credit & `Co-authored-by` preservation), `autonomy`-enforced & `/leave-feedback`-audited `reply` subcommands, and idempotent worker remediation dispatch enforcing vectored review.
+  - `astack-watch-pr`, `astack-watch-github`, `astack-watch-gitlab`, `astack-watch-bitbucket`: stdlib-only PR/MR watchers for GitHub (`github.com` + GHES), GitLab (`gitlab.com` + self-hosted with nested subgroups), and Bitbucket (Cloud REST 2.0 + Server/Data Center REST 1.0) with good-citizen rate-limit pacing (`ETag`/`304`, consolidated GraphQL with automatic REST fallback, `Retry-After`/`X-RateLimit-*`/`RateLimit-*`/`X-RateLimit-NearLimit` adaptation, idle backoff, per-PR locks), fork-isolated stacked PR/MR ordering, crash-safe `watch/<PR>.md` handoff markers, `patch-id-check` (`git patch-id` + `git range-diff` rebase verification), `diff-guard` (review-round diff-growth guard), `authorship-check` (takeover credit & `Co-authored-by` preservation), `autonomy`-enforced & `/leave-feedback`-audited `reply` subcommands, and idempotent lead remediation dispatch (`--role lead`, delegating edits to workers while running lead-owned vectored review and reply audits).
   - `astack-statechart`: runs TLC in `-tool` mode with `-dump dot,actionlabels`, single-worker minimum-depth BFS default (`--workers 1`), `--timeout`, and `--no-deadlock` (or parses DOT/trace output offline, rejecting malformed input), follows TLC exit status strictly, preserves multiple broken invariants per state, finds shortest paths via full untruncated state matching, and renders collision-safe Mermaid `stateDiagram-v2` (tested against 40 real `.tla`/`.cfg` specs recorded with TLC 2.19 and re-checked live in CI, plus a 10-spec live BFS differential fuzzer).
   - `astack-stamp` (+ post-edit hook): timestamps new lines appended to `LANES.md`.
   - `astack-tools`: links `astack-*` CLI scripts onto `PATH` (`link-bin`), provisions Python `>=3.11` via `uv` across macOS/Linux/Windows (arm64 & amd64), and manages an isolated venv for `taskex`, `orchestral`, and `werkflow` (`doctor`, `install`, `link-bin`, `python`, `werkflow`, `env`, `path`).
-- **Evals & CI:** 19 multi-harness, zero-hint outcome evals under `evals/` (cold-start skill discovery without `/astack:go`, worker wind-down/reports, Go-mode routing & dedicated agent spawning, multi-file planted-bug & decoy review, cross-harness review, context/contradiction/coding-rule review, pre-post PR comment auditing via `leave-feedback`, multi-file gamed-gate rejection, 6 coding rules) with behavioral reproduction verifiers (`verify.py` + `evals/_repro_verify.py` executing saved reproductions against buggy, all-fixed, and leave-one-bug-in copies), `--calibrate` empirical per-model catch-rate measurement, and `--ablation with-without`, runnable on Claude Code, Codex, Antigravity (`agy`), Cursor CLI, Devin, or Pi via `python3 scripts/eval.py --harness <name>`, plus GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).
+- **Evals & CI:** 21 multi-harness, zero-hint outcome evals under `evals/` (cold-start skill discovery without `/astack:go`, worker wind-down/reports, Go-mode routing & dedicated agent spawning, multi-file planted-bug & decoy review, cross-harness review, context/contradiction/coding-rule review, pre-post PR comment auditing via `leave-feedback`, multi-file gamed-gate rejection, `find-it`/`fix-it` repro-shrinking and explicit-state bug fixing, lead `bugbash` reviewer-swarm convergence + `prove-it` PR evidence, 6 coding rules) with behavioral reproduction verifiers (`verify.py` + `evals/_repro_verify.py` executing saved reproductions against buggy, all-fixed, and leave-one-bug-in copies), `--calibrate` empirical per-model catch-rate measurement, and `--ablation with-without`, runnable on Claude Code, Codex, Antigravity (`agy`), Cursor CLI, Devin, or Pi via `python3 scripts/eval.py --harness <name>`, plus GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).
 
 ## Working on astack
 

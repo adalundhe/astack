@@ -9,7 +9,8 @@ Done when: <the evidence: a command and its output, a scenario and its result, a
 Order: work: <what working end to end means here>. Robust: <the failures that matter here>. Fast: <the
 measurement, or "not in this lane">.
 Out of scope: <named>. Anything else you find gets one line in your report.
-Where: worktree <path>, branch <branch>. Write only <paths>. Checks: `<lint command>`, `<test command>`.
+Where: isolated Slates VFS volume (preferred when available) or git worktree <path>, branch <branch>. Write only <paths>. Checks: `<lint command>`, `<test command>`.
+Prior rejected theories / failed approaches (`decided:` entries, if any): <what was already disproved and why, so you don't repeat dead ends>.
 
 Directives since the original brief (successors only): <oldest first, with their times; the person's verbatim>.
 Previous report (successors only): <in full>.

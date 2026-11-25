@@ -441,6 +441,59 @@ class BuildTest(unittest.TestCase):
         for leaked_hint in ("leave-feedback", "astack:reviewer", "POOL EXHAUSTED", "coverage-map", "AD-003"):
             self.assertNotIn(leaked_hint, lf_prompt, f"leave-feedback-audits-before-posting prompt spoon-feeds {leaked_hint!r}")
 
+        # Verify find-it/fix-it and bugbash workflows, role separation, and their new evals
+        find_it = (ROOT / "skills/find-it/SKILL.md").read_text()
+        self.assertLess(
+            find_it.index("## 4. Shrink the repro before diagnosing"),
+            find_it.index("## 5. Narrow the root cause with runtime evidence"),
+            "find-it must shrink the repro BEFORE narrowing the root cause",
+        )
+        self.assertIn("two consecutive disproved hypotheses", find_it)
+        self.assertNotIn("two consecutive misses", find_it)
+
+        lead_src = (ROOT / "skills/lead/SKILL.md").read_text()
+        self.assertNotIn("may land directly", lead_src, "lead must never land worker lanes without a reviewer")
+        self.assertIn("never land code without a reviewer", lead_src)
+
+        bugbash = (ROOT / "skills/bugbash/SKILL.md").read_text()
+        self.assertIn("shrink the repro first", bugbash)
+        self.assertIn("reset timers", bugbash)
+        self.assertIn("No convergence / stalled", bugbash)
+        self.assertIn("prove-it", bugbash)
+        self.assertIn("throwaway scratch worktree", bugbash)
+        self.assertIn("Slates VFS volume", bugbash)
+        for path in (
+            "skills/dagify/SKILL.md",
+            "skills/bugbash/SKILL.md",
+            "skills/lead/SKILL.md",
+            "skills/review/SKILL.md",
+            "skills/ab-test/SKILL.md",
+            "skills/swarm-hypothesis/SKILL.md",
+            "skills/modularize/SKILL.md",
+            "agents/worker.md",
+            "agents/reviewer.md",
+            "agents/lead.md",
+        ):
+            text = (ROOT / path).read_text()
+            self.assertIn("Slates VFS", text, f"{path} missing preferred Slates VFS volume / worktree isolation rule")
+        self.assertIn("throwaway scratch worktree", (ROOT / "agents/reviewer.md").read_text())
+        self.assertIn("make-it-stick", bugbash)
+        self.assertIn("rejected root-cause theory", bugbash)
+        self.assertIn("failed fix approaches", bugbash)
+        self.assertIn("make-it-stick", lead_src)
+        self.assertIn("rejected theories", lead_src)
+        self.assertIn("failed fix approaches/attempts", (ROOT / "skills/review/SKILL.md").read_text())
+        self.assertIn("rejected root-cause theories", (ROOT / "skills/make-it-stick/SKILL.md").read_text())
+
+        self.assertTrue((ROOT / "evals/find-it-and-fix-it-bug/verify.py").is_file())
+        self.assertTrue((ROOT / "evals/bugbash-investigates-and-proves-fix/verify.py").is_file())
+        _, fi_prompt = front_matter(ROOT / "evals/find-it-and-fix-it-bug/prompt.md")
+        for leaked_hint in ("find-it", "fix-it", "_in_retry", "no-implicit-states", "shrink"):
+            self.assertNotIn(leaked_hint, fi_prompt, f"find-it-and-fix-it-bug prompt spoon-feeds {leaked_hint!r}")
+        _, bb_prompt = front_matter(ROOT / "evals/bugbash-investigates-and-proves-fix/prompt.md")
+        for leaked_hint in ("find-it", "fix-it", "challenge", "prove-it", "astack:reviewer", "astack:worker", "tenant_id"):
+            self.assertNotIn(leaked_hint, bb_prompt, f"bugbash-investigates-and-proves-fix prompt spoon-feeds {leaked_hint!r}")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,7 +4,7 @@
 Watches pull/merge requests across GitHub (github.com + GHES), GitLab (gitlab.com + self-hosted),
 and Bitbucket (Cloud REST 2.0 + Server/Data Center REST 1.0) with good-citizen rate-limit
 stewardship, explicit state-machine transitions, stacked PR/MR awareness, crash-safe handoff
-markers, and idempotent worker remediation dispatch (enforcing /leave-feedback and vectored review).
+markers, and idempotent lead remediation dispatch (`--role lead`, delegating edits to workers while running /leave-feedback and vectored review).
 
 Usage:
   astack-watch-pr <pr-url-or-number> [watch options]
@@ -1612,7 +1612,7 @@ def render_handoff_marker(
 
 
 # ---------------------------------------------------------------------------
-# Remediation brief generator & idempotent worker dispatcher
+# Remediation brief generator & idempotent lead dispatcher
 # ---------------------------------------------------------------------------
 
 def resolve_skills_dir() -> Path:
@@ -1639,7 +1639,10 @@ def build_remediation_brief(
     marker_path: Optional[Path] = None,
     autonomy: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Build a complete, security-fenced worker brief enforcing /leave-feedback, diff-guard, range-diff, takeover credit, and vectored review."""
+    """Build a complete, security-fenced lead remediation brief enforcing strict role separation:
+    the lead delegates isolated code/test edits to a worker (which never spawns subagents) and
+    runs diff-guard, range-diff, takeover credit, vectored review, and /leave-feedback audits itself.
+    """
     sdir = (skills_dir or resolve_skills_dir()).resolve()
     forge_cli = _forge_cli_name(snapshot.target.forge)
     is_takeover = bool(
@@ -1651,7 +1654,12 @@ def build_remediation_brief(
     header = [
         f"Skills directory: {sdir}",
         "",
-        f"# PR Remediation Brief: {action.kind.value} ({snapshot.target.display_ref})",
+        f"# Lead PR Remediation Brief: {action.kind.value} ({snapshot.target.display_ref})",
+        "",
+        "## Role & Separation of Duties",
+        "- You are running as the **lead** (`--role lead`), coordinating this remediation end-to-end.",
+        "- Delegate isolated code/test edits and rebases to a fresh `astack:worker` (or `astack-dispatch run --role worker`). **Workers NEVER spawn subagents, run vectored review, or run `/leave-feedback` audits.**",
+        "- **You (the lead)** run `astack-check-gates`, `diff-guard`, vectored **review** (`astack:reviewer` / `astack-dispatch run --role reviewer` + `astack-review-ledger`), and independent second-agent `/leave-feedback` audits before pushing or posting any PR reply.",
         "",
         "## Context",
         f"- **Forge:** `{snapshot.target.forge.value}` (`{snapshot.target.host}`)",
@@ -1686,35 +1694,36 @@ def build_remediation_brief(
     if action.kind == ActionKind.ADDRESS_COMMENTS:
         body_sections.extend([
             "## Deliverable",
-            f"Resolve every open review comment, thread, task, and change request on {snapshot.target.display_ref}, "
-            "check diff growth and cut first if review grew the diff, run vectored review on any code changes "
-            "before pushing, audit every human-facing reply via `/leave-feedback`, and post the audited replies.",
+            f"As **lead**, coordinate resolving every open review comment, thread, task, and change request on {snapshot.target.display_ref}: "
+            "dispatch an isolated worker for code/test edits (workers never spawn subagents), check diff growth and trim first if review grew the diff, "
+            "run lead-owned vectored review on any code changes before pushing, run an independent `/leave-feedback` audit on every human-facing reply, and post the audited replies.",
             "",
-            "## Required Workflow",
-            f"1. Read `{sdir}/address-feedback/SKILL.md`, `{sdir}/simplify-me/SKILL.md`, `{sdir}/worrywart/SKILL.md`, "
-            f"`{sdir}/rtfm/SKILL.md`, `{sdir}/review/SKILL.md`, and `{sdir}/leave-feedback/SKILL.md` before acting.",
+            "## Required Workflow (Lead-Coordinated)",
+            f"1. Read `{sdir}/lead/SKILL.md`, `{sdir}/address-feedback/SKILL.md`, `{sdir}/simplify-me/SKILL.md`, `{sdir}/worrywart/SKILL.md`, "
+            f"`{sdir}/rtfm/SKILL.md`, `{sdir}/review/SKILL.md`, `{sdir}/prove-it/SKILL.md`, and `{sdir}/leave-feedback/SKILL.md` before acting.",
             "2. **Inspect full surrounding context (`rtfm`):** inspect the PR diff, every existing PR comment "
             "(open and resolved), linked issues/ADRs/docs, and `README`.",
-            "3. **Work blockers first, then suggestions, then nits:**",
-            "   - **Real bug or valid finding:** write a failing reproduction/test first (`bugs-by-scenario`), "
-            "fix the root cause, and run the full relevant test suite.",
-            "   - **Question:** answer clearly with concrete file/line citations (or clarify confusing code).",
+            "3. **Dispatch a fresh `astack:worker` (or `astack-dispatch run --role worker`) in an isolated Slates VFS volume (preferred when available) or git worktree for code/test fixes (work blockers first, then suggestions, then nits):**",
+            "   - **Real bug or valid finding:** have the worker confirm on a real scenario and shrink the repro first (`find-it`), "
+            "write a failing behavior test, fix the root cause cleanly (`fix-it`), and run the full relevant test suite.",
+            "   - **Question:** answer clearly with concrete file/line citations (or have the worker clarify confusing code).",
             "   - **Wrong or overstated finding:** refute politely with runnable evidence (`worrywart`).",
             "   - **Genuine human product trade-off:** escalate cleanly with your recommendation.",
-            "4. **Diff-growth guard (`simplify-me`):** check diff size each review round with:",
+            "   - Do NOT tell the worker to spawn reviewers or run `/leave-feedback` audits.",
+            "4. **Lead diff-growth guard (`simplify-me`):** check diff size each review round with:",
             f"   `astack-watch-pr diff-guard --base origin/{snapshot.base_branch} --head HEAD --json`",
-            "   If review rounds grew the diff, run `simplify-me` to trim, narrow, or delete redundant code FIRST "
+            "   If review rounds grew the diff, dispatch a worker pass with `simplify-me` to trim, narrow, or delete redundant code FIRST "
             "before pushing (decline non-bug scope creep with a written reason rather than piling cheap fixes onto the PR).",
-            "5. **Mandatory Vectored Review on any code change (`review`):**",
-            "   - If ANY code or test changed while addressing feedback or change requests, run "
+            "5. **Lead-owned Mandatory Vectored Review on any code change (`review` + `prove-it`):**",
+            "   - If ANY code or test changed while addressing feedback or change requests, **you (the lead)** run "
             f"`astack-check-gates {snapshot.base_branch}..HEAD` AND vectored review (`{sdir}/review/SKILL.md` "
-            "+ `astack-review-ledger`) across approved models in `reviewer_pool`.",
-            "   - Resolve every proven blocking bug before pushing.",
-            "6. **Strict `/leave-feedback` comment discipline BEFORE posting ANY PR reply:**",
+            "+ `astack-review-ledger`) across approved models in `reviewer_pool`, passing the original PR/issue context and instructing reviewers to apply `prove-it` on bug fixes.",
+            "   - Route any proven blocking bug back to a fresh worker and re-review before pushing.",
+            "6. **Lead-owned `/leave-feedback` comment discipline BEFORE posting ANY PR reply:**",
             f"   - Follow `{sdir}/leave-feedback/SKILL.md` for every reply: plain, concise, direct, actionable prose; "
             "no cryptic bare SHAs; no rambling; ZERO leaked internal thinking, filenames (`LANES.md`, `RULES.md`, "
             "`coverage-map.md`), ledger labels (`POOL EXHAUSTED`), P0–P5 codes, model rosters, or capture-recapture jargon.",
-            "   - **Mandatory independent second-agent pre-post audit:** spin up a fresh independent reviewer agent "
+            "   - **Mandatory independent second-agent pre-post audit:** **you (the lead)** spin up a fresh independent reviewer agent "
             "(`astack:reviewer` or `astack-dispatch run --role reviewer`) to audit every draft reply against the PR, "
             "existing threads, linked docs/issues, and the 7-item `leave-feedback` gate. Revise until it returns `CLEAR` "
             "and save the audit output to `<audit_receipt.txt>`.",
@@ -1747,23 +1756,26 @@ def build_remediation_brief(
     elif action.kind == ActionKind.FIX_CI:
         body_sections.extend([
             "## Deliverable",
-            f"Diagnose and fix all failing CI checks/pipelines on {snapshot.target.display_ref}, keep the diff tight "
-            "via diff-guard, run vectored review before pushing, and never weaken tests or suppress linters.",
+            f"As **lead**, coordinate diagnosing and fixing all failing CI checks/pipelines on {snapshot.target.display_ref}: "
+            "dispatch an isolated worker for the local reproduction and minimal fix (workers never spawn subagents), keep the diff tight "
+            "via diff-guard, run lead-owned vectored review with `prove-it` before pushing, and never weaken tests or suppress linters.",
             "",
-            "## Required Workflow",
-            f"1. Read `{sdir}/bugs-by-scenario/SKILL.md`, `{sdir}/diagnose/SKILL.md`, `{sdir}/leave-it-better/SKILL.md`, "
-            f"`{sdir}/simplify-me/SKILL.md`, `{sdir}/review/SKILL.md`, and `{sdir}/leave-feedback/SKILL.md`.",
-            "2. **Reproduce locally first:** run the exact failing build/test/lint command on the real checkout.",
-            "3. **Distinguish PR-caused vs preexisting/flaky (`leave-it-better`):**",
-            "   - If caused by this PR: turn the failure into a deterministic regression test and fix the root cause.",
-            "   - If preexisting on the target branch: fix its root cause in a separate PR while keeping this PR clean.",
-            "   - Never skip tests, weaken assertions, loosen tolerances, or add lint suppressions.",
-            "4. **Diff-growth guard:** run `astack-watch-pr diff-guard --base origin/"
-            f"{snapshot.base_branch} --head HEAD --json`; if CI fixes bloated the diff, trim with `simplify-me` first.",
-            "5. **Mandatory Vectored Review before pushing (`review`):**",
-            f"   - Run `astack-check-gates {snapshot.base_branch}..HEAD` AND vectored review (`{sdir}/review/SKILL.md` "
-            "+ `astack-review-ledger`) across approved models in `reviewer_pool` on the fix before pushing.",
-            "6. If posting any comment on the PR explaining the fix or rerun, audit it through `/leave-feedback` first.",
+            "## Required Workflow (Lead-Coordinated)",
+            f"1. Read `{sdir}/lead/SKILL.md`, `{sdir}/find-it/SKILL.md`, `{sdir}/fix-it/SKILL.md`, `{sdir}/leave-it-better/SKILL.md`, "
+            f"`{sdir}/simplify-me/SKILL.md`, `{sdir}/review/SKILL.md`, `{sdir}/prove-it/SKILL.md`, and `{sdir}/leave-feedback/SKILL.md`.",
+            "2. **Dispatch a fresh `astack:worker` (or `astack-dispatch run --role worker`) in an isolated Slates VFS volume (preferred when available) or git worktree to reproduce and fix locally:**",
+            "   - Have the worker run the exact failing build/test/lint command on the real checkout, shrink the repro (`find-it`), "
+            "and distinguish PR-caused vs preexisting/flaky (`leave-it-better`):",
+            "     - If caused by this PR: turn the failure into a deterministic behavior test and fix the root cause (`fix-it`).",
+            "     - If preexisting on the target branch: fix its root cause in a separate PR while keeping this PR clean.",
+            "     - Never skip tests, weaken assertions, loosen tolerances, or add lint suppressions.",
+            "   - Do NOT tell the worker to spawn reviewers.",
+            "3. **Lead diff-growth guard:** run `astack-watch-pr diff-guard --base origin/"
+            f"{snapshot.base_branch} --head HEAD --json`; if CI fixes bloated the diff, dispatch a worker pass with `simplify-me` first.",
+            "4. **Lead-owned Mandatory Vectored Review before pushing (`review` + `prove-it`):**",
+            f"   - **You (the lead)** run `astack-check-gates {snapshot.base_branch}..HEAD` AND vectored review (`{sdir}/review/SKILL.md` "
+            "+ `astack-review-ledger`) across approved models in `reviewer_pool`, passing the failing CI logs/context and instructing reviewers to verify the fix with `prove-it` and summarize runnable proof for the PR.",
+            "5. If posting any comment on the PR explaining the fix or rerun, **you (the lead)** audit it through `/leave-feedback` with an independent reviewer first.",
             "",
             "## Failing CI Checks",
             "",
@@ -1782,25 +1794,26 @@ def build_remediation_brief(
     elif action.kind == ActionKind.REBASE_BRANCH:
         body_sections.extend([
             "## Deliverable",
-            f"Update/rebase `{snapshot.head_branch}` onto `{snapshot.base_branch}` cleanly, inspect `git range-diff` "
-            "and `git patch-id` + `blast-radius` verdict carry-over, preserve git authorship credit, and run vectored "
-            "review if anything changed or overlapped.",
+            f"As **lead**, coordinate updating/rebasing `{snapshot.head_branch}` onto `{snapshot.base_branch}` cleanly via a fresh worker "
+            "(workers never spawn subagents), inspect `git range-diff` and `git patch-id` + `blast-radius` verdict carry-over, preserve git authorship credit, "
+            "and run lead-owned vectored review if anything changed or overlapped.",
             "",
-            "## Required Workflow",
-            f"1. Read `{sdir}/watch-pr/SKILL.md`, `{sdir}/blast-radius/SKILL.md`, and `{sdir}/review/SKILL.md`.",
-            "2. Fetch the latest target branch (`git fetch origin`). Record the pre-rebase merge-base and head SHA.",
-            f"3. Rebase `{snapshot.head_branch}` onto `origin/{snapshot.base_branch}` (resolving conflicts without "
-            "dropping target branch changes, dropping PR behavior, resurrecting old behavior, or loosening gates).",
-            "4. **Mechanical rebase & `git range-diff` verification:** run:",
+            "## Required Workflow (Lead-Coordinated)",
+            f"1. Read `{sdir}/lead/SKILL.md`, `{sdir}/watch-pr/SKILL.md`, `{sdir}/blast-radius/SKILL.md`, and `{sdir}/review/SKILL.md`.",
+            "2. **Dispatch a fresh `astack:worker` (or `astack-dispatch run --role worker`) in an isolated Slates VFS volume (preferred when available) or git worktree to rebase:**",
+            f"   - Fetch `origin`, record pre-rebase merge-base and head SHA, and rebase `{snapshot.head_branch}` onto `origin/{snapshot.base_branch}` "
+            "(resolving conflicts without dropping target branch changes, dropping PR behavior, resurrecting old behavior, or loosening gates).",
+            "   - Do NOT tell the worker to spawn reviewers.",
+            "3. **Lead mechanical rebase & `git range-diff` verification:** run:",
             f"   `astack-watch-pr patch-id-check --before <old_base>..{snapshot.head_sha} --after <new_base>..HEAD --json`",
             "   This runs BOTH `git patch-id --stable` AND `git range-diff` to verify no commit or hunk was dropped "
             "and no old behavior was brought back.",
             "   - Also verify contributor authorship stayed intact with:",
             f"     `astack-watch-pr authorship-check --before <old_base>..{snapshot.head_sha} --after <new_base>..HEAD --json`",
             "   - If `carry_verdict` is `true` (`patch_ids_identical`, `range_diff_clean`, zero overlapping files) AND "
-            "incoming target commits do not overlap this PR's **blast-radius**, you may push with `git push --force-with-lease` directly.",
+            "incoming target commits do not overlap this PR's **blast-radius**, push with `git push --force-with-lease` directly.",
             "   - Otherwise (conflicts resolved, `range-diff` modified/dropped/added hunks, or target commits overlap blast-radius): "
-            "inspect the `git range-diff` output line by line, then re-run tests, "
+            "inspect the `git range-diff` output line by line, then **you (the lead)** re-run tests, "
             f"`astack-check-gates {snapshot.base_branch}..HEAD`, AND vectored review (`{sdir}/review/SKILL.md` "
             "+ `astack-review-ledger`) BEFORE pushing.",
             "",
@@ -1817,14 +1830,14 @@ def build_remediation_brief(
     elif action.kind == ActionKind.PING_STUCK_24H:
         body_sections.extend([
             "## Deliverable",
-            f"Send a concise, polite 24-hour status reminder on {snapshot.target.display_ref} after auditing it through "
-            "`/leave-feedback`, and log one line in `LANES.md`.",
+            f"As **lead**, send a concise, polite 24-hour status reminder on {snapshot.target.display_ref} after auditing it through "
+            "`/leave-feedback` with an independent reviewer, and log one line in `LANES.md`.",
             "",
-            "## Required Workflow",
+            "## Required Workflow (Lead-Coordinated)",
             f"1. Read `{sdir}/leave-feedback/SKILL.md` and `{sdir}/watch-pr/SKILL.md`.",
             "2. Draft a brief reminder naming what the PR is waiting on (e.g. human approval or review) without leaking "
             "internal process terms.",
-            "3. Run an independent second-agent `/leave-feedback` audit until `CLEAR`.",
+            "3. **You (the lead)** spin up a fresh independent `astack:reviewer` (or `astack-dispatch run --role reviewer`) to run the `/leave-feedback` audit until `CLEAR`.",
             f"4. Post via `{forge_cli} reply {snapshot.url or snapshot.target.number} --body-file <ping.md> "
             "--audit-receipt <audit_receipt.txt>`.",
             "",
@@ -1887,7 +1900,8 @@ def _load_autonomy_from_settings(settings_path: Optional[Path]) -> Dict[str, Any
     return {"mode": mode, "allow": allow, "deny": deny}
 
 
-def _load_worker_role_from_settings(settings_path: Path) -> Dict[str, str]:
+def _load_lead_role_from_settings(settings_path: Path) -> Dict[str, str]:
+    """Load roles.lead (falling back to roles.worker if roles.lead is unset) for autonomous remediation dispatch."""
     try:
         if not settings_path.is_file():
             return {}
@@ -1895,14 +1909,20 @@ def _load_worker_role_from_settings(settings_path: Path) -> Dict[str, str]:
     except (OSError, ValueError):
         return {}
     roles = data.get("roles") if isinstance(data, dict) else None
-    worker = roles.get("worker") if isinstance(roles, dict) else None
-    if not isinstance(worker, dict):
+    if not isinstance(roles, dict):
         return {}
-    return {
-        k: str(worker[k]).strip()
-        for k in ("provider", "model", "effort", "harness")
-        if worker.get(k) and str(worker[k]).strip().lower() != "default"
-    }
+    for role_name in ("lead", "worker"):
+        entry = roles.get(role_name)
+        if not isinstance(entry, dict):
+            continue
+        parsed = {
+            k: str(entry[k]).strip()
+            for k in ("provider", "model", "effort", "harness")
+            if entry.get(k) and str(entry[k]).strip().lower() != "default"
+        }
+        if parsed.get("provider") and parsed.get("model"):
+            return parsed
+    return {}
 
 
 def _find_astack_dispatch() -> Optional[Path]:
@@ -1927,7 +1947,7 @@ def dispatch_remediation(
     max_attempts: int = 2,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """Idempotently write brief and dispatch a remediation worker (honoring settings.json autonomy grant)."""
+    """Idempotently write a lead remediation brief and dispatch `--role lead` (honoring settings.json autonomy grant)."""
     autonomy = _load_autonomy_from_settings(settings_path)
     if "watch_pr_and_fix_ci" in set(autonomy.get("deny") or ()):
         raise BadInputError(
@@ -1964,6 +1984,7 @@ def dispatch_remediation(
         "ASTACK_WATCH_PR_NUMBER": str(snapshot.target.number),
         "ASTACK_WATCH_PR_URL": snapshot.url,
         "ASTACK_WATCH_HEAD_SHA": snapshot.head_sha,
+        "ASTACK_WATCH_ROLE": "lead",
         "ASTACK_WATCH_ACTION": action.kind.value,
         "ASTACK_WATCH_BRIEF": str(brief_path),
         "ASTACK_WATCH_REPORT": str(report_path),
@@ -1987,15 +2008,15 @@ def dispatch_remediation(
         if dispatcher is None:
             raise BadInputError("astack-dispatch not found; pass --dispatch-cmd or run astack-tools link-bin")
         spath = settings_path or default_settings_path()
-        role_cfg = _load_worker_role_from_settings(spath)
+        role_cfg = _load_lead_role_from_settings(spath)
         if not role_cfg.get("provider") or not role_cfg.get("model"):
             raise BadInputError(
-                f"roles.worker provider/model not configured in {spath}; "
+                f"roles.lead (or fallback roles.worker) provider/model not configured in {spath}; "
                 "configure via /astack:setup or pass --dispatch-cmd"
             )
         argv = [
             sys.executable, "-B", str(dispatcher), "run",
-            "--role", "worker",
+            "--role", "lead",
             "--provider", role_cfg["provider"],
             "--model", role_cfg["model"],
             "--cwd", str(work_dir),

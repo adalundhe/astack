@@ -22,7 +22,7 @@ Tests verify user-observable correctness—never internal implementation details
 8. **Use a test diamond:** selective unit tests, a fast comprehensive integration layer (where most behavior is proven), and targeted end-to-end tests.
 9. **Go red first:** confirm new tests fail before the fix or feature lands.
 10. **Benchmark speed separately:** measure performance via **benchmarking**, never assert latency inside unit/integration tests.
-11. **Fix flakes at the root:** a flaky test is a bug in the test or product code—find which (**diagnose**) and fix it instead of retrying to green.
+11. **Fix flakes at the root:** a flaky test is a bug in the test or product code—find which (**find-it**) and fix it instead of retrying to green.
 
 ## Watch for
 
