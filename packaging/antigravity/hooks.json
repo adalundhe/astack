@@ -13,20 +13,6 @@
       }
     ]
   },
-  "astack-guard": {
-    "PreToolUse": [
-      {
-        "matcher": "run_command",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "./bin/astack-guard-hook --harness antigravity --event PreToolUse",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
-  },
   "astack-go-mode": {
     "SessionStart": [
       {

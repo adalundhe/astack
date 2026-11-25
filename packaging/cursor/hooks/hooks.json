@@ -1,11 +1,6 @@
 {
   "version": 1,
   "hooks": {
-    "beforeShellExecution": [
-      {
-        "command": "./bin/astack-guard-hook --harness cursor --event beforeShellExecution"
-      }
-    ],
     "afterFileEdit": [
       {
         "command": "./bin/astack-stamp-hook"

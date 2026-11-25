@@ -110,7 +110,7 @@ class BuildTest(unittest.TestCase):
             data = json.loads(val.stdout)
             self.assertGreaterEqual(data["components"]["skills"], 88)
             self.assertEqual(data["components"]["agents"], 4)
-            self.assertEqual(data["components"]["hooks"], 3)
+            self.assertEqual(data["components"]["hooks"], 2)
 
         with tempfile.TemporaryDirectory(prefix="astack-agy-install-") as td:
             fake_home = Path(td)
@@ -410,7 +410,6 @@ class BuildTest(unittest.TestCase):
                 "astack-watch-pr", "astack-watch-github", "astack-watch-gitlab", "astack-watch-bitbucket",
                 "astack-watch-tickets",
                 "astack-release", "astack-go-mode", "astack-go-hook",
-                "astack-guard", "astack-guard-hook",
             ):
                 self.assertTrue((HARNESS / tool / "bin" / script).stat().st_mode & 0o111, f"{tool}/{script}")
             for mod in (
@@ -737,7 +736,6 @@ class BuildTest(unittest.TestCase):
             hook_text = (HARNESS / hook_rel).read_text()
             json.loads(hook_text)
             self.assertIn("astack-go-hook", hook_text, f"{hook_rel} missing astack-go-hook")
-            self.assertIn("astack-guard-hook", hook_text, f"{hook_rel} missing astack-guard-hook")
 
         tech_writing = (ROOT / "skills/technical-writing/SKILL.md").read_text()
         self.assertIn("Discover and audit impacted docs on every change", tech_writing)

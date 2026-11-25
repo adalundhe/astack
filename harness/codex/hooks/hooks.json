@@ -1,15 +1,5 @@
 {
   "hooks": {
-    "PreToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$PLUGIN_ROOT/bin/astack-guard-hook\" --harness codex --event PreToolUse"
-          }
-        ]
-      }
-    ],
     "PostToolUse": [
       {
         "hooks": [
