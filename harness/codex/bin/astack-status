@@ -179,10 +179,14 @@ def _pid_alive(pid):
 
 def active_dispatches():
     sdir = _dispatch_state_dir()
-    if not sdir.is_dir():
+    try:
+        if not sdir.is_dir():
+            return []
+        entries = sorted(sdir.iterdir(), key=lambda p: p.name)
+    except OSError:
         return []
     live = []
-    for entry in sorted(sdir.iterdir(), key=lambda p: p.name):
+    for entry in entries:
         if not entry.name.endswith(".json") or entry.name.endswith(".job.json") or entry.name.startswith("."):
             continue
         try:

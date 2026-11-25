@@ -1,31 +1,33 @@
-"""Behaviour tests for bin/astack-watch-tickets across GitHub Issues, Jira, and Linear."""
+"""Behaviour and architecture tests for lib/astack_tickets and bin/astack-watch-tickets."""
+import ast
 import io
-import importlib.machinery
-import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 from urllib import error as urllib_error
 
-BIN = Path(__file__).resolve().parent.parent / "bin"
+ROOT = Path(__file__).resolve().parent.parent
+BIN = ROOT / "bin"
+LIB = ROOT / "lib"
 
+if str(LIB) not in sys.path:
+    sys.path.insert(0, str(LIB))
 
-def load_watch_tickets():
-    path = BIN / "astack-watch-tickets"
-    mod_name = "astack_watch_tickets_mod"
-    loader = importlib.machinery.SourceFileLoader(mod_name, str(path))
-    spec = importlib.util.spec_from_loader(mod_name, loader)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[mod_name] = mod
-    loader.exec_module(mod)
-    return mod
-
-
-WT = load_watch_tickets()
+import astack_tickets as WT
+from astack_tickets import adapters as WT_adapters
+from astack_tickets import brief as WT_brief
+from astack_tickets import cli as WT_cli
+from astack_tickets import http_client as WT_http
+from astack_tickets import models as WT_models
+from astack_tickets import state as WT_state
+from astack_tickets.adapters import github as WT_github
+from astack_tickets.adapters import jira as WT_jira
+from astack_tickets.adapters import linear as WT_linear
 
 
 class FakeHTTPResponse:
@@ -53,6 +55,86 @@ class WatchTicketsTest(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp(prefix="astack-tickets-test-"))
         self.addCleanup(shutil.rmtree, self.dir, ignore_errors=True)
+
+    def test_modular_package_structure_is_thin_cli_and_acyclic(self):
+        # Entrypoint stays thin and delegates to astack_tickets.cli.main
+        entrypoint = BIN / "astack-watch-tickets"
+        self.assertLess(len(entrypoint.read_text(encoding="utf-8").splitlines()), 60)
+
+        # Direct submodule boundaries exist cleanly
+        self.assertIs(WT_models.TicketItem, WT.TicketItem)
+        self.assertIs(WT_http.RateLimitGovernor, WT.RateLimitGovernor)
+        self.assertIs(WT_state.DurableSprintState, WT.DurableSprintState)
+        self.assertIs(WT_brief.build_ticket_brief, WT.build_ticket_brief)
+        self.assertIs(WT_github.GitHubIssuesAdapter, WT.GitHubIssuesAdapter)
+        self.assertIs(WT_jira.JiraAdapter, WT.JiraAdapter)
+        self.assertIs(WT_linear.LinearAdapter, WT.LinearAdapter)
+        self.assertIs(WT_adapters.build_adapter, WT.build_adapter)
+        self.assertIs(WT_cli.main, WT.main)
+
+        # Verify internal package import graph has zero cycles
+        pkg_root = LIB / "astack_tickets"
+        graph = {}
+        for py in sorted(pkg_root.rglob("*.py")):
+            rel = py.relative_to(LIB).with_suffix("")
+            mod = ".".join(rel.parts[:-1] if rel.parts[-1] == "__init__" else rel.parts)
+            deps = set()
+            tree = ast.parse(py.read_text(encoding="utf-8"), filename=str(py))
+            pkg_parts = rel.parts[:-1]
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.level > 0:
+                    base = pkg_parts[: len(pkg_parts) - (node.level - 1)]
+                    target = ".".join((*base, node.module)) if node.module else ".".join(base)
+                    deps.add(target)
+                elif isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("astack_tickets"):
+                    deps.add(node.module)
+            graph[mod] = deps
+
+        visiting, visited = set(), set()
+
+        def dfs(node):
+            visiting.add(node)
+            for nxt in graph.get(node, ()):
+                self.assertNotIn(nxt, visiting, f"import cycle detected involving {node} -> {nxt}")
+                if nxt not in visited and nxt in graph:
+                    dfs(nxt)
+            visiting.remove(node)
+            visited.add(node)
+
+        for mod in graph:
+            if mod not in visited:
+                dfs(mod)
+
+    def test_cli_entrypoint_and_module_execution_mark_and_status(self):
+        state_dir = self.dir / "cli-state"
+        mark = subprocess.run(
+            [
+                sys.executable, "-B", str(BIN / "astack-watch-tickets"),
+                "mark", "--state-dir", str(state_dir),
+                "--ticket", "github:adalundhe/astack#42",
+                "--state", "merge_ready",
+                "--pr", "https://github.com/adalundhe/astack/pull/99",
+                "--note", "ready for human sign-off",
+                "--json",
+            ],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(mark.returncode, 0, mark.stderr)
+        rec = json.loads(mark.stdout)
+        self.assertEqual(rec["state"], "merge_ready")
+        self.assertEqual(rec["pr_url"], "https://github.com/adalundhe/astack/pull/99")
+
+        status = subprocess.run(
+            [
+                sys.executable, "-B", "-m", "astack_tickets",
+                "status", "--state-dir", str(state_dir), "--json",
+            ],
+            capture_output=True, text=True,
+            env={**os.environ, "PYTHONPATH": str(LIB)},
+        )
+        self.assertEqual(status.returncode, 0, status.stderr)
+        st_data = json.loads(status.stdout)
+        self.assertEqual(st_data["tickets"]["github:adalundhe/astack#42"]["state"], "merge_ready")
 
     def test_github_graphql_default_issue_type_fallback_rest_etag_fallback_and_fenced_ingest(self):
         gql_calls = 0
@@ -392,12 +474,12 @@ class WatchTicketsTest(unittest.TestCase):
                 "--state-dir", str(state_dir), "--once", "--ignore-existing", "--format", "json",
             ])
             buf = io.StringIO()
-            old_stdout = WT.sys.stdout
-            WT.sys.stdout = buf
+            old_stdout = sys.stdout
+            sys.stdout = buf
             try:
                 rc1 = WT.cmd_watch(args1, opener=opener)
             finally:
-                WT.sys.stdout = old_stdout
+                sys.stdout = old_stdout
             self.assertEqual(rc1, 0)
             self.assertEqual(json.loads(buf.getvalue())["matched"], [])
 
@@ -418,11 +500,11 @@ class WatchTicketsTest(unittest.TestCase):
                 "--settings", str(settings_path), "--format", "json",
             ])
             buf2 = io.StringIO()
-            WT.sys.stdout = buf2
+            sys.stdout = buf2
             try:
                 rc2 = WT.cmd_watch(args2, opener=opener)
             finally:
-                WT.sys.stdout = old_stdout
+                sys.stdout = old_stdout
             self.assertEqual(rc2, 0)
             out2 = json.loads(buf2.getvalue())
             self.assertEqual([m["key"] for m in out2["matched"]], ["ENG-11"])
@@ -439,11 +521,11 @@ class WatchTicketsTest(unittest.TestCase):
                 "--state-dir", str(state_dir), "--once", "--format", "json",
             ])
             buf3 = io.StringIO()
-            WT.sys.stdout = buf3
+            sys.stdout = buf3
             try:
                 rc3 = WT.cmd_watch(args3, opener=opener)
             finally:
-                WT.sys.stdout = old_stdout
+                sys.stdout = old_stdout
             self.assertEqual(rc3, 0)
             self.assertEqual(json.loads(buf3.getvalue())["matched"], [])
         finally:

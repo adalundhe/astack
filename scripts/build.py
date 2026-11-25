@@ -222,6 +222,13 @@ def build_tool(tool, out):
         if p.is_file() and p.name != ".DS_Store" and p.suffix != ".pyc"
     ):
         write(out / "bin" / script.name, script.read_text(), executable=True)
+    lib_root = ROOT / "lib"
+    if lib_root.is_dir():
+        for source in sorted(
+            p for p in lib_root.rglob("*")
+            if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc" and p.name != ".DS_Store"
+        ):
+            write(out / "lib" / source.relative_to(lib_root), source.read_text())
     for source in sorted(p for p in (PACKAGING / tool).rglob("*") if p.is_file() and p.name != "replace.json"):
         write(out / source.relative_to(PACKAGING / tool), source.read_text())
     for doc in DOCS:

@@ -1112,6 +1112,28 @@ def cmd_link_bin(args) -> int:
                     os.chmod(tmp, 0o755)
                     os.replace(tmp, dst)
 
+    src_lib = source_dir.parent / "lib"
+    if args.copy and src_lib.is_dir():
+        dst_lib = target_dir / "_astack_lib"
+        if not (dst_lib.exists() and dst_lib.resolve() == src_lib.resolve()):
+            actions.append(f"copy {src_lib} -> {dst_lib}")
+            if not args.dry_run:
+                tmp_lib = target_dir / "._astack_lib.astack-tmp"
+                if tmp_lib.is_symlink() or tmp_lib.is_file():
+                    tmp_lib.unlink()
+                elif tmp_lib.is_dir():
+                    shutil.rmtree(tmp_lib)
+                shutil.copytree(
+                    src_lib,
+                    tmp_lib,
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"),
+                )
+                if dst_lib.is_symlink() or dst_lib.is_file():
+                    dst_lib.unlink()
+                elif dst_lib.is_dir():
+                    shutil.rmtree(dst_lib)
+                os.replace(tmp_lib, dst_lib)
+
     for line in actions:
         print(line)
     if not _dir_on_path(target_dir):

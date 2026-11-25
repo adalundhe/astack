@@ -412,6 +412,25 @@ class BuildTest(unittest.TestCase):
                 "astack-release", "astack-go-mode", "astack-go-hook",
             ):
                 self.assertTrue((HARNESS / tool / "bin" / script).stat().st_mode & 0o111, f"{tool}/{script}")
+            for mod in (
+                "astack_tickets/__init__.py",
+                "astack_tickets/__main__.py",
+                "astack_tickets/models.py",
+                "astack_tickets/http_client.py",
+                "astack_tickets/state.py",
+                "astack_tickets/brief.py",
+                "astack_tickets/cli.py",
+                "astack_tickets/adapters/__init__.py",
+                "astack_tickets/adapters/github.py",
+                "astack_tickets/adapters/jira.py",
+                "astack_tickets/adapters/linear.py",
+            ):
+                self.assertTrue((HARNESS / tool / "lib" / mod).is_file(), f"{tool}/lib/{mod} missing")
+            help_res = subprocess.run(
+                [sys.executable, "-B", str(HARNESS / tool / "bin" / "astack-watch-tickets"), "--help"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(help_res.returncode, 0, f"{tool} astack-watch-tickets --help: {help_res.stderr}")
 
     def test_readme_lists_every_skill_and_notice_attributions_hold(self):
         skills = {p.name for p in (ROOT / "skills").iterdir() if (p / "SKILL.md").is_file()}

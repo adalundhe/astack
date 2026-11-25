@@ -496,12 +496,19 @@ class ToolsTest(Scratch):
         second = run("astack-tools", "link-bin", "--bin-dir", str(bin_dir))
         self.assertEqual(second.returncode, 0, second.stderr)
 
-        # --copy mode writes executable copies
+        # --copy mode writes executable copies AND bundles _astack_lib so modular tools work standalone
         copy_dir = self.dir / "user-bin-copy"
         copied = run("astack-tools", "link-bin", "--bin-dir", str(copy_dir), "--copy")
         self.assertEqual(copied.returncode, 0, copied.stderr)
         self.assertTrue((copy_dir / "astack-tools").is_file())
         self.assertFalse((copy_dir / "astack-tools").is_symlink())
+        self.assertTrue((copy_dir / "_astack_lib" / "astack_tickets" / "cli.py").is_file())
+
+        # Both launcher mode and --copy standalone mode execute modular astack-watch-tickets cleanly
+        for target_bin in (bin_dir / "astack-watch-tickets", copy_dir / "astack-watch-tickets"):
+            res = subprocess.run([sys.executable, "-B", str(target_bin), "--help"], capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, f"{target_bin}: {res.stderr}")
+            self.assertIn("astack-watch-tickets", res.stdout)
 
     def test_link_bin_launchers_follow_an_update_that_removes_the_linked_folder(self):
         home = self.dir / "home"
