@@ -13,7 +13,7 @@ Before asking a question, declaring yourself blocked, calling a requirement uncl
 1. **What you were already given:** the prompt and thread, your brief, `RULES.md`, earlier decisions in the lane log, and any attached docs or examples.
 2. **PR, issue, discussion, and linked context:** the PR description, **every PR comment and inline review thread** (human and bot, open and resolved), commit messages, **linked issues, parent/child PRs, discussions, ADRs, RFCs, design docs, tickets, and cited URLs** (e.g., `gh pr view --comments`, `gh issue view --comments`, `gh api` for inline review threads, `git log` / `git blame`, and reading every referenced file or spec). Follow links instead of guessing what they say.
 3. **The repository:** README, docs, architecture decisions, contributor/agent guides (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`), relevant source, callers/callees, tests, and git history for the area.
-4. **The local environment:** configs, scripts, CI workflows, installed/running services, and existing logs or outputs.
+4. **The local environment & available tooling (**analyze-environment**):** configs, scripts, CI workflows, installed CLIs, MCP servers, env-var names, running/reachable services, safe read-only/dry-run and auth-status probes, and existing logs or outputs.
 5. **Official references:** documentation and examples for the tools and libraries involved.
 
 Then actually test what you read—run the command, inspect the source, call the API.

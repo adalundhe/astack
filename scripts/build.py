@@ -217,7 +217,10 @@ def build_tool(tool, out):
     build_skills(tool, out, translate)
     build_agents(tool, out, translate)
     translate.check_all_used()
-    for script in sorted((ROOT / "bin").iterdir()):
+    for script in sorted(
+        p for p in (ROOT / "bin").iterdir()
+        if p.is_file() and p.name != ".DS_Store" and p.suffix != ".pyc"
+    ):
         write(out / "bin" / script.name, script.read_text(), executable=True)
     for source in sorted(p for p in (PACKAGING / tool).rglob("*") if p.is_file() and p.name != "replace.json"):
         write(out / source.relative_to(PACKAGING / tool), source.read_text())

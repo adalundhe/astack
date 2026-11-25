@@ -22,7 +22,7 @@ Tests verify user-observable correctness—never internal implementation details
 8. **Use a test diamond:** selective unit tests, a fast comprehensive integration layer (where most behavior is proven), and targeted end-to-end tests.
 9. **Go red first:** confirm new tests fail before the fix or feature lands.
 10. **Benchmark speed separately:** measure performance via **benchmarking**, never assert latency inside unit/integration tests.
-11. **Fix flakes at the root:** a flaky test is a bug in the test or product code—find which (**diagnose**) and fix it instead of retrying to green.
+11. **Fix flakes at the root:** a flaky test is a bug in the test or product code—find which (**find-it**) and fix it instead of retrying to green.
 
 ## Watch for
 
@@ -49,6 +49,6 @@ Tests verify user-observable correctness—never internal implementation details
 
 **Showing it:** break the behavior and watch the test stay green; refactor internals without changing behavior and watch it fail; run the test solo, in parallel, or under load.
 
-Referenced skills: `full-spectrum-testing` (`${CLAUDE_SKILL_DIR}/../full-spectrum-testing/SKILL.md`), `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`), `diagnose` (`${CLAUDE_SKILL_DIR}/../diagnose/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `full-spectrum-testing` (`${CLAUDE_SKILL_DIR}/../full-spectrum-testing/SKILL.md`), `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`), `find-it` (`${CLAUDE_SKILL_DIR}/../find-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's testing principles and TDD guardrails (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

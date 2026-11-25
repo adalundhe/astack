@@ -1,18 +1,24 @@
 ---
 name: prove-it
-description: "Verify claims against the real artifact (not proxies), rank evidence on the trust ladder, challenge weak claims, and provide runnable proof. Use before calling work done or reporting/challenging any claim."
+description: "Verify claims against the real artifact (not proxies) with deterministic reproduction, empirically measured occurrence frequency (from logs, traces, telemetry, monitoring, metrics, or usage analytics), trust-ladder ranking, and runnable proof. Use before calling work done or reporting/challenging any claim."
 disable-model-invocation: true
 ---
 
 # Prove it
 
-Verify results on the real system, back claims with the strongest evidence available, and give the person a way to rerun the proof.
+Verify results on the real system with deterministic reproduction, measure real occurrence frequency from telemetry and usage data, back claims with the strongest evidence available, and give the person a way to rerun the proof.
 
 ## Verify the real thing
 
 Check the actual artifact: run the feature, inspect the real output, read the actual diff. Proxies prove nothing (file timestamps, another agent's summary, cached output, "it compiles"). If a check fails unexpectedly—or passes suspiciously easily—audit the check itself before assuming the system is broken or fixed. Script checks so anyone can rerun them, and keep outputs accessible.
 
 Classify every verification as **verified**, **not verified**, or **inconclusive**. Never treat inconclusive as a pass, and report negative results openly.
+
+## Deterministic reproduction & empirical frequency
+
+- **Deterministic reproduction:** prove behavior with a repeatable repro—fixed inputs, explicit seeds, controlled clocks/schedules, and exact failure conditions—that fails reliably before the change and passes reliably after. One lucky green run proves nothing.
+- **Empirical frequency (**no-picked-constants**):** measure how often a failure or path occurs from accessible logs, traces, telemetry, monitoring, metrics, or usage analytics (citing source, time window, and sample count)—never invent rates or hand-wave "rare/common". If telemetry isn't accessible, don't block or guess: mark frequency as unmeasured and prove behavior deterministically.
+- **Intermittent faults:** eliminate nondeterminism structurally (seeded scheduler, pinned clock, fault injection) wherever possible; otherwise compute the required clean-run count from the measured failure rate $p$ ($n \ge \lceil \ln(1-c)/\ln(1-p)\rceil$, **find-it**).
 
 ## The trust ladder
 
@@ -32,11 +38,11 @@ Don't assume the person shares your context. Present findings in order:
 
 1. **Problem:** brief restatement of what you investigated.
 2. **Hypothesis or solution:** what you tested or built, concisely.
-3. **Method:** the reasoning and concrete steps taken.
-4. **Evidence:** raw data, outputs, profiles, traces, or benchmarks.
+3. **Method & conditions:** the reasoning, concrete steps, exact reproduction conditions/environment, and—where relevant—the empirically measured frequency (source, window, sample count).
+4. **Evidence:** raw data, outputs, profiles, traces, telemetry, or benchmarks.
 
-Include something the person can run directly (a command, script, minimal repro, or demo)—for failures as well as successes.
+Include something the person can run directly (a deterministic command, script, minimal repro, or demo)—for failures as well as successes.
 
-Referenced skills: `research-this` (`../research-this/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `no-picked-constants` (`../no-picked-constants/SKILL.md`), `find-it` (`../find-it/SKILL.md`), `research-this` (`../research-this/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's prove-it-works principle and the verdicts of its figure-it-out skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

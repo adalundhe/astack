@@ -1,0 +1,913 @@
+#!/usr/bin/env python3
+"""Bitbucket PR watcher (Cloud REST 2.0 + Server/Data Center REST 1.0) with good-citizen pacing.
+
+Usage:
+  astack-watch-bitbucket <pr-url-or-id> [--repo workspace/repo] [--api-style auto|cloud|server] [watch options]
+  astack-watch-bitbucket reply <pr-url-or-id> --body-file PATH --audit-receipt PATH [options]
+
+API Citizenship:
+  - Supports BOTH Bitbucket Cloud (REST 2.0) and Bitbucket Server / Data Center (REST 1.0).
+  - Honors X-RateLimit-NearLimit: true (immediately backing off before hitting 429!),
+    X-RateLimit-Remaining/Reset, Retry-After, and conditional ETag / If-None-Match (304).
+  - Combines Cloud conflict detection and PR changed-file collection into ONE diffstat?topic=true
+    call cached per (head_sha, base_sha).
+  - Tracks inline & general comment threads (reconstructed via parent.id), unresolved Bitbucket
+    PR tasks, CHANGES_REQUESTED / NEEDS_WORK reviewers, commit build statuses, and stacked PRs.
+"""
+from __future__ import annotations
+
+import argparse
+import base64
+import importlib.machinery
+import importlib.util
+import os
+from pathlib import Path
+import re
+import sys
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+from urllib import parse as urllib_parse
+
+sys.dont_write_bytecode = True
+
+
+def _load_core() -> Any:
+    path = Path(__file__).resolve().parent / "astack-watch-pr"
+    mod_name = "astack_watch_pr"
+    if mod_name in sys.modules:
+        return sys.modules[mod_name]
+    loader = importlib.machinery.SourceFileLoader(mod_name, str(path))
+    spec = importlib.util.spec_from_loader(mod_name, loader)
+    if spec is None:
+        raise RuntimeError(f"failed to load core module from {path}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = mod
+    loader.exec_module(mod)
+    return mod
+
+
+core = _load_core()
+
+
+def _resolve_bitbucket_auth(token_env: Optional[str]) -> Dict[str, str]:
+    if token_env:
+        tok = os.environ.get(token_env, "").strip()
+        if tok:
+            return {"Authorization": f"Bearer {tok}"}
+    bearer = os.environ.get("BITBUCKET_TOKEN", "").strip()
+    if bearer:
+        return {"Authorization": f"Bearer {bearer}"}
+    user = os.environ.get("BITBUCKET_USERNAME", "").strip()
+    secret = (
+        os.environ.get("BITBUCKET_APP_PASSWORD", "").strip()
+        or os.environ.get("BITBUCKET_API_TOKEN", "").strip()
+    )
+    if user and secret:
+        encoded = base64.b64encode(f"{user}:{secret}".encode("utf-8")).decode("ascii")
+        return {"Authorization": f"Basic {encoded}"}
+    return {}
+
+
+def _map_bb_build_state(raw: str) -> Any:
+    st = (raw or "").upper()
+    if st == "SUCCESSFUL":
+        return core.CheckState.PASSED
+    if st == "INPROGRESS":
+        return core.CheckState.PENDING
+    if st == "STOPPED":
+        return core.CheckState.CANCELLED
+    return core.CheckState.FAILED
+
+
+def _bb_user_name(user_obj: Any) -> str:
+    if not isinstance(user_obj, dict):
+        return "unknown"
+    return str(
+        user_obj.get("nickname")
+        or user_obj.get("username")
+        or user_obj.get("slug")
+        or user_obj.get("display_name")
+        or user_obj.get("displayName")
+        or "unknown"
+    )
+
+
+class BitbucketAdapter(core.ForgeAdapter):
+    forge_kind = core.ForgeKind.BITBUCKET_CLOUD
+
+    def __init__(
+        self,
+        governor: Any,
+        *,
+        token_env: Optional[str] = None,
+        api_style: str = "auto",
+        initial_etags: Optional[Dict[str, str]] = None,
+    ) -> None:
+        self.governor = governor
+        self._token_env = token_env
+        self._api_style_override = api_style
+        self._clients: Dict[str, Any] = {}
+        self._initial_etags = dict(initial_etags or {})
+        self._viewer_cache: Dict[str, str] = {}
+        # Cache diffstat conflict + PR file list per (repo, pr, head_sha, base_sha)
+        self._diffstat_cache: Dict[Tuple[str, int, str, str], Tuple[bool, Tuple[str, ...]]] = {}
+
+    def export_etags(self) -> Dict[str, str]:
+        merged: Dict[str, str] = {}
+        for client in self._clients.values():
+            merged.update(client.export_etags())
+        return merged
+
+    def _client_for(self, target: Any) -> Any:
+        if target.host not in self._clients:
+            headers = {"Accept": "application/json", **_resolve_bitbucket_auth(self._token_env)}
+            self._clients[target.host] = core.GoodCitizenHTTPClient(
+                self.governor,
+                default_headers=headers,
+                initial_etags=self._initial_etags,
+            )
+        return self._clients[target.host]
+
+    def parse_target(
+        self,
+        raw_target: Optional[str],
+        repo: Optional[str],
+        host: Optional[str],
+        api_url: Optional[str],
+        cwd: Path,
+    ) -> Any:
+        raw = (raw_target or "").strip()
+        if not raw:
+            raise core.BadInputError("missing Bitbucket PR ID or URL (usage: astack-watch-bitbucket <pr-or-url>)")
+
+        detected_host = host
+        detected_repo = repo
+        detected_style = self._api_style_override
+        pr_id: Optional[int] = None
+
+        # Server/DC URL: https://<host>/projects/<PROJ>/repos/<slug>/pull-requests/<id>
+        srv_match = re.fullmatch(
+            r"https?://([^/\s]+)/projects/([^/\s]+)/repos/([^/\s]+)/pull-requests/(\d+)(?:[/?#]\S*)?",
+            raw,
+        )
+        # Cloud URL: https://bitbucket.org/<workspace>/<repo>/pull-requests/<id>
+        cld_match = re.fullmatch(
+            r"https?://([^/\s]+)/([^/\s]+/[^/\s]+)/pull-requests/(\d+)(?:[/?#]\S*)?",
+            raw,
+        )
+        num_match = re.fullmatch(r"#?(\d+)", raw)
+
+        if srv_match:
+            detected_host = detected_host or srv_match.group(1)
+            detected_repo = detected_repo or f"{srv_match.group(2)}/{srv_match.group(3)}"
+            pr_id = int(srv_match.group(4))
+            if detected_style == "auto":
+                detected_style = "server"
+        elif cld_match:
+            detected_host = detected_host or cld_match.group(1)
+            detected_repo = detected_repo or cld_match.group(2)
+            pr_id = int(cld_match.group(3))
+            if detected_style == "auto":
+                detected_style = "cloud" if "bitbucket.org" in detected_host.lower() else "server"
+        elif num_match:
+            pr_id = int(num_match.group(1))
+        else:
+            raise core.BadInputError(f"{raw!r} is not a Bitbucket PR ID or PR URL")
+
+        if pr_id <= 0:
+            raise core.BadInputError(f"Bitbucket PR ID must be positive, got {pr_id}")
+
+        if not detected_repo or not detected_host:
+            origin = core.detect_git_origin_url(cwd)
+            if origin:
+                parsed = core.parse_git_remote_host_and_path(origin)
+                if parsed:
+                    origin_host, origin_path = parsed
+                    detected_host = detected_host or origin_host
+                    if not detected_repo and origin_path.count("/") == 1:
+                        detected_repo = origin_path
+
+        detected_host = detected_host or "bitbucket.org"
+        if detected_style == "auto":
+            detected_style = "cloud" if detected_host.lower() in ("bitbucket.org", "api.bitbucket.org") else "server"
+
+        if not detected_repo or detected_repo.count("/") != 1:
+            raise core.BadInputError(
+                f"could not determine Bitbucket workspace/repo or PROJECT/slug (got {detected_repo!r}); "
+                "pass --repo workspace/repo"
+            )
+
+        if detected_style == "server":
+            proj, slug = detected_repo.split("/", 1)
+            canonical_url = f"https://{detected_host}/projects/{proj}/repos/{slug}/pull-requests/{pr_id}"
+            base_api = (api_url or f"https://{detected_host}").rstrip("/")
+            forge_kind = core.ForgeKind.BITBUCKET_SERVER
+        else:
+            canonical_url = f"https://{detected_host}/{detected_repo}/pull-requests/{pr_id}"
+            base_api = (api_url or "https://api.bitbucket.org/2.0").rstrip("/")
+            forge_kind = core.ForgeKind.BITBUCKET_CLOUD
+
+        return core.PRTarget(
+            forge=forge_kind,
+            host=detected_host,
+            repo=detected_repo,
+            number=pr_id,
+            url=canonical_url,
+            api_url=base_api,
+            api_style=detected_style,
+        )
+
+    def _cloud_paginated(self, client: Any, url: str, max_pages: int = 10, allow_404: bool = False) -> Tuple[List[Any], bool]:
+        items: List[Any] = []
+        changed = False
+        next_url: Optional[str] = url
+        pages = 0
+        while next_url and pages < max_pages:
+            pages += 1
+            resp = client.request("GET", next_url, allow_404=allow_404, allow_403=True)
+            if resp.status != 200:
+                break
+            if not resp.from_cache_304:
+                changed = True
+            data = resp.json() or {}
+            vals = data.get("values")
+            if isinstance(vals, list):
+                items.extend(vals)
+            next_url = data.get("next") if isinstance(data.get("next"), str) else None
+        return items, changed
+
+    def _cloud_diffstat(
+        self,
+        client: Any,
+        target: Any,
+        head_sha: str,
+        base_sha: str,
+    ) -> Tuple[bool, Tuple[str, ...]]:
+        """Single diffstat?topic=true call checks BOTH merge conflicts AND changed files, cached per SHAs."""
+        ckey = (target.repo, target.number, head_sha, base_sha)
+        if ckey in self._diffstat_cache:
+            return self._diffstat_cache[ckey]
+        rows, _ = self._cloud_paginated(
+            client,
+            f"{target.api_url}/repositories/{target.repo}/pullrequests/{target.number}/diffstat?topic=true&pagelen=100",
+            allow_404=True,
+        )
+        has_conflict = False
+        files = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            status = str(row.get("status") or "").lower()
+            if "conflict" in status:
+                has_conflict = True
+            new_p = (row.get("new") or {}).get("path") if isinstance(row.get("new"), dict) else None
+            old_p = (row.get("old") or {}).get("path") if isinstance(row.get("old"), dict) else None
+            if new_p:
+                files.add(str(new_p))
+            if old_p:
+                files.add(str(old_p))
+        result = (has_conflict, tuple(sorted(files)))
+        self._diffstat_cache[ckey] = result
+        return result
+
+    def _cloud_base_overlap(
+        self,
+        client: Any,
+        target: Any,
+        pr_files: Tuple[str, ...],
+        old_base: str,
+        new_base: str,
+    ) -> Tuple[str, ...]:
+        if not pr_files or not old_base or not new_base or old_base == new_base:
+            return ()
+        rows, _ = self._cloud_paginated(
+            client,
+            f"{target.api_url}/repositories/{target.repo}/diffstat/{new_base}..{old_base}?pagelen=100",
+            allow_404=True,
+        )
+        moved = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            for side in ("new", "old"):
+                p = (row.get(side) or {}).get("path") if isinstance(row.get(side), dict) else None
+                if p:
+                    moved.add(str(p))
+        return tuple(sorted(set(pr_files) & moved))
+
+    def _fetch_cloud(
+        self,
+        target: Any,
+        cfg: Any,
+        *,
+        prev_base_sha: Optional[str],
+        lightweight_probe: bool,
+    ) -> Tuple[Optional[Any], bool]:
+        self.governor.state.transport = "bitbucket-cloud-v2"
+        client = self._client_for(target)
+        r_pr = client.request("GET", f"{target.api_url}/repositories/{target.repo}/pullrequests/{target.number}")
+        pr = r_pr.json() or {}
+        if lightweight_probe and r_pr.from_cache_304:
+            # Also check commit statuses ETag before declaring unchanged
+            head_sha_probe = str((((pr.get("source") or {}).get("commit") or {}).get("hash")) or "")
+            if head_sha_probe:
+                r_st = client.request(
+                    "GET",
+                    f"{target.api_url}/repositories/{target.repo}/commit/{head_sha_probe}/statuses?pagelen=100",
+                    allow_404=True,
+                    allow_403=True,
+                )
+                if r_st.from_cache_304:
+                    return None, False
+            else:
+                return None, False
+
+        changed = not r_pr.from_cache_304
+        if target.host not in self._viewer_cache:
+            r_user = client.request("GET", f"{target.api_url}/user", allow_403=True, allow_404=True)
+            self._viewer_cache[target.host] = _bb_user_name(r_user.json()) if r_user.status == 200 else ""
+        viewer = self._viewer_cache[target.host]
+
+        raw_state = str(pr.get("state") or "OPEN").upper()
+        if raw_state == "MERGED":
+            lifecycle = core.PRLifecycle.MERGED
+        elif raw_state in ("DECLINED", "SUPERSEDED"):
+            lifecycle = core.PRLifecycle.CLOSED
+        else:
+            lifecycle = core.PRLifecycle.OPEN
+
+        is_draft = bool(pr.get("draft", False))
+        src = pr.get("source") or {}
+        dst = pr.get("destination") or {}
+        head_branch = str((src.get("branch") or {}).get("name") or "")
+        head_sha = str((src.get("commit") or {}).get("hash") or "")
+        base_branch = str((dst.get("branch") or {}).get("name") or "")
+        base_sha = str((dst.get("commit") or {}).get("hash") or "")
+        author = _bb_user_name(pr.get("author"))
+        web_url = str((((pr.get("links") or {}).get("html") or {}).get("href")) or target.url)
+
+        # Participants -> approvals & CHANGES_REQUESTED
+        approvals_count = 0
+        change_requests: List[Any] = []
+        for part in (pr.get("participants") or []):
+            if not isinstance(part, dict):
+                continue
+            p_state = str(part.get("state") or "").lower()
+            p_user = _bb_user_name(part.get("user"))
+            if p_state == "approved" or bool(part.get("approved", False)):
+                approvals_count += 1
+            elif p_state == "changes_requested":
+                change_requests.append(
+                    core.ReviewComment(
+                        comment_id=f"participant:{p_user}",
+                        author=p_user,
+                        is_bot=False,
+                        body=f"{p_user} requested changes on this pull request",
+                        url=web_url,
+                    )
+                )
+        if change_requests:
+            review_verdict = core.ReviewVerdict.CHANGES_REQUESTED
+        elif approvals_count > 0:
+            review_verdict = core.ReviewVerdict.APPROVED
+        else:
+            review_verdict = core.ReviewVerdict.NONE
+
+        checks: List[Any] = []
+        threads: List[Any] = []
+        top_comments: List[Any] = []
+        mergeability = core.Mergeability.DRAFT if is_draft else core.Mergeability.CLEAN
+        raw_merge_status = "OPEN"
+        behind_by: Optional[int] = None
+        overlap: Tuple[str, ...] = ()
+
+        if lifecycle == core.PRLifecycle.OPEN:
+            # 1. Latest destination branch commit SHA (detects behind even before PR destination updates)
+            if base_branch:
+                b_enc = urllib_parse.quote(base_branch, safe="")
+                r_ref = client.request(
+                    "GET",
+                    f"{target.api_url}/repositories/{target.repo}/refs/branches/{b_enc}",
+                    allow_404=True,
+                    allow_403=True,
+                )
+                if r_ref.status == 200 and isinstance(r_ref.json(), dict):
+                    tip_sha = str(((r_ref.json().get("target") or {}).get("hash")) or "")
+                    if tip_sha and base_sha and tip_sha != base_sha:
+                        mergeability = core.Mergeability.BEHIND
+                        raw_merge_status = "BEHIND"
+                        behind_by = 1
+                    if tip_sha:
+                        base_sha = tip_sha
+
+            # 2. Combined conflict check + PR changed files (cached per SHAs)
+            has_conflict, pr_files = self._cloud_diffstat(client, target, head_sha, base_sha)
+            if has_conflict:
+                mergeability = core.Mergeability.CONFLICTING
+                raw_merge_status = "MERGE_CONFLICT"
+            if prev_base_sha and base_sha and prev_base_sha != base_sha:
+                overlap = self._cloud_base_overlap(client, target, pr_files, prev_base_sha, base_sha)
+
+            # 3. Build statuses on head commit
+            if head_sha:
+                st_rows, st_changed = self._cloud_paginated(
+                    client,
+                    f"{target.api_url}/repositories/{target.repo}/commit/{head_sha}/statuses?pagelen=100",
+                    allow_404=True,
+                )
+                if st_changed:
+                    changed = True
+                for item in st_rows:
+                    if not isinstance(item, dict):
+                        continue
+                    c_name = str(item.get("name") or item.get("key") or "build")
+                    c_state = _map_bb_build_state(str(item.get("state") or ""))
+                    _, is_adv, _ = core.classify_bot(c_name, cfg)
+                    checks.append(
+                        core.CheckRun(
+                            name=c_name,
+                            state=c_state,
+                            required=not is_adv,
+                            advisory=is_adv,
+                            is_review_bot=core.is_review_automation_check(c_name, cfg),
+                            description=core.sanitize_text(str(item.get("description") or ""), 200, single_line=True),
+                            url=str(item.get("url") or ""),
+                            raw_state=str(item.get("state") or ""),
+                        )
+                    )
+
+            # 4. Comments reconstructed into threads via parent.id + resolution check
+            cm_rows, cm_changed = self._cloud_paginated(
+                client,
+                f"{target.api_url}/repositories/{target.repo}/pullrequests/{target.number}/comments?pagelen=100",
+                allow_404=True,
+            )
+            if cm_changed:
+                changed = True
+            active_comments = [c for c in cm_rows if isinstance(c, dict) and not c.get("deleted", False)]
+            parent_of: Dict[str, str] = {}
+            by_id: Dict[str, Dict[str, Any]] = {}
+            for cm in active_comments:
+                cid = str(cm.get("id") or "")
+                by_id[cid] = cm
+                pid = (cm.get("parent") or {}).get("id") if isinstance(cm.get("parent"), dict) else None
+                if pid is not None:
+                    parent_of[cid] = str(pid)
+
+            def root_of(cid: str) -> str:
+                seen = set()
+                cur = cid
+                while cur in parent_of and cur not in seen:
+                    seen.add(cur)
+                    cur = parent_of[cur]
+                return cur
+
+            grouped: Dict[str, List[Dict[str, Any]]] = {}
+            for cm in active_comments:
+                cid = str(cm.get("id") or "")
+                grouped.setdefault(root_of(cid), []).append(cm)
+
+            mine = {author.lower(), viewer.lower()} - {""}
+            for root_id, group in grouped.items():
+                root = by_id.get(root_id, group[0])
+                inline = root.get("inline") if isinstance(root.get("inline"), dict) else None
+                parsed_group = []
+                for cm in group:
+                    u = _bb_user_name(cm.get("user"))
+                    body = str(((cm.get("content") or {}).get("raw")) or "")
+                    c_url = str((((cm.get("links") or {}).get("html") or {}).get("href")) or web_url)
+                    parsed_group.append(
+                        core.ReviewComment(
+                            comment_id=str(cm.get("id") or ""),
+                            author=u,
+                            is_bot=bool((cm.get("user") or {}).get("type") == "app_user"),
+                            body=body,
+                            created_at=str(cm.get("created_on") or ""),
+                            url=c_url,
+                            path=inline.get("path") if inline else None,
+                            line=(inline.get("to") or inline.get("from")) if inline else None,
+                        )
+                    )
+                if inline is not None or root.get("resolution") is not None:
+                    is_resolved = root.get("resolution") is not None
+                    threads.append(
+                        core.ReviewThread(
+                            thread_id=root_id,
+                            path=inline.get("path") if inline else None,
+                            line=(inline.get("to") or inline.get("from")) if inline else None,
+                            resolved=is_resolved,
+                            is_bot=parsed_group[0].is_bot,
+                            comments=tuple(parsed_group),
+                            url=parsed_group[0].url,
+                        )
+                    )
+                else:
+                    # General comment thread: if last reply is not from author/viewer, treat as actionable
+                    if parsed_group[-1].author.lower() not in mine:
+                        top_comments.append(parsed_group[-1])
+
+            # 5. Unresolved Bitbucket PR tasks
+            task_rows, _ = self._cloud_paginated(
+                client,
+                f"{target.api_url}/repositories/{target.repo}/pullrequests/{target.number}/tasks?pagelen=100",
+                allow_404=True,
+            )
+            for task in task_rows:
+                if not isinstance(task, dict):
+                    continue
+                t_state = str(task.get("state") or "").upper()
+                resolved = t_state == "RESOLVED"
+                t_id = f"task:{task.get('id')}"
+                t_author = _bb_user_name(task.get("creator"))
+                t_body = str(((task.get("content") or {}).get("raw")) or "")
+                t_url = str((((task.get("links") or {}).get("html") or {}).get("href")) or web_url)
+                threads.append(
+                    core.ReviewThread(
+                        thread_id=t_id,
+                        path=None,
+                        line=None,
+                        resolved=resolved,
+                        is_task=True,
+                        comments=(
+                            core.ReviewComment(
+                                comment_id=t_id,
+                                author=t_author,
+                                is_bot=False,
+                                body=t_body,
+                                created_at=str(task.get("created_on") or ""),
+                                url=t_url,
+                            ),
+                        ),
+                        url=t_url,
+                    )
+                )
+
+        snap = core.PRSnapshot(
+            target=target,
+            lifecycle=lifecycle,
+            title=str(pr.get("title") or ""),
+            url=web_url,
+            head_branch=head_branch,
+            head_sha=head_sha,
+            base_branch=base_branch,
+            base_sha=base_sha,
+            author=author,
+            viewer=viewer,
+            is_draft=is_draft,
+            mergeability=mergeability,
+            behind_by=behind_by,
+            review_verdict=review_verdict,
+            approvals_count=approvals_count,
+            approvals_required=None,
+            created_at=str(pr.get("created_on") or ""),
+            updated_at=str(pr.get("updated_on") or ""),
+            checks=tuple(checks),
+            required_check_names=(),
+            had_previous_passing_ci=False,
+            threads=tuple(threads),
+            top_level_comments=tuple(top_comments),
+            change_requests=tuple(change_requests),
+            base_overlap_files=overlap,
+            review_bot_pending=(),
+            review_bot_done=(),
+            raw_merge_status=raw_merge_status,
+            observed_at=core.utc_iso(),
+        )
+        return snap, changed
+
+    def _server_paginated(self, client: Any, url: str, max_pages: int = 10) -> Tuple[List[Any], bool]:
+        items: List[Any] = []
+        changed = False
+        start = 0
+        sep = "&" if "?" in url else "?"
+        for _ in range(max_pages):
+            resp = client.request("GET", f"{url}{sep}limit=100&start={start}", allow_404=True, allow_403=True)
+            if resp.status != 200:
+                break
+            if not resp.from_cache_304:
+                changed = True
+            data = resp.json() or {}
+            vals = data.get("values")
+            if isinstance(vals, list):
+                items.extend(vals)
+            if data.get("isLastPage", True) or data.get("nextPageStart") is None:
+                break
+            start = int(data["nextPageStart"])
+        return items, changed
+
+    def _fetch_server(
+        self,
+        target: Any,
+        cfg: Any,
+        *,
+        lightweight_probe: bool,
+    ) -> Tuple[Optional[Any], bool]:
+        self.governor.state.transport = "bitbucket-server-v1"
+        client = self._client_for(target)
+        proj, slug = target.repo.split("/", 1)
+        api1 = f"{target.api_url}/rest/api/1.0/projects/{proj}/repos/{slug}/pull-requests/{target.number}"
+        r_pr = client.request("GET", api1)
+        pr = r_pr.json() or {}
+        if lightweight_probe and r_pr.from_cache_304:
+            return None, False
+
+        changed = not r_pr.from_cache_304
+        raw_state = str(pr.get("state") or "OPEN").upper()
+        if raw_state == "MERGED":
+            lifecycle = core.PRLifecycle.MERGED
+        elif raw_state in ("DECLINED", "SUPERSEDED"):
+            lifecycle = core.PRLifecycle.CLOSED
+        else:
+            lifecycle = core.PRLifecycle.OPEN
+
+        is_draft = bool(pr.get("draft", False))
+        from_ref = pr.get("fromRef") or {}
+        to_ref = pr.get("toRef") or {}
+        head_branch = str(from_ref.get("displayId") or "")
+        head_sha = str(from_ref.get("latestCommit") or "")
+        base_branch = str(to_ref.get("displayId") or "")
+        base_sha = str(to_ref.get("latestCommit") or "")
+        author = _bb_user_name((pr.get("author") or {}).get("user"))
+        links_self = ((pr.get("links") or {}).get("self") or [])
+        web_url = str((links_self[0] or {}).get("href") if links_self else target.url)
+
+        approvals_count = 0
+        change_requests: List[Any] = []
+        for rev in (pr.get("reviewers") or []):
+            if not isinstance(rev, dict):
+                continue
+            r_status = str(rev.get("status") or "").upper()
+            r_user = _bb_user_name(rev.get("user"))
+            if r_status == "APPROVED" or bool(rev.get("approved", False)):
+                approvals_count += 1
+            elif r_status == "NEEDS_WORK":
+                change_requests.append(
+                    core.ReviewComment(
+                        comment_id=f"reviewer:{r_user}",
+                        author=r_user,
+                        is_bot=False,
+                        body=f"{r_user} marked this pull request as NEEDS_WORK",
+                        url=web_url,
+                    )
+                )
+        if change_requests:
+            review_verdict = core.ReviewVerdict.CHANGES_REQUESTED
+        elif approvals_count > 0:
+            review_verdict = core.ReviewVerdict.APPROVED
+        else:
+            review_verdict = core.ReviewVerdict.NONE
+
+        checks: List[Any] = []
+        threads: List[Any] = []
+        mergeability = core.Mergeability.DRAFT if is_draft else core.Mergeability.CLEAN
+        raw_merge_status = "CLEAN"
+
+        if lifecycle == core.PRLifecycle.OPEN:
+            # 1. Server /merge endpoint gives exact conflict & veto status
+            r_merge = client.request("GET", f"{api1}/merge", allow_404=True, allow_403=True)
+            if r_merge.status == 200 and isinstance(r_merge.json(), dict):
+                m = r_merge.json()
+                if bool(m.get("conflicted", False)):
+                    mergeability = core.Mergeability.CONFLICTING
+                    raw_merge_status = "CONFLICTED"
+                elif not bool(m.get("canMerge", True)):
+                    vetoes = m.get("vetoes") or []
+                    veto_text = "; ".join(str(v.get("summaryMessage") or "") for v in vetoes if isinstance(v, dict))
+                    if re.search(r"behind|out of date|rebase", veto_text, re.IGNORECASE):
+                        mergeability = core.Mergeability.BEHIND
+                        raw_merge_status = "BEHIND"
+                    else:
+                        mergeability = core.Mergeability.BLOCKED
+                        raw_merge_status = veto_text or "VETOED"
+
+            # 2. Build statuses on head commit
+            if head_sha:
+                st_rows, _ = self._server_paginated(
+                    client, f"{target.api_url}/rest/build-status/1.0/commits/{head_sha}"
+                )
+                for item in st_rows:
+                    if not isinstance(item, dict):
+                        continue
+                    c_name = str(item.get("name") or item.get("key") or "build")
+                    c_state = _map_bb_build_state(str(item.get("state") or ""))
+                    _, is_adv, _ = core.classify_bot(c_name, cfg)
+                    checks.append(
+                        core.CheckRun(
+                            name=c_name,
+                            state=c_state,
+                            required=not is_adv,
+                            advisory=is_adv,
+                            is_review_bot=core.is_review_automation_check(c_name, cfg),
+                            description=core.sanitize_text(str(item.get("description") or ""), 200, single_line=True),
+                            url=str(item.get("url") or ""),
+                            raw_state=str(item.get("state") or ""),
+                        )
+                    )
+
+            # 3. Activities -> comment threads & BLOCKER tasks
+            acts, _ = self._server_paginated(client, f"{api1}/activities")
+            for act in acts:
+                if not isinstance(act, dict) or str(act.get("action") or "").upper() != "COMMENTED":
+                    continue
+                cm = act.get("comment")
+                if not isinstance(cm, dict):
+                    continue
+                anchor = act.get("commentAnchor") if isinstance(act.get("commentAnchor"), dict) else {}
+                path = anchor.get("path")
+                line = anchor.get("line")
+                is_task = str(cm.get("severity") or "").upper() == "BLOCKER"
+                resolved = bool(cm.get("threadResolved", False)) or (
+                    is_task and str(cm.get("state") or "").upper() == "RESOLVED"
+                )
+                flat_comments: List[Any] = []
+
+                def collect(node: Dict[str, Any]) -> None:
+                    flat_comments.append(
+                        core.ReviewComment(
+                            comment_id=str(node.get("id") or ""),
+                            author=_bb_user_name(node.get("author")),
+                            is_bot=False,
+                            body=str(node.get("text") or ""),
+                            url=web_url,
+                            path=path,
+                            line=line,
+                        )
+                    )
+                    for child in (node.get("comments") or []):
+                        if isinstance(child, dict):
+                            collect(child)
+
+                collect(cm)
+                threads.append(
+                    core.ReviewThread(
+                        thread_id=str(cm.get("id") or ""),
+                        path=path,
+                        line=line,
+                        resolved=resolved,
+                        is_task=is_task,
+                        comments=tuple(flat_comments),
+                        url=web_url,
+                    )
+                )
+
+        snap = core.PRSnapshot(
+            target=target,
+            lifecycle=lifecycle,
+            title=str(pr.get("title") or ""),
+            url=web_url,
+            head_branch=head_branch,
+            head_sha=head_sha,
+            base_branch=base_branch,
+            base_sha=base_sha,
+            author=author,
+            viewer="",
+            is_draft=is_draft,
+            mergeability=mergeability,
+            behind_by=None,
+            review_verdict=review_verdict,
+            approvals_count=approvals_count,
+            approvals_required=None,
+            created_at="",
+            updated_at="",
+            checks=tuple(checks),
+            required_check_names=(),
+            had_previous_passing_ci=False,
+            threads=tuple(threads),
+            top_level_comments=(),
+            change_requests=tuple(change_requests),
+            base_overlap_files=(),
+            review_bot_pending=(),
+            review_bot_done=(),
+            raw_merge_status=raw_merge_status,
+            observed_at=core.utc_iso(),
+        )
+        return snap, changed
+
+    def fetch_snapshot(
+        self,
+        target: Any,
+        cfg: Any,
+        *,
+        prev_base_sha: Optional[str] = None,
+        fetch_logs: bool = False,
+        lightweight_probe: bool = False,
+    ) -> Tuple[Optional[Any], bool]:
+        if target.api_style == "server" or target.forge == core.ForgeKind.BITBUCKET_SERVER:
+            return self._fetch_server(target, cfg, lightweight_probe=lightweight_probe)
+        return self._fetch_cloud(target, cfg, prev_base_sha=prev_base_sha, lightweight_probe=lightweight_probe)
+
+    def list_open_prs(self, target: Any) -> List[Any]:
+        client = self._client_for(target)
+        nodes: List[Any] = []
+        if target.api_style == "server" or target.forge == core.ForgeKind.BITBUCKET_SERVER:
+            proj, slug = target.repo.split("/", 1)
+            rows, _ = self._server_paginated(
+                client, f"{target.api_url}/rest/api/1.0/projects/{proj}/repos/{slug}/pull-requests?state=OPEN"
+            )
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                fr = r.get("fromRef") or {}
+                tr = r.get("toRef") or {}
+                src_repo_id = (fr.get("repository") or {}).get("id")
+                dst_repo_id = (tr.get("repository") or {}).get("id")
+                is_cross = bool(src_repo_id is not None and dst_repo_id is not None and src_repo_id != dst_repo_id)
+                nodes.append(
+                    core.OpenPRNode(
+                        number=int(r["id"]),
+                        head_branch=str(fr.get("displayId") or ""),
+                        base_branch=str(tr.get("displayId") or ""),
+                        is_cross_repo=is_cross,
+                    )
+                )
+            return nodes
+
+        rows, _ = self._cloud_paginated(
+            client, f"{target.api_url}/repositories/{target.repo}/pullrequests?state=OPEN&pagelen=50"
+        )
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            src = r.get("source") or {}
+            dst = r.get("destination") or {}
+            src_name = str(((src.get("repository") or {}).get("full_name")) or "").lower()
+            dst_name = str(((dst.get("repository") or {}).get("full_name")) or "").lower()
+            is_cross = bool(src_name and dst_name and src_name != dst_name)
+            nodes.append(
+                core.OpenPRNode(
+                    number=int(r["id"]),
+                    head_branch=str((src.get("branch") or {}).get("name") or ""),
+                    base_branch=str((dst.get("branch") or {}).get("name") or ""),
+                    is_cross_repo=is_cross,
+                    url=str((((r.get("links") or {}).get("html") or {}).get("href")) or ""),
+                )
+            )
+        return nodes
+
+    def post_reply(
+        self,
+        target: Any,
+        body: str,
+        *,
+        thread_id: Optional[str] = None,
+        comment_id: Optional[str] = None,
+        resolve: bool = False,
+    ) -> Dict[str, Any]:
+        client = self._client_for(target)
+        parent = comment_id or thread_id
+        if target.api_style == "server" or target.forge == core.ForgeKind.BITBUCKET_SERVER:
+            proj, slug = target.repo.split("/", 1)
+            payload: Dict[str, Any] = {"text": body}
+            if parent and str(parent).isdigit():
+                payload["parent"] = {"id": int(parent)}
+            resp = client.request(
+                "POST",
+                f"{target.api_url}/rest/api/1.0/projects/{proj}/repos/{slug}/pull-requests/{target.number}/comments",
+                json_body=payload,
+                use_etag=False,
+            )
+            data = resp.json() or {}
+            return {
+                "forge": target.forge.value,
+                "target": target.display_ref,
+                "id": data.get("id"),
+                "url": target.url,
+                "resolved": False,
+            }
+
+        payload = {"content": {"raw": body}}
+        if parent and str(parent).isdigit():
+            payload["parent"] = {"id": int(parent)}
+        resp = client.request(
+            "POST",
+            f"{target.api_url}/repositories/{target.repo}/pullrequests/{target.number}/comments",
+            json_body=payload,
+            use_etag=False,
+        )
+        data = resp.json() or {}
+        url = str((((data.get("links") or {}).get("html") or {}).get("href")) or target.url)
+        return {
+            "forge": target.forge.value,
+            "target": target.display_ref,
+            "id": data.get("id"),
+            "url": url,
+            "resolved": False,
+        }
+
+
+def make_adapter(args: argparse.Namespace, governor: Any) -> BitbucketAdapter:
+    return BitbucketAdapter(
+        governor,
+        token_env=getattr(args, "token_env", None),
+        api_style=getattr(args, "api_style", "auto"),
+    )
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    return core.execute_forge_cli("astack-watch-bitbucket", "bitbucket", make_adapter, argv=argv)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(130)

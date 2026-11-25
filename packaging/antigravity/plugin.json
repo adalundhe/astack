@@ -1,7 +1,7 @@
 {
   "name": "astack",
-  "version": "0.7.6",
-  "description": "Native Antigravity plugin for astack: single-entry Go mode routing to 68 hidden skills, full lead/worker/reviewer/researcher agents, cross-harness vectored review, and formal TLC statecharts.",
+  "version": "0.7.16",
+  "description": "Native Antigravity plugin for astack: single-entry Go mode routing to 72 hidden skills, full lead/worker/reviewer/researcher agents, cross-harness vectored review, and formal TLC statecharts.",
   "author": {
     "name": "Ada Lündhé",
     "url": "https://github.com/adalundhe"

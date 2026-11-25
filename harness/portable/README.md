@@ -1,6 +1,6 @@
 # astack
 
-A multi-harness agent toolkit for Claude Code, Codex, Cursor / Cursor CLI, Antigravity (`agy`), Pi, Devin, and other Agent Skills hosts with one entry point (`go`) that routes on demand to 67 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, root-cause diagnosis, cross-harness vectored review, σ-grounded benchmarking, graded research, and coding rules.
+A multi-harness agent toolkit for Claude Code, Codex, Cursor / Cursor CLI, Antigravity (`agy`), Pi, Devin, and other Agent Skills hosts with one entry point (`go`) that routes on demand to 72 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, root-cause diagnosis, cross-harness vectored review, σ-grounded benchmarking, graded research, and coding rules.
 
 Only `go` stays in the model catalog, so idle sessions cost one skill's worth of context instead of thousands of tokens. Adapted in part from [pstack](https://github.com/cursor/plugins/tree/main/pstack) and [mattpocock/skills](https://github.com/mattpocock/skills).
 
@@ -32,7 +32,7 @@ Start a new session and run `$astack-go setup` (installs `astack-worker.toml` pl
 agy plugin install ./harness/antigravity
 ```
 
-Ships native `plugin.json`, root `hooks.json` (`PostToolUse` lane-log stamper), all 68 skills, `bin/astack-*`, and all four native agents (`astack-lead`, `astack-worker`, `astack-reviewer`, `astack-researcher`). Validate anytime with `agy plugin validate harness/antigravity --strict`.
+Ships native `plugin.json`, root `hooks.json` (`PostToolUse` lane-log stamper), all 73 skills, `bin/astack-*`, and all four native agents (`astack-lead`, `astack-worker`, `astack-reviewer`, `astack-researcher`). Validate anytime with `agy plugin validate harness/antigravity --strict`.
 
 **Pi, Devin, Cursor CLI (`agent`), and other Agent Skills hosts**
 
@@ -64,15 +64,16 @@ measured against the current release on the same machine. Merges go to main afte
 
 ## Skills
 
-68 skills total (`go` + 67 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
+73 skills total (`go` + 72 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
 
 ### Entry point, planning, and catch-up
 
 - `go`: single catalog-visible entry point routing to every skill and coding rule by path.
 - `dagify`: breaks a goal into a reviewed dependency DAG of small, parallelizable tasks.
 - `workflow-this`: turns a `dagify` graph into a resumable automated workflow with explicit task states.
-- `lead`: executes a task DAG with parallel time-boxed workers in git worktrees, verified merges, and durable logs.
-- `setup`: configures timing, per-role model/provider/effort, the approved `reviewer_pool`, and optional `astack-tools` packages.
+- `lead`: executes a task DAG with parallel time-boxed workers in isolated [Slates](https://github.com/hyper-light/slates) in-memory VFS volumes (preferred when available) or git worktrees, verified merges, and durable logs.
+- `slates`: provisions, mounts, snapshots, clones, merges (`green`/`work`/`submit`), lands (human-gated `grant`), and cleans up RAM-backed copy-on-write VFS agent workspaces with [Slates](https://github.com/hyper-light/slates) (preferred over git worktrees when `slates status` succeeds or Slates MCP is attached).
+- `setup`: configures timing, per-role model/provider/effort, the approved `reviewer_pool`, the `autonomy` grant (`supervised` vs `unattended` with explicit `allow`/`deny`), CLI `PATH` links, and optional `astack-tools` packages.
 - `status`: shows active workers, timers, latest branch commits, open tasks, and waiting questions.
 - `whatsup`: catch-up brief and post-break context rebuild (waiting calls, bugs, milestones, experiments, research).
 - `track-it`: syncs DAG tasks and progress to GitHub Issues, Jira, Linear, or another tracker.
@@ -85,7 +86,7 @@ measured against the current release on the same machine. Merges go to main afte
 - `challenge`: peer-to-peer adversarial interrogation of hypotheses, repeated fixes, diagnoses, designs, or code.
 - `worrywart`: pushes back on wrong or unproven review points with concrete evidence.
 - `blast-radius`: traces indirect breakage outside a diff and runs code to verify safety.
-- `watch-pr`: opens a reviewed PR, watches CI/comments in the background, fixes failures, and pings at 24h.
+- `watch-pr`: shepherds reviewed PRs/MRs on GitHub, GitLab, and Bitbucket using the shipped good-citizen watchers (`astack-watch-pr`, `astack-watch-github`, `astack-watch-gitlab`, `astack-watch-bitbucket`), dispatching workers with vectored review and `/leave-feedback` audited replies for comments, rebases, CI failures, and 24h reminders.
 - `address-feedback`: resolves every review finding or PR thread (fix, answer, or refute), blockers first.
 - `leave-it-better`: fixes unrelated broken tests, builds, or CI in a separate PR instead of working around them.
 
@@ -94,27 +95,28 @@ measured against the current release on the same machine. Merges go to main afte
 - `benchmarking`: measures user-visible metrics across load/fault spectra with baseline noise and a statistical bar.
 - `ab-test`: benchmarks variants in isolated worktrees with alternating rounds, grafting winning ideas before deleting losers.
 - `decide-by-data`: settles design or config trade-offs with measurements instead of debate.
-- `fair-benchmarks`: keeps competitor benchmarks fair (same driver/platform, release tuning, error checks, alternating runs).
+- `baseline`: keeps competitor benchmarks and baselines fair (same driver/platform, release tuning, error checks, alternating runs).
 - `clamber`: iterative optimization loop—baseline everything, change one thing at a time, commit gains, revert regressions.
-- `explore-the-limits`: builds competing implementations in parallel worktrees, benchmarks them, grafts best parts, keeps the winner.
+- `swarm-hypothesis`: builds competing implementations in parallel Slates VFS volumes (preferred) or worktrees, benchmarks them, grafts best parts, keeps the winner.
 
 ### Testing and verification
 
-- `prove-it`: verifies claims on the real build (not proxies) with runnable proof and a trust ladder.
+- `prove-it`: verifies claims on the real build (not proxies) with deterministic reproduction, empirically measured occurrence frequency (logs/traces/telemetry/monitoring/usage analytics), runnable proof, and a trust ladder.
 - `test-drive`: builds and maintains a `drive-<app>` skill that exercises real user flows and captures evidence.
-- `every-case`: sets up and maintains formal verification (TLA+, code verifiers, property checks) for critical invariants.
+- `formal-validate`: sets up and maintains formal verification (TLA+, code verifiers, property checks) for critical invariants.
 - `tests-assert-behaviour`: keeps tests checking observable behavior rather than internals, mocks, or wall-clock timing.
 - `full-spectrum-testing`: writes acceptance tests across unit/integration/E2E layers including failures, races, fuzzing, and faults.
-- `bugs-by-scenario`: confirms a failing test or suspected bug with a real user scenario before fixing it.
-- `diagnose`: narrows confirmed bugs via binary search with runtime evidence, live symptom dumps, and profile attribution, reverting disproved hypotheses.
+- `find-it`: replicates bugs from provided or correlated real data (logs, traces, metrics, monitoring, usage analytics) and full failure-environment conditions (OS/arch, memory/CPU/disk, network, correlated services) across the end-to-end path, collects runtime evidence (`<file>_DEBUG_<shorthash>.<type>`, built-in -> astack -> third-party tools), shrinks repros before diagnosing, narrows root causes (bisect, live dumps, profile pairs), and cleans debug artifacts once fixed.
+- `fix-it`: applies disciplined, minimal, behavior-proven bug fixes using the desired/expected behavior matrix, strict state/concurrency/scope/system-impact rules, tests hardened against lead review, and before/after proof.
+- `bugbash`: lead-only multi-reviewer bug workflow—gathers full bug/linked context, swarms read-only reviewers split by reproduction method with `find-it` (shrinking repros first; never editing code) and peer `challenge` (fresh runs, reset timers, convergence stop rule, logging rejected theories as `decided:`), routes converged/competing fixes to workers (`fix-it`) in isolated Slates VFS volumes/worktrees who resubmit to post-fix reviewers (`prove-it` + PR proof attachment), and runs `make-it-stick` (dispatching workers + review for structural guards).
 
 ### Refactoring and cleanup
 
 - `simplify-me`: cuts unnecessary code and complexity without losing correctness, edge cases, or speed.
-- `modularize`: splits monolithic code into single-purpose modules behind narrow interfaces.
+- `modularize`: splits monoliths via a smallest-behavior proof of concept, `dagify`-batched parallel migration, and `simplify-me`/`yagni` trim—validated with vectored review at each stage.
 - `rearchitect`: finds high-churn structural friction, ranks restructurings with diagrams, and plans the top pick via `dagify`.
 - `deeper`: tightens a task brief to primary sources, domain tools, and external proof without adding scope.
-- `cleanup`: removes temp files, build artifacts, caches, test data, and leftover processes you created.
+- `cleanup`: removes temp files, `<file>_DEBUG_<shorthash>.<type>` debug captures/logs, build artifacts, caches, test data, and leftover processes post-review and during/after debugging.
 
 ### Coding rules
 
@@ -135,6 +137,7 @@ Indexed in `go` and checked by `review`:
 - `no-picked-constants`: derive limits/timeouts from cited specs or adapt them at runtime—never pick magic numbers.
 - `event-driven`: wake on completion events instead of `sleep` loops, fixed timers, or polling.
 - `never-trade-functionality`: never trade accuracy, freshness, or features for speed; run `research-this` before accepting any limit.
+- `no-leaked-secrets`: sweeps code, diffs, configs, logs, errors, telemetry, tests, and debug artifacts for leaked secrets, credentials, unneeded PII, or excessive logging.
 
 ### Understanding, specs, docs, and communication
 
@@ -146,6 +149,7 @@ Indexed in `go` and checked by `review`:
 - `technical-writing`: standard for concise, concrete, code-verified technical docs.
 - `wat`: rewrites the last message to lead with the bottom line and cut jargon and meta-commentary.
 - `rtfm`: checks your prompt, repo docs/code/history, local environment, and official docs before asking questions.
+- `analyze-environment`: discovers local/external CLIs, APIs, MCP servers, services, and env-var names, runs safe read-only/dry-run and auth-status probes, installs missing user-space tooling under `unattended`, publishes a shared `TOOLS.md` catalog for all agents, and isolates only human-only auth steps.
 - `research-this`: investigates internal + external sources, checks quotes in place, and grades findings A–F (`kiln`-compatible).
 - `decisions-in-plain-words`: resolves what it can, logs why, and escalates only real human calls with a recommendation.
 - `create-adc`: works through an architecture decision one evidenced exchange at a time and publishes `AD_<N>.md`.
@@ -171,10 +175,11 @@ Indexed in `go` and checked by `review`:
   - `astack-check-gates`: structural tripwire auditing a git range (`<base>..<head>`) or commit for deleted/renamed tests, skips, lint/typecheck suppressions, assertion downgrades, cross-diff test swaps, tautologies, loosened numeric tolerances, and CI/lint/gate config edits.
   - `astack-review-ledger`: evaluates vectored review saturation over proven blocking bugs with fix-equivalence overlap verification, 2-reviewer Chapman + exact hypergeometric lower/upper bounds, 3+-reviewer Burnham–Overton $M_h$ jackknife + Beta-Binomial $M_h$ profile-likelihood bounds (observable-class saturation: "these models stopped finding new bugs", never falsely claiming 95% proof that hard bugs are absent), empirical catch-rate calibration from `scripts/eval.py --calibrate` (no picked 0.5 constant), landing-block gating on non-saturated risky vectors, internal Markdown coverage maps, and `LANES.md` review-count lines.
   - `astack-dispatch`: cross-harness dispatcher and `reviewer_pool` reachability checker supporting Claude (`claude`), Codex (`codex`), Antigravity (`agy`), Cursor CLI (`cursor-agent`/`agent`), Devin (`devin`), Pi (`pi`), Gemini (`gemini`), and custom CLI templates, enforcing pool approval and writing auditable JSON receipts.
+  - `astack-watch-pr`, `astack-watch-github`, `astack-watch-gitlab`, `astack-watch-bitbucket`: stdlib-only PR/MR watchers for GitHub (`github.com` + GHES), GitLab (`gitlab.com` + self-hosted with nested subgroups), and Bitbucket (Cloud REST 2.0 + Server/Data Center REST 1.0) with good-citizen rate-limit pacing (`ETag`/`304`, consolidated GraphQL with automatic REST fallback, `Retry-After`/`X-RateLimit-*`/`RateLimit-*`/`X-RateLimit-NearLimit` adaptation, idle backoff, per-PR locks), fork-isolated stacked PR/MR ordering, crash-safe `watch/<PR>.md` handoff markers, `patch-id-check` (`git patch-id` + `git range-diff` rebase verification), `diff-guard` (review-round diff-growth guard), `authorship-check` (takeover credit & `Co-authored-by` preservation), `autonomy`-enforced & `/leave-feedback`-audited `reply` subcommands, and idempotent lead remediation dispatch (`--role lead`, delegating edits to workers while running lead-owned vectored review and reply audits).
   - `astack-statechart`: runs TLC in `-tool` mode with `-dump dot,actionlabels`, single-worker minimum-depth BFS default (`--workers 1`), `--timeout`, and `--no-deadlock` (or parses DOT/trace output offline, rejecting malformed input), follows TLC exit status strictly, preserves multiple broken invariants per state, finds shortest paths via full untruncated state matching, and renders collision-safe Mermaid `stateDiagram-v2` (tested against 40 real `.tla`/`.cfg` specs recorded with TLC 2.19 and re-checked live in CI, plus a 10-spec live BFS differential fuzzer).
   - `astack-stamp` (+ post-edit hook): timestamps new lines appended to `LANES.md`.
   - `astack-tools`: links `astack-*` CLI scripts onto `PATH` (`link-bin`), provisions Python `>=3.11` via `uv` across macOS/Linux/Windows (arm64 & amd64), and manages an isolated venv for `taskex`, `orchestral`, and `werkflow` (`doctor`, `install`, `link-bin`, `python`, `werkflow`, `env`, `path`).
-- **Evals & CI:** 19 multi-harness, zero-hint outcome evals under `evals/` (cold-start skill discovery without `/astack:go`, worker wind-down/reports, Go-mode routing & dedicated agent spawning, multi-file planted-bug & decoy review, cross-harness review, context/contradiction/coding-rule review, pre-post PR comment auditing via `leave-feedback`, multi-file gamed-gate rejection, 6 coding rules) with behavioral reproduction verifiers (`verify.py` + `evals/_repro_verify.py` executing saved reproductions against buggy, all-fixed, and leave-one-bug-in copies), `--calibrate` empirical per-model catch-rate measurement, and `--ablation with-without`, runnable on Claude Code, Codex, Antigravity (`agy`), Cursor CLI, Devin, or Pi via `python3 scripts/eval.py --harness <name>`, plus GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).
+- **Evals & CI:** 21 multi-harness, zero-hint outcome evals under `evals/` (cold-start skill discovery without `/astack:go`, worker wind-down/reports, Go-mode routing & dedicated agent spawning, multi-file planted-bug & decoy review, cross-harness review, context/contradiction/coding-rule review, pre-post PR comment auditing via `leave-feedback`, multi-file gamed-gate rejection, `find-it`/`fix-it` repro-shrinking and explicit-state bug fixing, lead `bugbash` reviewer-swarm convergence + `prove-it` PR evidence, 6 coding rules) with behavioral reproduction verifiers (`verify.py` + `evals/_repro_verify.py` executing saved reproductions against buggy, all-fixed, and leave-one-bug-in copies), `--calibrate` empirical per-model catch-rate measurement, and `--ablation with-without`, runnable on Claude Code, Codex, Antigravity (`agy`), Cursor CLI, Devin, or Pi via `python3 scripts/eval.py --harness <name>`, plus GitHub Actions CI ([.github/workflows/ci.yml](./.github/workflows/ci.yml)).
 
 ## Working on astack
 

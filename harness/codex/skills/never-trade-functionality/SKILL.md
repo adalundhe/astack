@@ -13,7 +13,7 @@ A faster implementation must still do everything the slower one did: same accura
 2. **Keep robustness intact:** don't introduce new ways to stall, lose data, or crash.
 3. **Speed up the uncached path first** before reaching for a cache (**minimize-state-stores**).
 4. **Prove unused work is actually unused** before removing it—never assume.
-5. **Research before accepting a trade-off:** if you seem unable to hit the target without dropping functionality or guarantees, run **research-this** first to find how other systems, algorithms, or architectures achieve the goal *without* compromising, and test viable candidates (**explore-the-limits**, **ab-test**).
+5. **Research before accepting a trade-off:** if you seem unable to hit the target without dropping functionality or guarantees, run **research-this** first to find how other systems, algorithms, or architectures achieve the goal *without* compromising, and test viable candidates (**swarm-hypothesis**, **ab-test**).
 6. **Escalate only proven limits:** if **research-this** and measurement confirm no compliant design can hit the target, report the best compliant result, the concrete bottleneck or fundamental limit, what you researched and tested, and only then present the trade-off with numbers to the person (**decisions-in-plain-words**).
 
 ## Watch for
@@ -30,4 +30,4 @@ Acknowledging writes before durability; disabling validation or checks; stale, a
 
 **Showing it:** run old and new implementations on identical inputs—including edge cases and failure modes—and diff what users observe.
 
-Referenced skills: `clamber` (`../clamber/SKILL.md`), `minimize-state-stores` (`../minimize-state-stores/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `explore-the-limits` (`../explore-the-limits/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `clamber` (`../clamber/SKILL.md`), `minimize-state-stores` (`../minimize-state-stores/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `swarm-hypothesis` (`../swarm-hypothesis/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.

@@ -11,10 +11,10 @@ Investigate a question across internal and external sources, quote every source,
 ## Look inside and outside
 
 1. **Frame the question:** state the decision or suspected limit this serves and what finding would change your approach. When hitting a performance or design wall, explicitly ask how other systems hit the target without sacrificing functionality or guarantees.
-2. **Search inside:** code, measurements, data, logs, traces, metrics, docs, media on your machines, and past records (earlier conversations, plans, CI runs, deployments).
+2. **Search inside:** code, measurements, data, logs, traces, metrics, docs, media on your machines, past records (earlier conversations, plans, CI runs, deployments), and available CLIs/APIs/MCPs/services (**analyze-environment**, publishing discovered tools to `TOOLS.md`).
 3. **Search outside:** standards and official docs, peer-reviewed papers (arXiv, Semantic Scholar, Crossref, PubMed), books, preprints/news, blogs, and forums.
 4. **Cover both sides.** Research isn't complete without both internal and external sources—or an explicit reason why one side has none.
-5. **Parallelize lookups:** when subagents or configured provider CLIs are available, check `roles.researcher` (`provider`, `model`, `effort`) in `~/.config/astack/settings.json` if present and fan out independent strands to read-only researchers, collecting viable competing implementations to prototype and measure (**explore-the-limits**, **ab-test**) alongside any proven limits.
+5. **Parallelize lookups:** when subagents or configured provider CLIs are available, check `roles.researcher` (`provider`, `model`, `effort`) in `~/.config/astack/settings.json` if present and fan out independent strands to read-only researchers, collecting viable competing implementations to prototype and measure (**swarm-hypothesis**, **ab-test**) alongside any proven limits.
 
 ## Record what you find
 

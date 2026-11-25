@@ -343,7 +343,12 @@ class BuildTest(unittest.TestCase):
 
     def test_the_scripts_are_executable_in_every_package(self):
         for tool in ("claude-code", "cursor", "codex", "antigravity", "portable"):
-            for script in ("astack-check-gates", "astack-decisions", "astack-dispatch", "astack-review-ledger", "astack-stamp", "astack-stamp-hook", "astack-statechart", "astack-status", "astack-tools", "astack-verify-merge"):
+            for script in (
+                "astack-check-gates", "astack-decisions", "astack-dispatch", "astack-review-ledger",
+                "astack-stamp", "astack-stamp-hook", "astack-statechart", "astack-status",
+                "astack-tools", "astack-verify-merge",
+                "astack-watch-pr", "astack-watch-github", "astack-watch-gitlab", "astack-watch-bitbucket",
+            ):
                 self.assertTrue((HARNESS / tool / "bin" / script).stat().st_mode & 0o111, f"{tool}/{script}")
 
     def test_readme_lists_every_skill_and_notice_attributions_hold(self):
@@ -435,6 +440,127 @@ class BuildTest(unittest.TestCase):
         _, lf_prompt = front_matter(ROOT / "evals/leave-feedback-audits-before-posting/prompt.md")
         for leaked_hint in ("leave-feedback", "astack:reviewer", "POOL EXHAUSTED", "coverage-map", "AD-003"):
             self.assertNotIn(leaked_hint, lf_prompt, f"leave-feedback-audits-before-posting prompt spoon-feeds {leaked_hint!r}")
+
+        # Verify find-it/fix-it and bugbash workflows, role separation, and their new evals
+        find_it = (ROOT / "skills/find-it/SKILL.md").read_text()
+        self.assertLess(
+            find_it.index("## 4. Shrink the repro before diagnosing"),
+            find_it.index("## 5. Narrow the root cause with runtime evidence"),
+            "find-it must shrink the repro BEFORE narrowing the root cause",
+        )
+        self.assertIn("two consecutive disproved hypotheses", find_it)
+        self.assertNotIn("two consecutive misses", find_it)
+
+        lead_src = (ROOT / "skills/lead/SKILL.md").read_text()
+        self.assertNotIn("may land directly", lead_src, "lead must never land worker lanes without a reviewer")
+        self.assertIn("never land code without a reviewer", lead_src)
+
+        bugbash = (ROOT / "skills/bugbash/SKILL.md").read_text()
+        self.assertIn("shrink the repro first", bugbash)
+        self.assertIn("reset timers", bugbash)
+        self.assertIn("No convergence / stalled", bugbash)
+        self.assertIn("prove-it", bugbash)
+        self.assertIn("complementary reproduction and investigation methods", bugbash)
+        self.assertIn("never writing or applying fixes themselves", bugbash)
+        self.assertIn("dispatches a fresh `astack:worker`", bugbash)
+        self.assertIn("**slates**", bugbash)
+
+        slates_skill = (ROOT / "skills/slates/SKILL.md").read_text()
+        self.assertIn("https://github.com/hyper-light/slates", slates_skill)
+        self.assertIn("slates status", slates_skill)
+        self.assertIn("git worktree", slates_skill)
+        self.assertIn("slates volume destroy", slates_skill)
+        self.assertIn("never writing or applying fixes themselves", slates_skill)
+
+        for path in (
+            "skills/dagify/SKILL.md",
+            "skills/bugbash/SKILL.md",
+            "skills/lead/SKILL.md",
+            "skills/review/SKILL.md",
+            "skills/ab-test/SKILL.md",
+            "skills/swarm-hypothesis/SKILL.md",
+            "skills/modularize/SKILL.md",
+            "agents/worker.md",
+            "agents/reviewer.md",
+            "agents/lead.md",
+        ):
+            text = (ROOT / path).read_text()
+            self.assertIn("https://github.com/hyper-light/slates", text, f"{path} missing Slates definition/link")
+        reviewer_md = (ROOT / "agents/reviewer.md").read_text()
+        self.assertIn("resubmits the changes to you for verification", reviewer_md)
+        self.assertNotIn("When testing a proposed fix", reviewer_md)
+        self.assertIn("make-it-stick", bugbash)
+        self.assertIn("rejected root-cause theory", bugbash)
+        self.assertIn("failed fix approaches", bugbash)
+        self.assertIn("make-it-stick", lead_src)
+        self.assertIn("rejected theories", lead_src)
+        self.assertIn("failed fix approaches/attempts", (ROOT / "skills/review/SKILL.md").read_text())
+        self.assertIn("rejected root-cause theories", (ROOT / "skills/make-it-stick/SKILL.md").read_text())
+
+        bb_fm, _ = front_matter(ROOT / "evals/bugbash-investigates-and-proves-fix/prompt.md")
+        self.assertGreaterEqual(int(bb_fm["timeout_seconds"]), 1200)
+        bb_judge = (ROOT / "evals/bugbash-investigates-and-proves-fix/graders/judged.md").read_text()
+        self.assertIn("not** require internal review-orchestration narration", bb_judge)
+
+        # Verify time-limit watch/swap across swarm flows, deterministic/data-backed prove-it, and whole-environment find-it
+        for swarm_path in (
+            "skills/bugbash/SKILL.md",
+            "skills/ab-test/SKILL.md",
+            "skills/swarm-hypothesis/SKILL.md",
+            "skills/modularize/SKILL.md",
+            "skills/dagify/SKILL.md",
+        ):
+            stext = (ROOT / swarm_path).read_text()
+            self.assertIn("astack-status", stext, f"{swarm_path} missing time-limit watch/swap via astack-status")
+            self.assertIn("check_in_minutes", stext, f"{swarm_path} missing check_in_minutes clock check")
+            self.assertIn("fresh successor", stext, f"{swarm_path} missing fresh-successor swap rule")
+
+        prove_it = (ROOT / "skills/prove-it/SKILL.md").read_text()
+        self.assertIn("Deterministic reproduction", prove_it)
+        self.assertIn("usage analytics", prove_it)
+
+        self.assertIn("correlated real data", find_it)
+        self.assertIn("never block when unavailable", find_it)
+        self.assertIn("traffic emulation", find_it)
+        self.assertIn("Build missing acquisition tools or skills", find_it)
+        self.assertIn("whole failure environment", find_it)
+        self.assertIn("CPU architecture", find_it)
+
+        # Verify analyze-environment, TOOLS.md, unattended autonomy, read-only dry-run, no internal Open Items, and bin/ recovery
+        env_skill = (ROOT / "skills/analyze-environment/SKILL.md").read_text()
+        self.assertIn("needs-install", env_skill)
+        self.assertIn("needs-human-auth", env_skill)
+        self.assertIn("TOOLS.md", env_skill)
+        self.assertTrue((ROOT / "skills/lead/templates/TOOLS.md").is_file())
+        self.assertIn("TOOLS & ACCESS CATALOG", (ROOT / "agents/researcher.md").read_text())
+
+        dec_skill = (ROOT / "skills/decisions-in-plain-words/SKILL.md").read_text()
+        self.assertIn("out_of_dir_work", dec_skill)
+        self.assertIn("user_space_tool_install", dec_skill)
+        self.assertIn("read-only and dry-run", dec_skill)
+        self.assertIn("Never list internal astack/harness state", dec_skill)
+        self.assertIn("autonomy", (ROOT / "agents/lead.md").read_text())
+
+        review_src = (ROOT / "skills/review/SKILL.md").read_text()
+        self.assertNotIn("tell the person to run `/astack:setup`", review_src)
+        self.assertIn("single-model reviewer pool", review_src)
+        self.assertIn("single-model reviewer pool", (ROOT / "skills/wat/SKILL.md").read_text())
+        self.assertIn("single-model reviewer pool", (ROOT / "skills/whatsup/SKILL.md").read_text())
+        self.assertIn("single-model reviewer pool", lead_src)
+
+        setup_src = (ROOT / "skills/setup/SKILL.md").read_text()
+        self.assertIn("out_of_dir_work", setup_src)
+        self.assertIn("user_space_tool_install", setup_src)
+        self.assertIn("bootstrap `bin/astack-*`", setup_src)
+
+        self.assertTrue((ROOT / "evals/find-it-and-fix-it-bug/verify.py").is_file())
+        self.assertTrue((ROOT / "evals/bugbash-investigates-and-proves-fix/verify.py").is_file())
+        _, fi_prompt = front_matter(ROOT / "evals/find-it-and-fix-it-bug/prompt.md")
+        for leaked_hint in ("find-it", "fix-it", "_in_retry", "no-implicit-states", "shrink"):
+            self.assertNotIn(leaked_hint, fi_prompt, f"find-it-and-fix-it-bug prompt spoon-feeds {leaked_hint!r}")
+        _, bb_prompt = front_matter(ROOT / "evals/bugbash-investigates-and-proves-fix/prompt.md")
+        for leaked_hint in ("find-it", "fix-it", "challenge", "prove-it", "astack:reviewer", "astack:worker", "tenant_id"):
+            self.assertNotIn(leaked_hint, bb_prompt, f"bugbash-investigates-and-proves-fix prompt spoon-feeds {leaked_hint!r}")
 
 
 if __name__ == "__main__":

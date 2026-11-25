@@ -90,31 +90,39 @@ class EvalReproductionVerifiersTest(unittest.TestCase):
             "raise AssertionError(f'expected ValueError, got {res}')\n"
         )
         (repros / "test_inventory_bugs.py").write_text(
-            "import sys, threading, unittest\n"
+            "import threading, time, unittest\n"
             "from src.inventory import Inventory\n"
+            "class YieldingLock:\n"
+            "    def __init__(self):\n"
+            "        self._inner = threading.Lock()\n"
+            "    def __enter__(self):\n"
+            "        self._inner.acquire()\n"
+            "        return self\n"
+            "    def __exit__(self, *args):\n"
+            "        self._inner.release()\n"
+            "        time.sleep(0.005)\n"
             "class TestInventory(unittest.TestCase):\n"
             "    def test_duplicate_sku_in_batch(self):\n"
             "        inv = Inventory({'a': 3})\n"
             "        with self.assertRaises(ValueError):\n"
             "            inv.reserve_batch([('a', 2), ('a', 2)])\n"
             "    def test_split_lock_race(self):\n"
-            "        sys.setswitchinterval(1e-6)\n"
-            "        for _ in range(150):\n"
-            "            inv = Inventory({'a': 1})\n"
-            "            bar = threading.Barrier(4)\n"
-            "            ok = [0]\n"
-            "            def worker():\n"
-            "                bar.wait()\n"
-            "                try:\n"
-            "                    inv.reserve_batch([('a', 1)])\n"
-            "                    ok[0] += 1\n"
-            "                except ValueError:\n"
-            "                    pass\n"
-            "            ts = [threading.Thread(target=worker) for _ in range(4)]\n"
-            "            for t in ts: t.start()\n"
-            "            for t in ts: t.join()\n"
-            "            self.assertGreaterEqual(inv.available('a'), 0)\n"
-            "            self.assertEqual(ok[0], 1)\n"
+            "        inv = Inventory({'a': 1})\n"
+            "        inv._lock = YieldingLock()\n"
+            "        bar = threading.Barrier(2)\n"
+            "        ok = [0]\n"
+            "        def worker():\n"
+            "            bar.wait()\n"
+            "            try:\n"
+            "                inv.reserve_batch([('a', 1)])\n"
+            "                ok[0] += 1\n"
+            "            except ValueError:\n"
+            "                pass\n"
+            "        ts = [threading.Thread(target=worker) for _ in range(2)]\n"
+            "        for t in ts: t.start()\n"
+            "        for t in ts: t.join()\n"
+            "        self.assertGreaterEqual(inv.available('a'), 0)\n"
+            "        self.assertEqual(ok[0], 1)\n"
         )
         (repros / "test_seam_and_cache.py").write_text(
             "from pathlib import Path\n"
@@ -191,30 +199,38 @@ class EvalReproductionVerifiersTest(unittest.TestCase):
         _scaffold_eval("vectored-review-concurrency", ws_c)
         self.assertEqual(_run_verify("vectored-review-concurrency", ws_c)[0], 1)
         (ws_c / "program" / "repros" / "repro_race.py").write_text(
-            "import sys, threading\n"
+            "import threading, time\n"
             "from pool import JobPool\n"
-            "sys.setswitchinterval(1e-6)\n"
-            "for _ in range(150):\n"
-            "    p = JobPool()\n"
-            "    for i in range(40): p.push(i)\n"
-            "    bar = threading.Barrier(4)\n"
-            "    out = []\n"
-            "    lock = threading.Lock()\n"
-            "    def run():\n"
-            "        bar.wait()\n"
-            "        b = p.drain_batch(10)\n"
-            "        with lock:\n"
-            "            out.extend(b)\n"
-            "    ts = [threading.Thread(target=run) for _ in range(4)]\n"
-            "    for t in ts: t.start()\n"
-            "    for t in ts: t.join()\n"
-            "    assert len(out) == len(set(out)) == 40, f'duplicate/lost items: len={len(out)} uniq={len(set(out))}'\n"
+            "class YieldingLock:\n"
+            "    def __init__(self):\n"
+            "        self._inner = threading.Lock()\n"
+            "    def __enter__(self):\n"
+            "        self._inner.acquire()\n"
+            "        return self\n"
+            "    def __exit__(self, *args):\n"
+            "        self._inner.release()\n"
+            "        time.sleep(0.005)\n"
+            "p = JobPool()\n"
+            "for i in range(6): p.push(i)\n"
+            "p._lock = YieldingLock()\n"
+            "bar = threading.Barrier(2)\n"
+            "out = []\n"
+            "lock = threading.Lock()\n"
+            "def run():\n"
+            "    bar.wait()\n"
+            "    b = p.drain_batch(3)\n"
+            "    with lock:\n"
+            "        out.extend(b)\n"
+            "ts = [threading.Thread(target=run) for _ in range(2)]\n"
+            "for t in ts: t.start()\n"
+            "for t in ts: t.join()\n"
+            "assert len(out) == len(set(out)) == 6, f'duplicate/lost items: {out}'\n"
         )
         code_c, _, err_c, data_c = _run_verify("vectored-review-concurrency", ws_c)
         self.assertEqual(code_c, 0, err_c)
         self.assertEqual(data_c["detected"], ["bug1_split_lock_drain_batch"])
 
-        # 2) vectored-review-cross-harness
+        # 2) vectored-review-cross-harness (Bug 3: MUST require valid cross-harness reviewer receipt, not just Claude repros!)
         ws_x = self.dir / "cross"
         ws_x.mkdir()
         _scaffold_eval("vectored-review-cross-harness", ws_x)
@@ -237,8 +253,36 @@ class EvalReproductionVerifiersTest(unittest.TestCase):
             "finally:\n"
             "    hmac.compare_digest = orig\n"
         )
+        # Repros alone WITHOUT a cross-harness receipt MUST FAIL!
+        code_x_no_rcpt, _, err_x_no_rcpt, data_x_no_rcpt = _run_verify("vectored-review-cross-harness", ws_x)
+        self.assertEqual(code_x_no_rcpt, 1)
+        self.assertFalse(data_x_no_rcpt["cross_harness_verified"])
+        self.assertIn("no successful cross-harness reviewer dispatch receipt", err_x_no_rcpt)
+
+        # Same-host (claude) receipt or failed (exit_code=1) receipt MUST STILL FAIL!
+        rcpt_dir = ws_x / "program" / "dispatch-receipts"
+        rcpt_dir.mkdir(parents=True, exist_ok=True)
+        settings_x = json.loads((ws_x / "program" / "settings.json").read_text())
+        codex_entry = next(e for e in settings_x["reviewer_pool"] if e.get("harness") == "codex")
+        (rcpt_dir / "same-host.receipt.json").write_text(json.dumps({
+            "role": "reviewer", "harness": "claude", "provider": "anthropic", "model": "sonnet",
+            "exit_code": 0, "timed_out": False, "stdout_len": 120,
+        }))
+        (rcpt_dir / "failed-codex.receipt.json").write_text(json.dumps({
+            "role": "reviewer", "harness": "codex", "provider": codex_entry["provider"], "model": codex_entry["model"],
+            "exit_code": 1, "timed_out": False, "stdout_len": 0,
+        }))
+        self.assertEqual(_run_verify("vectored-review-cross-harness", ws_x)[0], 1)
+
+        # Valid cross-harness receipt (harness=codex, exit_code=0, stdout_len>0) -> PASSES!
+        (rcpt_dir / "ok-codex.receipt.json").write_text(json.dumps({
+            "role": "reviewer", "harness": "codex", "provider": codex_entry["provider"], "model": codex_entry["model"],
+            "exit_code": 0, "timed_out": False, "stdout_len": 350,
+        }))
         code_x, _, err_x, data_x = _run_verify("vectored-review-cross-harness", ws_x)
         self.assertEqual(code_x, 0, err_x)
+        self.assertTrue(data_x["cross_harness_verified"])
+        self.assertEqual(len(data_x["cross_harness_receipts"]), 1)
         self.assertEqual(set(data_x["detected"]), {"bug1_expired_refresh", "bug2_timing_compare"})
 
         # 3) review-checks-context-and-rules
@@ -342,11 +386,33 @@ class EvalReproductionVerifiersTest(unittest.TestCase):
         self.assertEqual(cal_result["entry"]["detected"], 3)
         self.assertEqual(cal_result["entry"]["planted"], 5)
         self.assertAlmostEqual(cal_result["entry"]["observed_rate"], 0.6)
+        self.assertEqual(
+            cal_result["entry"]["per_bug"],
+            {
+                "bug1_coupon_gt_100": {"detected": 1, "trials": 1},
+                "bug2_duplicate_sku_batch": {"detected": 1, "trials": 1},
+                "bug3_split_lock_race": {"detected": 0, "trials": 1},
+                "bug4_wal_pipe_delimiter_seam": {"detected": 1, "trials": 1},
+                "bug5_refund_cache_poisoning": {"detected": 0, "trials": 1},
+            },
+        )
         self.assertTrue(cal_out.is_file())
 
-        # Feed that exact calibration.json directly into astack-review-ledger --calibration
+        # Add a complementary second model that caught bug3 & bug5 (the 2 bugs sonnet missed!)
         saved = json.loads(cal_out.read_text())
-        saved["models"]["openai/gpt-5.4"] = {"detected": 5, "planted": 5, "source": "vectored-review-planted-bugs"}
+        self.assertEqual(saved["schema_version"], "1.1")
+        saved["models"]["openai/gpt-5.4"] = {
+            "detected": 2,
+            "planted": 5,
+            "source": "vectored-review-planted-bugs",
+            "per_bug": {
+                "bug1_coupon_gt_100": {"detected": 0, "trials": 1},
+                "bug2_duplicate_sku_batch": {"detected": 0, "trials": 1},
+                "bug3_split_lock_race": {"detected": 1, "trials": 1},
+                "bug4_wal_pipe_delimiter_seam": {"detected": 0, "trials": 1},
+                "bug5_refund_cache_poisoning": {"detected": 1, "trials": 1},
+            },
+        }
         cal_out.write_text(json.dumps(saved))
 
         ledger_in = json.dumps({
@@ -368,11 +434,13 @@ class EvalReproductionVerifiersTest(unittest.TestCase):
         )
         self.assertEqual(l_proc.returncode, 0, l_proc.stderr)
         l_data = json.loads(l_proc.stdout)
-        # Jeffreys miss prob: (2.5/6) * (0.5/6) = 0.0347 < 0.05 -> clears cleanly at k=2!
+        # Together sonnet ({1,2,4}) + gpt-5.4 ({3,5}) caught all 5/5 planted bugs with 0 shared blind spots!
         vec = l_data["vectors"][0]
         self.assertEqual(vec["action"], "stop")
         self.assertEqual(vec["verdict"], "clean_calibrated")
-        self.assertAlmostEqual(vec["estimate"]["zero_bug_miss_prob"], 0.0347, places=4)
+        self.assertTrue(vec["estimate"]["joint_calibration"])
+        self.assertEqual(vec["estimate"]["jointly_missed_bugs"], [])
+        self.assertEqual(vec["estimate"]["empirical_joint_miss_rate"], 0.0)
         self.assertFalse(vec["landing_blocked"])
 
 

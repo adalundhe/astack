@@ -453,9 +453,17 @@ def build_command(
     skills_dir: Path | None = None,
     custom_command: list[str] | None = None,
     out_file: Path | None = None,
+    repro_dir: Path | None = None,
 ) -> tuple[list[str], str | None]:
     """Build exact non-interactive (argv, stdin_text) for the target harness."""
     effective_prompt = prompt_text
+    if repro_dir is not None and role == "reviewer":
+        repro_header = (
+            f"Target repository under review (READ-ONLY — never modify): {cwd}\n"
+            f"Writable reproduction output folder: {repro_dir}\n\n"
+        )
+        if str(repro_dir) not in effective_prompt:
+            effective_prompt = repro_header + effective_prompt
     if skills_dir is not None and str(skills_dir) not in prompt_text:
         go_name = "astack-go" if (skills_dir / "astack-go" / "SKILL.md").is_file() else "go"
         effective_prompt = (
@@ -463,7 +471,7 @@ def build_command(
             f"Astack hides leaf skills from your skill catalog; read `{skills_dir}/{go_name}/SKILL.md` "
             f"and every applicable `<skill>/SKILL.md` directly with your file-reading tool "
             f"(never call the Skill tool for hidden skills).\n\n"
-            f"{prompt_text}"
+            f"{effective_prompt}"
         )
 
     combined_prompt = effective_prompt
@@ -479,6 +487,7 @@ def build_command(
             "model": model,
             "effort": effort,
             "cwd": str(cwd),
+            "repro_dir": str(repro_dir) if repro_dir else "",
             "role": role,
         }
         argv = [binary]
@@ -509,16 +518,32 @@ def build_command(
         return argv, effective_prompt
 
     if harness == "codex":
+        # For Codex reviewers with a strictly disjoint external repro_dir (outside the repo under review),
+        # set `-C <repro_dir> --sandbox workspace-write` AND exclude `/tmp`, `$TMPDIR`, and extra writable
+        # roots so even a repo under `/tmp` or `$TMPDIR` stays strictly READ-ONLY in Codex's OS sandbox
+        # while Codex can still save runnable reproduction scripts in `repro_dir` (with `TMPDIR=<repro_dir>/.tmp`).
+        if role == "reviewer" and repro_dir is not None:
+            codex_cd = repro_dir
+            codex_sandbox = "workspace-write"
+        else:
+            codex_cd = cwd
+            codex_sandbox = "read-only" if role in ("reviewer", "researcher") else "workspace-write"
         argv = [
             binary,
             "exec",
             "-C",
-            str(cwd),
+            str(codex_cd),
             "--sandbox",
-            "read-only" if role in ("reviewer", "researcher") else "workspace-write",
+            codex_sandbox,
             "--ephemeral",
             "--skip-git-repo-check",
         ]
+        if role == "reviewer" and repro_dir is not None:
+            argv.extend([
+                "-c", "sandbox_workspace_write.exclude_slash_tmp=true",
+                "-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+                "-c", "sandbox_workspace_write.writable_roots=[]",
+            ])
         if not is_default_model:
             argv.extend(["--model", model])
         if effort:
@@ -544,18 +569,20 @@ def build_command(
         argv = [binary, "-p", "--trust", "--output-format", "text"]
         if not is_default_model:
             argv.extend(["--model", model])
-        if role in ("reviewer", "researcher"):
+        if role == "researcher":
             argv.extend(["--mode", "ask"])
         argv.append(combined_prompt)
         return argv, None
 
     if harness == "devin":
-        argv = [binary, "-p", "--respect-workspace-trust", "false"]
+        # Official Devin CLI non-interactive shape: flags first, then `-p -- <prompt>` so flags
+        # are never swallowed as prompt text and prompt text is never parsed as CLI flags.
+        argv = [binary, "--respect-workspace-trust", "false"]
         if not is_default_model:
             argv.extend(["--model", model])
         if role in ("reviewer", "researcher"):
-            argv.append("--sandbox")
-        argv.append(combined_prompt)
+            argv.extend(["--permission-mode", "autonomous", "--sandbox"])
+        argv.extend(["-p", "--", combined_prompt])
         return argv, None
 
     if harness == "pi":
@@ -672,6 +699,21 @@ def _resolve_role_timeout_seconds(settings_data: dict[str, Any], role: str) -> f
     return None
 
 
+def _paths_overlap(a: Path, b: Path) -> bool:
+    """Return True if `a` and `b` are equal or either directory contains the other."""
+    ra, rb = a.resolve(), b.resolve()
+    try:
+        ra.relative_to(rb)
+        return True
+    except ValueError:
+        pass
+    try:
+        rb.relative_to(ra)
+        return True
+    except ValueError:
+        return False
+
+
 def cmd_run(args) -> int:
     try:
         provider = _non_empty_str(args.provider, "--provider")
@@ -777,6 +819,24 @@ def cmd_run(args) -> int:
     if out_path is not None and not args.dry_run:
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    repro_dir: Path | None = None
+    if args.repro_dir:
+        repro_dir = Path(args.repro_dir).expanduser().resolve()
+        # Reject overlapping trees in EITHER direction so a reviewer sandbox never makes --cwd writable!
+        if _paths_overlap(repro_dir, cwd):
+            print(
+                f"error: --repro-dir ({repro_dir}) must be strictly disjoint from --cwd ({cwd}) so the repo under review stays read-only",
+                file=sys.stderr,
+            )
+            return 2
+        if not args.dry_run:
+            repro_dir.mkdir(parents=True, exist_ok=True)
+    elif args.role == "reviewer" and resolved_harness == "codex" and out_path is not None:
+        # Auto-derive a writable reproduction directory ONLY when --out's parent is strictly disjoint from --cwd
+        candidate_dir = out_path.parent.resolve()
+        if not _paths_overlap(candidate_dir, cwd):
+            repro_dir = candidate_dir
+
     try:
         argv, stdin_text = build_command(
             resolved_harness,
@@ -791,6 +851,7 @@ def cmd_run(args) -> int:
             skills_dir=skills_dir,
             custom_command=custom_command,
             out_file=out_path if resolved_harness == "codex" else None,
+            repro_dir=repro_dir,
         )
     except DispatchError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -805,6 +866,7 @@ def cmd_run(args) -> int:
             "role": args.role,
             "vector": args.vector or None,
             "cwd": str(cwd),
+            "repro_dir": str(repro_dir) if repro_dir else None,
             "binary": binary,
             "argv": argv,
             "uses_stdin": stdin_text is not None,
@@ -820,11 +882,19 @@ def cmd_run(args) -> int:
 
     started = time.monotonic()
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    proc_env = dict(os.environ)
+    if resolved_harness == "codex" and args.role == "reviewer" and repro_dir is not None:
+        # Since /tmp and host $TMPDIR are excluded from Codex's writable roots, point TMPDIR into a hidden
+        # directory inside repro_dir so reproduction scripts calling tempfile still work cleanly.
+        repro_tmp = repro_dir / ".tmp"
+        repro_tmp.mkdir(parents=True, exist_ok=True)
+        proc_env["TMPDIR"] = str(repro_tmp)
     try:
         proc = subprocess.run(
             argv,
             input=stdin_text,
             cwd=cwd,
+            env=proc_env,
             capture_output=True,
             text=True,
             timeout=timeout_s,
@@ -859,6 +929,7 @@ def cmd_run(args) -> int:
         "role": args.role,
         "vector": args.vector or None,
         "cwd": str(cwd),
+        "repro_dir": str(repro_dir) if repro_dir else None,
         "binary": binary,
         "argv": argv,
         "exit_code": exit_code,
@@ -869,14 +940,20 @@ def cmd_run(args) -> int:
         "out_file": str(out_path) if out_path else None,
     }
 
-    receipt_path: Path | None = None
+    receipt_paths: list[Path] = []
     if args.receipt:
-        receipt_path = Path(args.receipt).expanduser().resolve()
+        receipt_paths.append(Path(args.receipt).expanduser().resolve())
     elif out_path is not None:
-        receipt_path = out_path.with_suffix(out_path.suffix + ".receipt.json")
-    if receipt_path is not None:
-        receipt_path.parent.mkdir(parents=True, exist_ok=True)
-        receipt_path.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+        receipt_paths.append(out_path.with_suffix(out_path.suffix + ".receipt.json"))
+    if env_receipt_dir := os.environ.get("ASTACK_DISPATCH_RECEIPT_DIR"):
+        import re
+        rdir = Path(env_receipt_dir).expanduser().resolve()
+        slug = re.sub(r"[^a-z0-9]+", "-", f"{resolved_harness}-{provider}-{model}".lower()).strip("-") or "dispatch"
+        ts_safe = timestamp.replace(":", "")
+        receipt_paths.append(rdir / f"{ts_safe}-{slug}-{os.getpid()}.receipt.json")
+    for rpath in receipt_paths:
+        rpath.parent.mkdir(parents=True, exist_ok=True)
+        rpath.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
 
     if args.as_json:
         print(json.dumps({**receipt, "output": output_text, "stderr": stderr}, indent=2))
@@ -913,6 +990,7 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--role", choices=("lead", "worker", "reviewer", "researcher"), default="reviewer")
     p_run.add_argument("--vector", default="", help="assigned review vector (recorded in receipt)")
     p_run.add_argument("--cwd", help="working directory / isolated worktree path")
+    p_run.add_argument("--repro-dir", help="writable folder OUTSIDE --cwd where reviewers save standalone reproductions (keeps --cwd read-only on Codex)")
     p_run.add_argument("--prompt", help="inline prompt text")
     p_run.add_argument("--prompt-file", help="file containing prompt text")
     p_run.add_argument("--system-prompt-file", help="agent instructions file (e.g. agents/astack-reviewer.md)")

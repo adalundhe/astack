@@ -1,0 +1,632 @@
+#!/usr/bin/env python3
+"""GitLab MR watcher (gitlab.com + self-hosted GitLab) with good-citizen rate-limit pacing.
+
+Usage:
+  astack-watch-gitlab <mr-url-or-iid> [--project group/subgroup/repo] [watch options]
+  astack-watch-gitlab reply <mr-url-or-iid> --body-file PATH --audit-receipt PATH [options]
+
+API Citizenship:
+  - Uses conditional ETag / If-None-Match (304 Not Modified) on MR, discussions, and pipelines.
+  - Properly URL-encodes nested subgroup paths (group/sub1/sub2/project).
+  - Honors RateLimit-Remaining, RateLimit-Limit, RateLimit-Reset, and Retry-After headers.
+  - Handles GitLab detailed_merge_status, diverged_commits_count, allow_failure jobs,
+    resolvable discussions (excluding system notes), approvals (CE + EE), and failed job traces.
+"""
+from __future__ import annotations
+
+import argparse
+import importlib.machinery
+import importlib.util
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+from urllib import parse as urllib_parse
+
+sys.dont_write_bytecode = True
+
+
+def _load_core() -> Any:
+    path = Path(__file__).resolve().parent / "astack-watch-pr"
+    mod_name = "astack_watch_pr"
+    if mod_name in sys.modules:
+        return sys.modules[mod_name]
+    loader = importlib.machinery.SourceFileLoader(mod_name, str(path))
+    spec = importlib.util.spec_from_loader(mod_name, loader)
+    if spec is None:
+        raise RuntimeError(f"failed to load core module from {path}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = mod
+    loader.exec_module(mod)
+    return mod
+
+
+core = _load_core()
+
+
+def _gitlab_api_base(host: str, api_url: Optional[str]) -> str:
+    if api_url:
+        base = api_url.rstrip("/")
+        return base if base.endswith("/api/v4") else f"{base}/api/v4"
+    return f"https://{host}/api/v4"
+
+
+def _resolve_gitlab_token(host: str, token_env: Optional[str]) -> Tuple[Optional[str], str]:
+    """Return (token, header_name)."""
+    if token_env:
+        val = os.environ.get(token_env, "").strip()
+        if val:
+            return val, ("JOB-TOKEN" if token_env == "CI_JOB_TOKEN" else "PRIVATE-TOKEN")
+    for env_name, header in (
+        ("GITLAB_TOKEN", "PRIVATE-TOKEN"),
+        ("GL_TOKEN", "PRIVATE-TOKEN"),
+        ("CI_JOB_TOKEN", "JOB-TOKEN"),
+    ):
+        val = os.environ.get(env_name, "").strip()
+        if val:
+            return val, header
+    glab_bin = shutil.which("glab")
+    if glab_bin:
+        try:
+            proc = subprocess.run(
+                [glab_bin, "config", "get", "token", "--host", host],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if proc.returncode == 0 and proc.stdout.strip():
+                return proc.stdout.strip().splitlines()[0].strip(), "PRIVATE-TOKEN"
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return None, "PRIVATE-TOKEN"
+
+
+def _map_gitlab_job_state(job: Dict[str, Any]) -> Any:
+    status = str(job.get("status") or "").lower()
+    allow_failure = bool(job.get("allow_failure", False))
+    if status == "success":
+        return core.CheckState.PASSED
+    if status == "failed":
+        return core.CheckState.SKIPPED if allow_failure else core.CheckState.FAILED
+    if status == "canceled":
+        return core.CheckState.CANCELLED
+    if status in ("manual", "skipped"):
+        return core.CheckState.SKIPPED
+    if status in ("created", "waiting_for_resource", "preparing", "pending", "running", "scheduled"):
+        return core.CheckState.PENDING
+    return core.CheckState.FAILED
+
+
+def _map_gitlab_mergeability(mr: Dict[str, Any], is_draft: bool) -> Tuple[Any, str]:
+    dms = str(mr.get("detailed_merge_status") or mr.get("merge_status") or "unknown").lower()
+    has_conflicts = bool(mr.get("has_conflicts", False))
+    diverged = mr.get("diverged_commits_count")
+    if has_conflicts or dms in ("conflict", "cannot_be_merged"):
+        return core.Mergeability.CONFLICTING, dms
+    if dms == "need_rebase" or (isinstance(diverged, int) and diverged > 0):
+        return core.Mergeability.BEHIND, dms
+    if is_draft or dms == "draft_status":
+        return core.Mergeability.DRAFT, dms
+    if dms == "mergeable":
+        return core.Mergeability.CLEAN, dms
+    if dms in ("checking", "unchecked", "preparing"):
+        return core.Mergeability.UNKNOWN, dms
+    if dms in ("ci_must_pass", "ci_still_running", "discussions_not_resolved", "not_approved", "requested_changes", "broken_status"):
+        return core.Mergeability.BLOCKED, dms
+    return core.Mergeability.UNKNOWN, dms
+
+
+def _is_gitlab_bot(author: Dict[str, Any]) -> bool:
+    if bool(author.get("bot", False)):
+        return True
+    uname = str(author.get("username") or "").lower()
+    return uname.endswith("_bot") or uname.startswith("project_") and "_bot_" in uname
+
+
+class GitLabAdapter(core.ForgeAdapter):
+    forge_kind = core.ForgeKind.GITLAB
+
+    def __init__(
+        self,
+        governor: Any,
+        *,
+        token: Optional[str] = None,
+        token_env: Optional[str] = None,
+        initial_etags: Optional[Dict[str, str]] = None,
+    ) -> None:
+        self.governor = governor
+        self._explicit_token = token
+        self._token_env = token_env
+        self._clients: Dict[str, Any] = {}
+        self._initial_etags = dict(initial_etags or {})
+        self._viewer_cache: Dict[str, str] = {}
+        self._mr_files_cache: Dict[Tuple[str, int, str], Tuple[str, ...]] = {}
+        self._trace_cache: Dict[str, str] = {}
+
+    def export_etags(self) -> Dict[str, str]:
+        merged: Dict[str, str] = {}
+        for client in self._clients.values():
+            merged.update(client.export_etags())
+        return merged
+
+    def _client_for(self, target: Any) -> Any:
+        if target.host not in self._clients:
+            if self._explicit_token:
+                tok, hdr = self._explicit_token, "PRIVATE-TOKEN"
+            else:
+                tok, hdr = _resolve_gitlab_token(target.host, self._token_env)
+            headers = {"Accept": "application/json"}
+            if tok:
+                headers[hdr] = tok
+            self._clients[target.host] = core.GoodCitizenHTTPClient(
+                self.governor,
+                default_headers=headers,
+                initial_etags=self._initial_etags,
+            )
+        return self._clients[target.host]
+
+    def parse_target(
+        self,
+        raw_target: Optional[str],
+        repo: Optional[str],
+        host: Optional[str],
+        api_url: Optional[str],
+        cwd: Path,
+    ) -> Any:
+        raw = (raw_target or "").strip()
+        if not raw:
+            raise core.BadInputError("missing GitLab MR IID or URL (usage: astack-watch-gitlab <mr-or-url>)")
+
+        detected_host = host
+        detected_repo = repo
+        iid: Optional[int] = None
+
+        # Supports nested subgroups: https://gitlab.com/org/sub/sub2/proj/-/merge_requests/42
+        url_match = re.fullmatch(
+            r"https?://([^/\s]+)/(.+?)/-/merge_requests/(\d+)(?:[/?#]\S*)?",
+            raw,
+        )
+        num_match = re.fullmatch(r"[!#]?(\d+)", raw)
+        if url_match:
+            detected_host = detected_host or url_match.group(1)
+            detected_repo = detected_repo or url_match.group(2).strip("/")
+            iid = int(url_match.group(3))
+        elif num_match:
+            iid = int(num_match.group(1))
+        else:
+            raise core.BadInputError(f"{raw!r} is not a GitLab MR IID or MR URL")
+
+        if iid <= 0:
+            raise core.BadInputError(f"MR IID must be positive, got {iid}")
+
+        if not detected_repo or not detected_host:
+            origin = core.detect_git_origin_url(cwd)
+            if origin:
+                parsed = core.parse_git_remote_host_and_path(origin)
+                if parsed:
+                    origin_host, origin_path = parsed
+                    detected_host = detected_host or origin_host
+                    if not detected_repo and "/" in origin_path:
+                        detected_repo = origin_path
+
+        detected_host = detected_host or "gitlab.com"
+        if not detected_repo or "/" not in detected_repo:
+            raise core.BadInputError(
+                f"could not determine GitLab project path (got {detected_repo!r}); pass --project group/repo"
+            )
+
+        canonical_url = f"https://{detected_host}/{detected_repo}/-/merge_requests/{iid}"
+        return core.PRTarget(
+            forge=core.ForgeKind.GITLAB,
+            host=detected_host,
+            repo=detected_repo,
+            number=iid,
+            url=canonical_url,
+            api_url=_gitlab_api_base(detected_host, api_url),
+        )
+
+    def _paginated_get(self, client: Any, url: str, max_pages: int = 10) -> Tuple[List[Any], bool]:
+        items: List[Any] = []
+        changed = False
+        page = 1
+        sep = "&" if "?" in url else "?"
+        while page <= max_pages:
+            resp = client.request("GET", f"{url}{sep}per_page=100&page={page}")
+            if not resp.from_cache_304:
+                changed = True
+            batch = resp.json()
+            if isinstance(batch, list):
+                items.extend(batch)
+            next_page = next((v for k, v in resp.headers.items() if k.lower() == "x-next-page"), "").strip()
+            if not next_page or not next_page.isdigit():
+                break
+            page = int(next_page)
+        return items, changed
+
+    def _base_overlap(self, target: Any, enc: str, head_sha: str, old_base: str, new_base: str) -> Tuple[str, ...]:
+        if not old_base or not new_base or old_base == new_base:
+            return ()
+        client = self._client_for(target)
+        fkey = (target.repo, target.number, head_sha)
+        if fkey not in self._mr_files_cache:
+            resp = client.request(
+                "GET",
+                f"{target.api_url}/projects/{enc}/merge_requests/{target.number}/diffs?per_page=100",
+                allow_404=True,
+                allow_403=True,
+            )
+            if resp.status == 200 and isinstance(resp.json(), list):
+                files = set()
+                for d in resp.json():
+                    if isinstance(d, dict):
+                        if d.get("new_path"):
+                            files.add(str(d["new_path"]))
+                        if d.get("old_path"):
+                            files.add(str(d["old_path"]))
+                self._mr_files_cache[fkey] = tuple(sorted(files))
+            else:
+                self._mr_files_cache[fkey] = ()
+        pr_files = set(self._mr_files_cache[fkey])
+        if not pr_files:
+            return ()
+
+        q = urllib_parse.urlencode({"from": old_base, "to": new_base})
+        cmp_resp = client.request(
+            "GET",
+            f"{target.api_url}/projects/{enc}/repository/compare?{q}",
+            allow_404=True,
+            allow_403=True,
+        )
+        if cmp_resp.status != 200:
+            return ()
+        diffs = (cmp_resp.json() or {}).get("diffs") or []
+        moved = set()
+        for d in diffs:
+            if isinstance(d, dict):
+                if d.get("new_path"):
+                    moved.add(str(d["new_path"]))
+                if d.get("old_path"):
+                    moved.add(str(d["old_path"]))
+        return tuple(sorted(pr_files & moved))
+
+    def _fetch_job_trace(self, target: Any, enc: str, job_id: str, max_lines: int = 80) -> str:
+        if job_id in self._trace_cache:
+            return self._trace_cache[job_id]
+        client = self._client_for(target)
+        resp = client.request(
+            "GET",
+            f"{target.api_url}/projects/{enc}/jobs/{job_id}/trace",
+            use_etag=False,
+            allow_404=True,
+            allow_403=True,
+        )
+        if resp.status != 200:
+            self._trace_cache[job_id] = ""
+            return ""
+        lines = resp.text().splitlines()
+        excerpt = "\n".join(lines[-max_lines:])
+        self._trace_cache[job_id] = excerpt
+        return excerpt
+
+    def fetch_snapshot(
+        self,
+        target: Any,
+        cfg: Any,
+        *,
+        prev_base_sha: Optional[str] = None,
+        fetch_logs: bool = False,
+        lightweight_probe: bool = False,
+    ) -> Tuple[Optional[Any], bool]:
+        self.governor.state.transport = "gitlab-rest-v4"
+        client = self._client_for(target)
+        enc = urllib_parse.quote(target.repo, safe="")
+
+        mr_url = (
+            f"{target.api_url}/projects/{enc}/merge_requests/{target.number}"
+            "?include_diverged_commits_count=true&include_rebase_in_progress=true"
+        )
+        r_mr = client.request("GET", mr_url)
+        mr = r_mr.json() or {}
+        head_pipe = mr.get("head_pipeline") if isinstance(mr.get("head_pipeline"), dict) else {}
+        pipe_status = str(head_pipe.get("status") or "").lower()
+        pipe_terminal = pipe_status in ("success", "failed", "canceled", "skipped", "")
+        if lightweight_probe and r_mr.from_cache_304 and pipe_terminal:
+            return None, False
+
+        changed = not r_mr.from_cache_304
+        if target.host not in self._viewer_cache:
+            r_user = client.request("GET", f"{target.api_url}/user", allow_403=True, allow_404=True)
+            self._viewer_cache[target.host] = str((r_user.json() or {}).get("username") or "") if r_user.status == 200 else ""
+        viewer = self._viewer_cache[target.host]
+
+        raw_state = str(mr.get("state") or "opened").lower()
+        if raw_state == "merged":
+            lifecycle = core.PRLifecycle.MERGED
+        elif raw_state == "closed":
+            lifecycle = core.PRLifecycle.CLOSED
+        else:
+            lifecycle = core.PRLifecycle.OPEN
+
+        is_draft = bool(mr.get("draft") or mr.get("work_in_progress"))
+        diff_refs = mr.get("diff_refs") if isinstance(mr.get("diff_refs"), dict) else {}
+        head_sha = str(mr.get("sha") or diff_refs.get("head_sha") or "")
+        head_branch = str(mr.get("source_branch") or "")
+        base_branch = str(mr.get("target_branch") or "")
+        base_sha = str(diff_refs.get("base_sha") or "")
+        author_obj = mr.get("author") if isinstance(mr.get("author"), dict) else {}
+        author = str(author_obj.get("username") or "unknown")
+        diverged = mr.get("diverged_commits_count")
+        behind_by = int(diverged) if isinstance(diverged, int) else None
+        mergeability, raw_dms = _map_gitlab_mergeability(mr, is_draft)
+
+        checks: List[Any] = []
+        threads: List[Any] = []
+        top_comments: List[Any] = []
+        change_requests: List[Any] = []
+        approvals_count = 0
+        approvals_required: Optional[int] = None
+        review_verdict = core.ReviewVerdict.NONE
+        overlap: Tuple[str, ...] = ()
+
+        if lifecycle == core.PRLifecycle.OPEN:
+            # 1. Target branch current head SHA for base-overlap tracking
+            target_enc = urllib_parse.quote(base_branch, safe="")
+            r_branch = client.request(
+                "GET",
+                f"{target.api_url}/projects/{enc}/repository/branches/{target_enc}",
+                allow_404=True,
+                allow_403=True,
+            )
+            if r_branch.status == 200:
+                b_sha = str(((r_branch.json() or {}).get("commit") or {}).get("id") or "")
+                if b_sha:
+                    base_sha = b_sha
+            if prev_base_sha and base_sha and prev_base_sha != base_sha:
+                overlap = self._base_overlap(target, enc, head_sha, prev_base_sha, base_sha)
+
+            # 2. Discussions (resolvable inline/general threads + non-system top comments)
+            disc_rows, disc_changed = self._paginated_get(
+                client, f"{target.api_url}/projects/{enc}/merge_requests/{target.number}/discussions"
+            )
+            if disc_changed:
+                changed = True
+            for disc in disc_rows:
+                if not isinstance(disc, dict):
+                    continue
+                disc_id = str(disc.get("id") or "")
+                notes = [n for n in (disc.get("notes") or []) if isinstance(n, dict) and not n.get("system", False)]
+                if not notes:
+                    continue
+                first = notes[0]
+                is_resolvable = any(bool(n.get("resolvable", False)) for n in notes)
+                is_resolved = all((not n.get("resolvable", False)) or bool(n.get("resolved", False)) for n in notes)
+                pos = first.get("position") if isinstance(first.get("position"), dict) else {}
+                path = pos.get("new_path") or pos.get("old_path")
+                line = pos.get("new_line") or pos.get("old_line")
+                parsed_notes = []
+                for n in notes:
+                    n_author = n.get("author") if isinstance(n.get("author"), dict) else {}
+                    parsed_notes.append(
+                        core.ReviewComment(
+                            comment_id=str(n.get("id") or ""),
+                            author=str(n_author.get("username") or "unknown"),
+                            is_bot=_is_gitlab_bot(n_author),
+                            body=str(n.get("body") or ""),
+                            created_at=str(n.get("created_at") or ""),
+                            url=f"{mr.get('web_url') or target.url}#note_{n.get('id')}",
+                            path=path,
+                            line=line,
+                        )
+                    )
+                if is_resolvable:
+                    threads.append(
+                        core.ReviewThread(
+                            thread_id=disc_id,
+                            path=path,
+                            line=line,
+                            resolved=is_resolved,
+                            is_bot=parsed_notes[0].is_bot,
+                            comments=tuple(parsed_notes),
+                            url=parsed_notes[0].url,
+                        )
+                    )
+                else:
+                    top_comments.extend(parsed_notes)
+
+            # 3. Approvals & reviewers (gracefully handles CE/Free tiers)
+            if raw_dms == "requested_changes":
+                review_verdict = core.ReviewVerdict.CHANGES_REQUESTED
+            for reviewer in (mr.get("reviewers") or []):
+                if isinstance(reviewer, dict) and str(reviewer.get("state") or "").lower() == "requested_changes":
+                    review_verdict = core.ReviewVerdict.CHANGES_REQUESTED
+                    change_requests.append(
+                        core.ReviewComment(
+                            comment_id=f"reviewer:{reviewer.get('id') or reviewer.get('username')}",
+                            author=str(reviewer.get("username") or "reviewer"),
+                            is_bot=False,
+                            body="Reviewer requested changes on this merge request",
+                            url=str(mr.get("web_url") or target.url),
+                        )
+                    )
+
+            r_app = client.request(
+                "GET",
+                f"{target.api_url}/projects/{enc}/merge_requests/{target.number}/approvals",
+                allow_404=True,
+                allow_403=True,
+            )
+            if r_app.status == 200 and isinstance(r_app.json(), dict):
+                app_data = r_app.json()
+                approved_by = app_data.get("approved_by") or []
+                approvals_count = len(approved_by) if isinstance(approved_by, list) else 0
+                left = app_data.get("approvals_left")
+                req_cnt = app_data.get("approvals_required")
+                if isinstance(req_cnt, int) and req_cnt > 0:
+                    approvals_required = req_cnt
+                if review_verdict != core.ReviewVerdict.CHANGES_REQUESTED:
+                    if bool(app_data.get("approved")) or (isinstance(left, int) and left == 0 and approvals_count > 0):
+                        review_verdict = core.ReviewVerdict.APPROVED
+                    elif (isinstance(left, int) and left > 0) or raw_dms == "not_approved":
+                        review_verdict = core.ReviewVerdict.REVIEW_REQUIRED
+            elif review_verdict != core.ReviewVerdict.CHANGES_REQUESTED and raw_dms == "not_approved":
+                review_verdict = core.ReviewVerdict.REVIEW_REQUIRED
+
+            # 4. Pipeline jobs (and fallback to pipeline-level status if jobs empty/hidden)
+            pipe_id = head_pipe.get("id")
+            if pipe_id is not None:
+                job_rows, jobs_changed = self._paginated_get(
+                    client, f"{target.api_url}/projects/{enc}/pipelines/{pipe_id}/jobs"
+                )
+                if jobs_changed:
+                    changed = True
+                for job in job_rows:
+                    if not isinstance(job, dict):
+                        continue
+                    j_name = str(job.get("name") or f"job-{job.get('id')}")
+                    j_state = _map_gitlab_job_state(job)
+                    _, is_adv, _ = core.classify_bot(j_name, cfg)
+                    excerpt = ""
+                    if fetch_logs and j_state in (core.CheckState.FAILED, core.CheckState.CANCELLED) and job.get("id"):
+                        excerpt = self._fetch_job_trace(target, enc, str(job["id"]))
+                    checks.append(
+                        core.CheckRun(
+                            name=j_name,
+                            state=j_state,
+                            required=not bool(job.get("allow_failure", False)),
+                            advisory=is_adv or bool(job.get("allow_failure", False)),
+                            is_review_bot=core.is_review_automation_check(j_name, cfg),
+                            description=f"stage={job.get('stage') or ''}" if job.get("stage") else "",
+                            url=str(job.get("web_url") or head_pipe.get("web_url") or ""),
+                            log_excerpt=excerpt,
+                            raw_state=str(job.get("status") or ""),
+                        )
+                    )
+                if not checks and pipe_status:
+                    p_state = _map_gitlab_job_state({"status": pipe_status})
+                    checks.append(
+                        core.CheckRun(
+                            name=f"pipeline #{pipe_id}",
+                            state=p_state,
+                            required=True,
+                            url=str(head_pipe.get("web_url") or ""),
+                            raw_state=pipe_status,
+                        )
+                    )
+
+        snap = core.PRSnapshot(
+            target=target,
+            lifecycle=lifecycle,
+            title=str(mr.get("title") or ""),
+            url=str(mr.get("web_url") or target.url),
+            head_branch=head_branch,
+            head_sha=head_sha,
+            base_branch=base_branch,
+            base_sha=base_sha,
+            author=author,
+            viewer=viewer,
+            is_draft=is_draft,
+            mergeability=mergeability,
+            behind_by=behind_by,
+            review_verdict=review_verdict,
+            approvals_count=approvals_count,
+            approvals_required=approvals_required,
+            created_at=str(mr.get("created_at") or ""),
+            updated_at=str(mr.get("updated_at") or ""),
+            checks=tuple(checks),
+            required_check_names=(),
+            had_previous_passing_ci=False,
+            threads=tuple(threads),
+            top_level_comments=tuple(top_comments),
+            change_requests=tuple(change_requests),
+            base_overlap_files=overlap,
+            review_bot_pending=(),
+            review_bot_done=(),
+            raw_merge_status=raw_dms,
+            observed_at=core.utc_iso(),
+        )
+        return snap, changed
+
+    def list_open_prs(self, target: Any) -> List[Any]:
+        client = self._client_for(target)
+        enc = urllib_parse.quote(target.repo, safe="")
+        rows, _ = self._paginated_get(client, f"{target.api_url}/projects/{enc}/merge_requests?state=opened")
+        nodes = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            src_pid = r.get("source_project_id")
+            tgt_pid = r.get("target_project_id")
+            is_cross = bool(src_pid is not None and tgt_pid is not None and src_pid != tgt_pid)
+            nodes.append(
+                core.OpenPRNode(
+                    number=int(r["iid"]),
+                    head_branch=str(r.get("source_branch") or ""),
+                    base_branch=str(r.get("target_branch") or ""),
+                    is_cross_repo=is_cross,
+                    url=str(r.get("web_url") or ""),
+                )
+            )
+        return nodes
+
+    def post_reply(
+        self,
+        target: Any,
+        body: str,
+        *,
+        thread_id: Optional[str] = None,
+        comment_id: Optional[str] = None,
+        resolve: bool = False,
+    ) -> Dict[str, Any]:
+        client = self._client_for(target)
+        enc = urllib_parse.quote(target.repo, safe="")
+        disc_id = thread_id or comment_id
+        if disc_id:
+            resp = client.request(
+                "POST",
+                f"{target.api_url}/projects/{enc}/merge_requests/{target.number}/discussions/{disc_id}/notes",
+                json_body={"body": body},
+                use_etag=False,
+            )
+        else:
+            resp = client.request(
+                "POST",
+                f"{target.api_url}/projects/{enc}/merge_requests/{target.number}/notes",
+                json_body={"body": body},
+                use_etag=False,
+            )
+        data = resp.json() or {}
+        resolved_ok = False
+        if resolve and disc_id:
+            r_res = client.request(
+                "PUT",
+                f"{target.api_url}/projects/{enc}/merge_requests/{target.number}/discussions/{disc_id}",
+                json_body={"resolved": True},
+                use_etag=False,
+            )
+            resolved_ok = r_res.status in (200, 201)
+        note_id = data.get("id")
+        return {
+            "forge": target.forge.value,
+            "target": target.display_ref,
+            "id": note_id,
+            "url": f"{target.url}#note_{note_id}" if note_id else target.url,
+            "resolved": resolved_ok,
+        }
+
+
+def make_adapter(args: argparse.Namespace, governor: Any) -> GitLabAdapter:
+    return GitLabAdapter(governor, token_env=getattr(args, "token_env", None))
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    return core.execute_forge_cli("astack-watch-gitlab", "gitlab", make_adapter, argv=argv)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(130)

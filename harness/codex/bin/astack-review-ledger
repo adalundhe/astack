@@ -23,14 +23,18 @@ Honest statistical framing:
       meaning these models stopped finding new blocking bugs in the class they detect.
   - When ZERO blocking bugs are found (D = 0):
     - Low-risk vectors stop after 1 clean non-worker review (`verdict: "clean_low_risk"`).
-    - Risky vectors NEVER assume a picked detection rate (such as 0.5):
-      - If per-model empirical catch rates (measured on `vectored-review-planted-bugs`,
-        via `reviewer_pool[].catch_rate`, `model_catch_rates`, or `--calibration`) are
-        present for all completed reviewers, compute the combined empirical miss risk for
-        benchmark-difficulty bugs using the Jeffreys Beta(1/2, 1/2) posterior mean
-        `prod((planted - detected + 0.5) / (planted + 1))` against configurable
-        `miss_risk_target` (default 0.05), continuing until met or holding landing if
-        the pool runs out short of target (`verdict: "clean_calibrated"`).
+    - Risky vectors NEVER assume a picked detection rate (such as 0.5) AND NEVER multiply
+      per-model miss rates assuming independence:
+      - If per-bug empirical calibration (`per_bug`, recorded by `scripts/eval.py --calibrate`
+        on `vectored-review-planted-bugs`) is present for all completed reviewers, measure
+        the pool's ACTUAL joint coverage across the shared planted bugs—directly identifying
+        `jointly_missed_bugs` (shared blind spots missed by ALL reviewers in the pool, where
+        adding redundant models NEVER shrinks the miss rate!). Stops (`verdict: "clean_calibrated"`)
+        only when `jointly_missed_bugs` is empty AND `empirical_joint_miss_rate < miss_risk_target`
+        (default 0.05), prioritizing unused pool models that caught the shared blind spots next.
+      - If only legacy count-only catch rates (no `per_bug`) are provided, NEVER multiply
+        assuming independence: use the assumption-free Fréchet upper bound
+        `min_i((planted_i - detected_i + 0.5) / (planted_i + 1))` and flag `independence_unverified`.
       - If catch rates are uncalibrated, require >= 2 distinct models (including a
         non-worker model and cross-provider diversity whenever another provider exists in
         the pool), then finish as `verdict: "clean_uncalibrated"` without blocking
@@ -95,6 +99,7 @@ class CatchRate:
     detected: int
     planted: int
     source: str = "vectored-review-planted-bugs"
+    per_bug: tuple[tuple[str, int, int], ...] = ()  # sorted (bug_id, detected, trials)
 
     @property
     def observed_rate(self) -> float:
@@ -102,17 +107,27 @@ class CatchRate:
 
     @property
     def jeffreys_miss_prob(self) -> float:
-        # Jeffreys (1946) non-informative Beta(1/2, 1/2) posterior mean for miss probability (1 - p)
+        # Jeffreys (1946) non-informative Beta(1/2, 1/2) posterior mean for single-model miss probability (1 - p)
         return (self.planted - self.detected + 0.5) / (self.planted + 1.0)
 
+    @property
+    def per_bug_map(self) -> dict[str, tuple[int, int]]:
+        return {bug_id: (det, tr) for bug_id, det, tr in self.per_bug}
+
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "detected": self.detected,
             "planted": self.planted,
             "observed_rate": round(self.observed_rate, 4),
             "jeffreys_miss_prob": round(self.jeffreys_miss_prob, 4),
             "source": self.source,
         }
+        if self.per_bug:
+            out["per_bug"] = {
+                bug_id: {"detected": det, "trials": tr}
+                for bug_id, det, tr in self.per_bug
+            }
+        return out
 
 
 @dataclass(frozen=True)
@@ -181,8 +196,33 @@ def _non_empty_str(val: Any, field: str) -> str:
 def _parse_catch_rate(raw: Any, field: str) -> CatchRate:
     if not isinstance(raw, dict):
         raise ValidationError(f"{field} must be an object with integer detected and planted counts")
+    per_bug_parsed: list[tuple[str, int, int]] = []
+    per_bug_raw = raw.get("per_bug")
+    if per_bug_raw is not None:
+        if not isinstance(per_bug_raw, dict) or not per_bug_raw:
+            raise ValidationError(f"{field}.per_bug must be a non-empty object mapping bug_id to {{detected, trials}}")
+        for bug_id, bval in sorted(per_bug_raw.items()):
+            bid = _non_empty_str(bug_id, f"{field}.per_bug key")
+            if isinstance(bval, bool):
+                bdet, btr = (1 if bval else 0), 1
+            elif isinstance(bval, dict):
+                bdet = bval.get("detected")
+                btr = bval.get("trials", 1)
+                if isinstance(bdet, bool) or not isinstance(bdet, int) or bdet < 0:
+                    raise ValidationError(f"{field}.per_bug[{bid!r}].detected must be a non-negative integer")
+                if isinstance(btr, bool) or not isinstance(btr, int) or btr < 1:
+                    raise ValidationError(f"{field}.per_bug[{bid!r}].trials must be a positive integer")
+                if bdet > btr:
+                    raise ValidationError(f"{field}.per_bug[{bid!r}].detected ({bdet}) cannot exceed trials ({btr})")
+            else:
+                raise ValidationError(f"{field}.per_bug[{bid!r}] must be a boolean or {{detected, trials}} object")
+            per_bug_parsed.append((bid, bdet, btr))
+
     detected = raw.get("detected")
     planted = raw.get("planted")
+    if detected is None and planted is None and per_bug_parsed:
+        detected = sum(bdet for _, bdet, _ in per_bug_parsed)
+        planted = sum(btr for _, _, btr in per_bug_parsed)
     if isinstance(detected, bool) or not isinstance(detected, int) or detected < 0:
         raise ValidationError(f"{field}.detected must be a non-negative integer")
     if isinstance(planted, bool) or not isinstance(planted, int) or planted < 1:
@@ -191,7 +231,7 @@ def _parse_catch_rate(raw: Any, field: str) -> CatchRate:
         raise ValidationError(f"{field}.detected ({detected}) cannot exceed planted ({planted})")
     src_raw = raw.get("source", "vectored-review-planted-bugs")
     source = src_raw.strip() if isinstance(src_raw, str) and src_raw.strip() else "vectored-review-planted-bugs"
-    return CatchRate(detected=detected, planted=planted, source=source)
+    return CatchRate(detected=detected, planted=planted, source=source, per_bug=tuple(per_bug_parsed))
 
 
 def _parse_model(raw: Any, field: str) -> ModelSpec:
@@ -524,11 +564,11 @@ def zero_bug_empirical_estimate(
     catch_rates: dict[tuple[str, str], CatchRate],
     miss_risk_target: float = DEFAULT_MISS_RISK_TARGET,
 ) -> dict[str, Any]:
-    """Evaluate a zero-finding (D = 0) sweep using ONLY measured per-model catch rates (never a picked constant)."""
+    """Evaluate a zero-finding (D = 0) sweep using measured per-bug joint coverage (ZERO independence assumption!)."""
     t = len(reviewers)
     per_model: dict[str, dict[str, Any]] = {}
+    matched_crs: list[CatchRate] = []
     all_calibrated = t > 0
-    combined_miss = 1.0
     for m in reviewers:
         cr = catch_rates.get(m.key)
         mkey = f"{m.provider}/{m.model}"
@@ -536,24 +576,87 @@ def zero_bug_empirical_estimate(
             all_calibrated = False
         else:
             per_model[mkey] = cr.to_dict()
-            combined_miss *= cr.jeffreys_miss_prob
+            matched_crs.append(cr)
 
-    if all_calibrated:
-        can_stop = combined_miss < miss_risk_target
-        miss_pct = round(combined_miss * 100.0, 1)
-        scope_note = (
-            f"Zero blocking bugs found across {t} calibrated models. Based on measured catch rates "
-            f"on planted bugs, a benchmark-difficulty bug still has an estimated {miss_pct}% chance "
-            f"of slipping past all {t} models (assuming independence); harder bugs or shared blind spots "
-            f"cannot be ruled out by reviewer statistics alone."
-        )
+    if not all_calibrated:
         return {
-            "estimator": "empirical_clean_sweep",
+            "estimator": "uncalibrated_clean_sweep",
+            "reviewers": t,
+            "observed": 0,
+            "calibrated": False,
+            "joint_calibration": False,
+            "miss_risk_target": miss_risk_target,
+            "zero_bug_miss_prob": None,
+            "empirical_joint_miss_rate": None,
+            "jointly_missed_bugs": [],
+            "per_reviewer_catch_rates": per_model,
+            "estimated_total": 0.0,
+            "estimated_unfound": 0.0,
+            "estimated_unfound_lower": 0.0,
+            "estimated_unfound_upper": None,
+            "informative": False,
+            "can_stop": False,
+            "scope_note": UNCALIBRATED_CLEAN_SCOPE_NOTE,
+        }
+
+    # Check if ALL reviewers have per-bug calibration results over a common benchmark bug set
+    bug_maps = [cr.per_bug_map for cr in matched_crs]
+    shared_bugs = sorted(set.intersection(*(set(bm.keys()) for bm in bug_maps))) if all(bug_maps) else []
+
+    if shared_bugs:
+        M = len(shared_bugs)
+        jointly_missed: list[str] = []
+        per_bug_pool_miss: dict[str, float] = {}
+        expected_missed = 0.0
+        for bid in shared_bugs:
+            all_zero = True
+            miss_b = 1.0
+            for bm in bug_maps:
+                det_b, tr_b = bm[bid]
+                if det_b > 0:
+                    all_zero = False
+                miss_b *= 1.0 - (det_b / tr_b)
+            if all_zero:
+                jointly_missed.append(bid)
+            per_bug_pool_miss[bid] = round(miss_b, 4)
+            expected_missed += miss_b
+
+        joint_caught = M - expected_missed
+        empirical_joint_miss_rate = expected_missed / M
+        # Jeffreys Beta(1/2, 1/2) finite-sample posterior rate over the M benchmark bugs
+        jeffreys_joint_miss = (expected_missed + 0.5) / (M + 1.0)
+        can_stop = (len(jointly_missed) == 0) and (empirical_joint_miss_rate < miss_risk_target)
+        emp_pct = round(empirical_joint_miss_rate * 100.0, 1)
+        jeff_pct = round(jeffreys_joint_miss * 100.0, 1)
+        if jointly_missed:
+            blind_str = ", ".join(jointly_missed)
+            scope_note = (
+                f"Zero blocking bugs found across {t} calibrated models, BUT every one of these {t} models "
+                f"missed {len(jointly_missed)}/{M} planted benchmark bug(s) ({blind_str}; empirical joint miss "
+                f"rate {emp_pct}%, finite-sample Jeffreys rate {jeff_pct}%). Adding models with the same blind "
+                f"spots does not reduce this risk; add a model that catches those bug classes or run executable checks."
+            )
+        else:
+            scope_note = (
+                f"Zero blocking bugs found across {t} calibrated models. Together they caught {round(joint_caught, 2)}/{M} "
+                f"planted benchmark bugs with 0 shared blind spots (empirical joint miss rate {emp_pct}%, "
+                f"finite-sample Jeffreys rate {jeff_pct}% on {M} benchmark bugs); harder bugs outside the "
+                f"benchmark cannot be ruled out by reviewer statistics alone."
+            )
+        return {
+            "estimator": "empirical_joint_clean_sweep",
             "reviewers": t,
             "observed": 0,
             "calibrated": True,
+            "joint_calibration": True,
             "miss_risk_target": miss_risk_target,
-            "zero_bug_miss_prob": round(combined_miss, 4),
+            "joint_bugs_evaluated": M,
+            "joint_bugs_caught": round(joint_caught, 4),
+            "jointly_missed_bugs": jointly_missed,
+            "per_bug_pool_miss": per_bug_pool_miss,
+            "empirical_joint_miss_rate": round(empirical_joint_miss_rate, 4),
+            "jeffreys_joint_miss_prob": round(jeffreys_joint_miss, 4),
+            "zero_bug_miss_prob": round(empirical_joint_miss_rate, 4),
             "per_reviewer_catch_rates": per_model,
             "estimated_total": 0.0,
             "estimated_unfound": 0.0,
@@ -564,21 +667,36 @@ def zero_bug_empirical_estimate(
             "scope_note": scope_note,
         }
 
+    # Count-only calibration (no per_bug data): NEVER multiply assuming independence!
+    # Use the assumption-free Fréchet upper bound min_i(jeffreys_miss_prob_i), which cannot be gamed by correlated models.
+    frechet_upper = min(cr.jeffreys_miss_prob for cr in matched_crs)
+    can_stop = frechet_upper < miss_risk_target
+    frechet_pct = round(frechet_upper * 100.0, 1)
+    scope_note = (
+        f"Zero blocking bugs found across {t} count-only calibrated models (no per-bug history recorded, so "
+        f"shared blind spots cannot be measured and miss rates are NOT multiplied assuming independence). "
+        f"Assumption-free Fréchet miss bound from best single model is {frechet_pct}%. Re-run "
+        f"`scripts/eval.py --calibrate` to record per-bug coverage."
+    )
     return {
-        "estimator": "uncalibrated_clean_sweep",
+        "estimator": "empirical_frechet_clean_sweep",
         "reviewers": t,
         "observed": 0,
-        "calibrated": False,
+        "calibrated": True,
+        "joint_calibration": False,
+        "independence_unverified": True,
         "miss_risk_target": miss_risk_target,
-        "zero_bug_miss_prob": None,
+        "jointly_missed_bugs": [],
+        "empirical_joint_miss_rate": None,
+        "zero_bug_miss_prob": round(frechet_upper, 4),
         "per_reviewer_catch_rates": per_model,
         "estimated_total": 0.0,
         "estimated_unfound": 0.0,
         "estimated_unfound_lower": 0.0,
         "estimated_unfound_upper": None,
-        "informative": False,
-        "can_stop": False,
-        "scope_note": UNCALIBRATED_CLEAN_SCOPE_NOTE,
+        "informative": True,
+        "can_stop": can_stop,
+        "scope_note": scope_note,
     }
 
 
@@ -838,22 +956,30 @@ def _pick_next_models(
     has_non_worker: bool,
     count: int = 1,
     used_providers: set[str] | None = None,
+    catch_rates: dict[tuple[str, str], CatchRate] | None = None,
+    target_blind_spots: list[str] | None = None,
 ) -> list[ModelSpec]:
     unused = [m for m in pool if m.key not in used_keys]
     if not unused or count <= 0:
         return []
     seen_provs = set(used_providers or set())
+    cr_map = catch_rates or {}
+    blind_spots = list(target_blind_spots or [])
     picked: list[ModelSpec] = []
     remaining = list(unused)
     need_non_worker = worker_model is not None and not has_non_worker
     for _ in range(min(count, len(remaining))):
-        # Priority: (1) non-worker if still needed, (2) unseen provider for independence, (3) pool order
+        # Priority: (1) non-worker if needed, (2) covers shared blind spots, (3) unseen provider, (4) pool order
         best_idx = 0
-        best_score = (-1, -1)
+        best_score = (-1, -1, -1)
         for idx, cand in enumerate(remaining):
             nw = 1 if (not need_non_worker or (worker_model is not None and cand.key != worker_model.key)) else 0
+            covered = 0
+            if blind_spots and cand.key in cr_map:
+                bmap = cr_map[cand.key].per_bug_map
+                covered = sum(1 for bid in blind_spots if bmap.get(bid, (0, 1))[0] > 0)
             new_prov = 1 if cand.provider not in seen_provs else 0
-            score = (nw, new_prov)
+            score = (nw, covered, new_prov)
             if score > best_score:
                 best_score = score
                 best_idx = idx
@@ -876,12 +1002,20 @@ def _format_plain_range(est: dict[str, Any] | None) -> str:
     if est is None:
         return "unknown (fewer than two independent models completed this area)"
     if est.get("observed") == 0:
-        if est.get("calibrated") and est.get("zero_bug_miss_prob") is not None:
-            miss_pct = round(float(est["zero_bug_miss_prob"]) * 100.0)
-            return (
-                f"none found yet (based on measured catch rates on planted bugs, a benchmark-difficulty "
-                f"bug still has roughly a {miss_pct}% chance of slipping past these models)"
-            )
+        if est.get("calibrated"):
+            missed_bugs = est.get("jointly_missed_bugs") or []
+            if est.get("joint_calibration") and missed_bugs:
+                M = est.get("joint_bugs_evaluated", len(missed_bugs))
+                miss_pct = round(float(est.get("empirical_joint_miss_rate", 0.0)) * 100.0)
+                return (
+                    f"none found yet (all models used so far missed {len(missed_bugs)}/{M} planted benchmark "
+                    f"bug(s) — {miss_pct}% shared blind-spot miss rate)"
+                )
+            if est.get("zero_bug_miss_prob") is not None:
+                miss_pct = round(float(est["zero_bug_miss_prob"]) * 100.0)
+                return (
+                    f"none found yet (assumption-free benchmark miss bound ~{miss_pct}%)"
+                )
         return "none found yet (catch rates uncalibrated; clean reviews alone cannot rule out harder bugs)"
     pt = _fmt_num(est["estimated_unfound"])
     lo = _fmt_num(est["estimated_unfound_lower"])
@@ -1200,13 +1334,24 @@ def evaluate_ledger(
                         reason = "clean_calibrated_review"
                     else:
                         recommended_next = _pick_next_models(
-                            reachable_pool, used_key_set, worker_model, has_non_worker=has_non_worker, count=1, used_providers=used_providers
+                            reachable_pool,
+                            used_key_set,
+                            worker_model,
+                            has_non_worker=has_non_worker,
+                            count=1,
+                            used_providers=used_providers,
+                            catch_rates=catch_rates,
+                            target_blind_spots=estimate.get("jointly_missed_bugs"),
                         )
                         if recommended_next:
                             action = "continue"
                             status = "CONTINUE"
                             verdict = "in_progress"
-                            reason = "clean_review_needs_more_calibrated_coverage"
+                            reason = (
+                                "shared_blind_spots_need_complementary_model"
+                                if estimate.get("jointly_missed_bugs")
+                                else "clean_review_needs_more_calibrated_coverage"
+                            )
                         else:
                             action = "flag"
                             status = "POOL EXHAUSTED"
@@ -1393,9 +1538,16 @@ def format_markdown(result: dict[str, Any]) -> str:
         est = v["estimate"]
         if est is None:
             est_str = "—"
-        elif est["estimator"] == "empirical_clean_sweep":
+        elif est["estimator"] == "empirical_joint_clean_sweep":
+            miss_pct = round(float(est["empirical_joint_miss_rate"]) * 100.0, 1)
+            blind = est.get("jointly_missed_bugs") or []
+            est_str = (
+                f"Clean sweep (jointly calibrated, {len(blind)}/{est['joint_bugs_evaluated']} shared blind spots, "
+                f"joint miss {miss_pct}%)"
+            )
+        elif est["estimator"] == "empirical_frechet_clean_sweep":
             miss_pct = round(float(est["zero_bug_miss_prob"]) * 100.0, 1)
-            est_str = f"Clean sweep (calibrated, eval-difficulty miss risk ~{miss_pct}%)"
+            est_str = f"Clean sweep (count-only calibration, Fréchet bound ~{miss_pct}% — re-calibrate for per-bug)"
         elif est["estimator"] == "uncalibrated_clean_sweep":
             est_str = "Clean sweep (uncalibrated — no blocking bugs found)"
         elif est["estimator"] == "chapman_hypergeometric_95":

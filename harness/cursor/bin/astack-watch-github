@@ -1,0 +1,1311 @@
+#!/usr/bin/env python3
+"""GitHub PR watcher (github.com + GitHub Enterprise Server) with good-citizen rate-limit pacing.
+
+Usage:
+  astack-watch-github <pr-url-or-number> [--repo owner/name] [watch options]
+  astack-watch-github reply <pr-url-or-number> --body-file PATH --audit-receipt PATH [options]
+
+API Citizenship:
+  - Consolidates PR metadata, review threads, comments, reviews, check rollup, and GraphQL
+    rateLimit into ONE GraphQL query (with pagination only when >100 items).
+  - Uses conditional REST ETag/If-None-Match (304 Not Modified = 0 rate-limit cost on GitHub!)
+    on idle polls between full GraphQL syncs.
+  - Automatically falls back from GraphQL to the separate REST API quota when GraphQL quota
+    drops below reserve or hits rate limits.
+  - Caches required status checks and PR file lists across polls; honors X-RateLimit-*,
+    X-Poll-Interval, and Retry-After headers.
+"""
+from __future__ import annotations
+
+import argparse
+import importlib.machinery
+import importlib.util
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import sys
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+from urllib import parse as urllib_parse
+
+sys.dont_write_bytecode = True
+
+
+def _load_core() -> Any:
+    path = Path(__file__).resolve().parent / "astack-watch-pr"
+    mod_name = "astack_watch_pr"
+    if mod_name in sys.modules:
+        return sys.modules[mod_name]
+    loader = importlib.machinery.SourceFileLoader(mod_name, str(path))
+    spec = importlib.util.spec_from_loader(mod_name, loader)
+    if spec is None:
+        raise RuntimeError(f"failed to load core module from {path}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = mod
+    loader.exec_module(mod)
+    return mod
+
+
+core = _load_core()
+
+CONSOLIDATED_PR_QUERY = """
+query WatchPR($owner: String!, $repo: String!, $number: Int!) {
+  rateLimit {
+    cost
+    remaining
+    limit
+    resetAt
+  }
+  viewer {
+    login
+  }
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      number
+      url
+      title
+      state
+      isDraft
+      createdAt
+      updatedAt
+      mergeable
+      mergeStateStatus
+      reviewDecision
+      headRefName
+      headRefOid
+      baseRefName
+      baseRef {
+        target {
+          oid
+        }
+      }
+      author {
+        login
+        __typename
+      }
+      comments(last: 100) {
+        nodes {
+          id
+          databaseId
+          url
+          body
+          createdAt
+          author {
+            login
+            __typename
+          }
+        }
+      }
+      reviews(last: 100) {
+        nodes {
+          id
+          url
+          state
+          body
+          submittedAt
+          commit {
+            oid
+          }
+          author {
+            login
+            __typename
+          }
+        }
+      }
+      reviewThreads(first: 100) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          isResolved
+          isOutdated
+          path
+          line
+          comments(first: 25) {
+            nodes {
+              id
+              databaseId
+              url
+              body
+              createdAt
+              path
+              line
+              author {
+                login
+                __typename
+              }
+            }
+          }
+        }
+      }
+      commits(last: 10) {
+        nodes {
+          commit {
+            oid
+            statusCheckRollup {
+              state
+              contexts(first: 100) {
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
+                nodes {
+                  __typename
+                  ... on CheckRun {
+                    name
+                    status
+                    conclusion
+                    detailsUrl
+                    title
+                    summary
+                  }
+                  ... on StatusContext {
+                    context
+                    state
+                    description
+                    targetUrl
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+REVIEW_THREADS_PAGE_QUERY = """
+query WatchPRThreads($owner: String!, $repo: String!, $number: Int!, $after: String!) {
+  rateLimit { cost remaining limit resetAt }
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id isResolved isOutdated path line
+          comments(first: 25) {
+            nodes {
+              id databaseId url body createdAt path line
+              author { login __typename }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+CHECK_ROLLUP_PAGE_QUERY = """
+query WatchPRChecks($owner: String!, $repo: String!, $number: Int!, $after: String!) {
+  rateLimit { cost remaining limit resetAt }
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      commits(last: 1) {
+        nodes {
+          commit {
+            statusCheckRollup {
+              contexts(first: 100, after: $after) {
+                pageInfo { hasNextPage endCursor }
+                nodes {
+                  __typename
+                  ... on CheckRun { name status conclusion detailsUrl title summary }
+                  ... on StatusContext { context state description targetUrl }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+RESOLVE_THREAD_MUTATION = """
+mutation ResolveThread($threadId: ID!) {
+  resolveReviewThread(input: { threadId: $threadId }) {
+    thread { id isResolved }
+  }
+}
+"""
+
+JOB_ID_RE = re.compile(r"/actions/runs/\d+/job/(\d+)")
+
+
+def _github_api_bases(host: str, api_url: Optional[str]) -> Tuple[str, str]:
+    if api_url:
+        base = api_url.rstrip("/")
+        if base.endswith("/graphql"):
+            return base[:-8], base
+        return base, f"{base}/graphql"
+    if host.lower() == "github.com":
+        return "https://api.github.com", "https://api.github.com/graphql"
+    return f"https://{host}/api/v3", f"https://{host}/api/graphql"
+
+
+def _resolve_github_token(host: str, token_env: Optional[str]) -> Optional[str]:
+    if token_env:
+        val = os.environ.get(token_env, "").strip()
+        if val:
+            return val
+    for env_name in ("GITHUB_TOKEN", "GH_TOKEN"):
+        val = os.environ.get(env_name, "").strip()
+        if val:
+            return val
+    gh_bin = shutil.which("gh")
+    if gh_bin:
+        cmd = [gh_bin, "auth", "token"]
+        if host and host.lower() != "github.com":
+            cmd.extend(["--hostname", host])
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            if proc.returncode == 0 and proc.stdout.strip():
+                return proc.stdout.strip().splitlines()[0].strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return None
+
+
+def _who(node: Dict[str, Any]) -> Tuple[str, bool]:
+    author = node.get("author") or node.get("user") or {}
+    if not isinstance(author, dict):
+        return "ghost", False
+    login = str(author.get("login") or "ghost")
+    typename = str(author.get("__typename") or author.get("type") or "")
+    is_bot = typename.lower() == "bot" or login.lower().endswith("[bot]")
+    return login, is_bot
+
+
+def _map_mergeability(mergeable: Optional[str], merge_state: Optional[str], is_draft: bool) -> Any:
+    ms = (merge_state or "").upper()
+    mb = (mergeable or "").upper()
+    if mb == "CONFLICTING" or ms in ("DIRTY", "CONFLICTING"):
+        return core.Mergeability.CONFLICTING
+    if ms == "BEHIND":
+        return core.Mergeability.BEHIND
+    if is_draft or ms == "DRAFT":
+        return core.Mergeability.DRAFT
+    if ms == "CLEAN" or ms == "HAS_HOOKS":
+        return core.Mergeability.CLEAN
+    if ms == "UNSTABLE":
+        return core.Mergeability.UNSTABLE
+    if ms == "BLOCKED":
+        return core.Mergeability.BLOCKED
+    return core.Mergeability.UNKNOWN
+
+
+def _map_review_verdict(raw: Optional[str]) -> Any:
+    val = (raw or "").upper()
+    if val == "APPROVED":
+        return core.ReviewVerdict.APPROVED
+    if val == "CHANGES_REQUESTED":
+        return core.ReviewVerdict.CHANGES_REQUESTED
+    if val == "REVIEW_REQUIRED":
+        return core.ReviewVerdict.REVIEW_REQUIRED
+    return core.ReviewVerdict.NONE
+
+
+def _map_graphql_check(node: Dict[str, Any], required_set: set, cfg: Any) -> Optional[Any]:
+    typename = node.get("__typename")
+    if typename == "CheckRun":
+        name = str(node.get("name") or "")
+        status = str(node.get("status") or "").upper()
+        conclusion = str(node.get("conclusion") or "").upper()
+        url = str(node.get("detailsUrl") or "")
+        desc = str(node.get("title") or node.get("summary") or "")
+        raw_state = conclusion or status or "UNKNOWN"
+        if core.is_approval_gate_check(name):
+            state = core.CheckState.APPROVAL_GATE
+        elif status != "COMPLETED":
+            state = core.CheckState.PENDING
+        elif conclusion == "SUCCESS":
+            state = core.CheckState.PASSED
+        elif conclusion in ("NEUTRAL", "SKIPPED"):
+            state = core.CheckState.SKIPPED
+        elif conclusion == "CANCELLED":
+            state = core.CheckState.CANCELLED
+        elif conclusion == "ACTION_REQUIRED":
+            state = core.CheckState.APPROVAL_GATE if core.is_approval_gate_check(name) else core.CheckState.FAILED
+        else:
+            state = core.CheckState.FAILED
+    elif typename == "StatusContext":
+        name = str(node.get("context") or "")
+        raw_state = str(node.get("state") or "").upper()
+        url = str(node.get("targetUrl") or "")
+        desc = str(node.get("description") or "")
+        if core.is_approval_gate_check(name):
+            state = core.CheckState.APPROVAL_GATE
+        elif raw_state in ("PENDING", "EXPECTED"):
+            state = core.CheckState.PENDING
+        elif raw_state == "SUCCESS":
+            state = core.CheckState.PASSED
+        else:
+            state = core.CheckState.FAILED
+    else:
+        return None
+
+    if not name:
+        return None
+    _, is_adv, _ = core.classify_bot(name, cfg)
+    return core.CheckRun(
+        name=name,
+        state=state,
+        required=name in required_set,
+        advisory=is_adv,
+        is_review_bot=core.is_review_automation_check(name, cfg),
+        description=core.sanitize_text(desc, 200, single_line=True),
+        url=url,
+        raw_state=raw_state,
+    )
+
+
+def _map_rest_check_run(run: Dict[str, Any], required_set: set, cfg: Any) -> Any:
+    name = str(run.get("name") or "")
+    status = str(run.get("status") or "").upper()
+    conclusion = str(run.get("conclusion") or "").upper()
+    url = str(run.get("html_url") or run.get("details_url") or "")
+    output = run.get("output") if isinstance(run.get("output"), dict) else {}
+    desc = str(output.get("title") or output.get("summary") or "")
+    if core.is_approval_gate_check(name):
+        state = core.CheckState.APPROVAL_GATE
+    elif status != "COMPLETED":
+        state = core.CheckState.PENDING
+    elif conclusion == "SUCCESS":
+        state = core.CheckState.PASSED
+    elif conclusion in ("NEUTRAL", "SKIPPED"):
+        state = core.CheckState.SKIPPED
+    elif conclusion == "CANCELLED":
+        state = core.CheckState.CANCELLED
+    else:
+        state = core.CheckState.FAILED
+    _, is_adv, _ = core.classify_bot(name, cfg)
+    return core.CheckRun(
+        name=name,
+        state=state,
+        required=name in required_set,
+        advisory=is_adv,
+        is_review_bot=core.is_review_automation_check(name, cfg),
+        description=core.sanitize_text(desc, 200, single_line=True),
+        url=url,
+        raw_state=conclusion or status or "UNKNOWN",
+    )
+
+
+def _map_rest_status(item: Dict[str, Any], required_set: set, cfg: Any) -> Any:
+    name = str(item.get("context") or "")
+    raw_state = str(item.get("state") or "").upper()
+    if core.is_approval_gate_check(name):
+        state = core.CheckState.APPROVAL_GATE
+    elif raw_state in ("PENDING", "EXPECTED"):
+        state = core.CheckState.PENDING
+    elif raw_state == "SUCCESS":
+        state = core.CheckState.PASSED
+    else:
+        state = core.CheckState.FAILED
+    _, is_adv, _ = core.classify_bot(name, cfg)
+    return core.CheckRun(
+        name=name,
+        state=state,
+        required=name in required_set,
+        advisory=is_adv,
+        is_review_bot=core.is_review_automation_check(name, cfg),
+        description=core.sanitize_text(str(item.get("description") or ""), 200, single_line=True),
+        url=str(item.get("target_url") or ""),
+        raw_state=raw_state,
+    )
+
+
+class GitHubAdapter(core.ForgeAdapter):
+    forge_kind = core.ForgeKind.GITHUB
+
+    def __init__(
+        self,
+        governor: Any,
+        *,
+        token: Optional[str] = None,
+        token_env: Optional[str] = None,
+        use_gh_cli: bool = False,
+        initial_etags: Optional[Dict[str, str]] = None,
+    ) -> None:
+        self.governor = governor
+        self._explicit_token = token
+        self._token_env = token_env
+        self._use_gh_cli = use_gh_cli
+        self._clients: Dict[str, Any] = {}
+        self._initial_etags = dict(initial_etags or {})
+        self._required_checks_cache: Dict[Tuple[str, str], Tuple[str, ...]] = {}
+        self._pr_files_cache: Dict[Tuple[str, int, str], Tuple[str, ...]] = {}
+        self._job_logs_cache: Dict[str, str] = {}
+        self._viewer_cache: Dict[str, str] = {}
+        self._prefer_rest = False
+
+    def export_etags(self) -> Dict[str, str]:
+        merged: Dict[str, str] = {}
+        for client in self._clients.values():
+            merged.update(client.export_etags())
+        return merged
+
+    def _client_for(self, target: Any) -> Any:
+        if target.host not in self._clients:
+            token = self._explicit_token or _resolve_github_token(target.host, self._token_env)
+            headers = {
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            }
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+            self._clients[target.host] = core.GoodCitizenHTTPClient(
+                self.governor,
+                default_headers=headers,
+                initial_etags=self._initial_etags,
+            )
+        return self._clients[target.host]
+
+    def parse_target(
+        self,
+        raw_target: Optional[str],
+        repo: Optional[str],
+        host: Optional[str],
+        api_url: Optional[str],
+        cwd: Path,
+    ) -> Any:
+        raw = (raw_target or "").strip()
+        if not raw:
+            raise core.BadInputError("missing GitHub PR number or URL (usage: astack-watch-github <pr-or-url>)")
+
+        detected_host = host
+        detected_repo = repo
+        number: Optional[int] = None
+        canonical_url = ""
+
+        url_match = re.fullmatch(
+            r"https?://([^/\s]+)/([^/\s]+/[^/\s]+)/pull/(\d+)(?:[/?#]\S*)?",
+            raw,
+        )
+        num_match = re.fullmatch(r"#?(\d+)", raw)
+        if url_match:
+            detected_host = detected_host or url_match.group(1)
+            detected_repo = detected_repo or url_match.group(2)
+            number = int(url_match.group(3))
+        elif num_match:
+            number = int(num_match.group(1))
+        else:
+            raise core.BadInputError(f"{raw!r} is not a GitHub PR number or PR URL")
+
+        if number <= 0:
+            raise core.BadInputError(f"PR number must be positive, got {number}")
+
+        if not detected_repo or not detected_host:
+            origin = core.detect_git_origin_url(cwd)
+            if origin:
+                parsed = core.parse_git_remote_host_and_path(origin)
+                if parsed:
+                    origin_host, origin_path = parsed
+                    detected_host = detected_host or origin_host
+                    if not detected_repo and origin_path.count("/") == 1:
+                        detected_repo = origin_path
+
+        detected_host = detected_host or "github.com"
+        if not detected_repo or not re.fullmatch(r"[\w.-]+/[\w.-]+", detected_repo):
+            raise core.BadInputError(
+                f"could not determine GitHub owner/repo (got {detected_repo!r}); pass --repo owner/name"
+            )
+
+        canonical_url = f"https://{detected_host}/{detected_repo}/pull/{number}"
+        rest_base, _ = _github_api_bases(detected_host, api_url)
+        return core.PRTarget(
+            forge=core.ForgeKind.GITHUB,
+            host=detected_host,
+            repo=detected_repo,
+            number=number,
+            url=canonical_url,
+            api_url=rest_base,
+        )
+
+    def _run_gh_graphql(self, query: str, variables: Dict[str, Any], host: str) -> Dict[str, Any]:
+        cmd = ["gh", "api", "graphql"]
+        if host and host.lower() != "github.com":
+            cmd.extend(["--hostname", host])
+        cmd.extend(["-f", f"query={query}"])
+        for key, val in variables.items():
+            flag = "-F" if isinstance(val, int) else "-f"
+            cmd.extend([flag, f"{key}={val}"])
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            stderr = proc.stderr.strip()
+            if re.search(r"rate\s*limit|HTTP 429", stderr, re.IGNORECASE):
+                raise core.ForgeRateLimitError(stderr, retry_after=60.0, resource="graphql")
+            if re.search(r"HTTP 401|HTTP 403|not logged", stderr, re.IGNORECASE):
+                raise core.ForgeAuthError(stderr)
+            if re.search(r"HTTP 404|Could not resolve", stderr, re.IGNORECASE):
+                raise core.ForgeNotFoundError(stderr)
+            raise core.ForgeTransientError(stderr or f"gh api graphql exited {proc.returncode}")
+        return json.loads(proc.stdout)
+
+    def _graphql(self, target: Any, query: str, variables: Dict[str, Any]) -> Dict[str, Any]:
+        if self._use_gh_cli:
+            self.governor.state.transport = "gh-graphql"
+            self.governor.state.requests_total += 1
+            payload = self._run_gh_graphql(query, variables, target.host)
+        else:
+            self.governor.state.transport = "graphql"
+            _, gql_url = _github_api_bases(target.host, target.api_url)
+            client = self._client_for(target)
+            resp = client.request("POST", gql_url, json_body={"query": query, "variables": variables}, use_etag=False)
+            payload = resp.json() or {}
+
+        if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+            rl = payload["data"].get("rateLimit")
+            if isinstance(rl, dict):
+                self.governor.observe_graphql_rate_limit(rl)
+                if self.governor.should_prefer_rest_over_graphql():
+                    self._prefer_rest = True
+
+        errors = payload.get("errors") if isinstance(payload, dict) else None
+        if errors:
+            msg = "; ".join(str(e.get("message") or e) for e in errors if isinstance(e, dict))
+            if re.search(r"rate\s*limit", msg, re.IGNORECASE):
+                self._prefer_rest = True
+                raise core.ForgeRateLimitError(msg, retry_after=60.0, resource="graphql")
+            if re.search(r"Could not resolve to a PullRequest|NOT_FOUND", msg, re.IGNORECASE):
+                raise core.ForgeNotFoundError(msg)
+            raise core.ForgeTransientError(f"GitHub GraphQL error: {msg}")
+        return payload
+
+    def _required_checks(self, target: Any, base_branch: str) -> Tuple[str, ...]:
+        cache_key = (target.repo, base_branch)
+        if cache_key in self._required_checks_cache:
+            return self._required_checks_cache[cache_key]
+        if self._use_gh_cli:
+            self._required_checks_cache[cache_key] = ()
+            return ()
+
+        client = self._client_for(target)
+        base_enc = urllib_parse.quote(base_branch, safe="")
+        names = set()
+
+        # 1. Repository rulesets (modern GitHub)
+        r1 = client.request(
+            "GET",
+            f"{target.api_url}/repos/{target.repo}/rules/branches/{base_enc}",
+            allow_404=True,
+            allow_403=True,
+        )
+        if r1.status == 200:
+            rules = r1.json() or []
+            if isinstance(rules, list):
+                for rule in rules:
+                    if isinstance(rule, dict) and rule.get("type") == "required_status_checks":
+                        params = rule.get("parameters") or {}
+                        for item in params.get("required_status_checks") or []:
+                            if isinstance(item, dict) and item.get("context"):
+                                names.add(str(item["context"]))
+
+        # 2. Classic branch protection
+        r2 = client.request(
+            "GET",
+            f"{target.api_url}/repos/{target.repo}/branches/{base_enc}/protection/required_status_checks",
+            allow_404=True,
+            allow_403=True,
+        )
+        if r2.status == 200:
+            prot = r2.json() or {}
+            if isinstance(prot, dict):
+                for ctx in prot.get("contexts") or []:
+                    if ctx:
+                        names.add(str(ctx))
+                for chk in prot.get("checks") or []:
+                    if isinstance(chk, dict) and chk.get("context"):
+                        names.add(str(chk["context"]))
+
+        result = tuple(sorted(names))
+        self._required_checks_cache[cache_key] = result
+        return result
+
+    def _base_overlap(self, target: Any, head_sha: str, old_base: str, new_base: str) -> Tuple[str, ...]:
+        if not old_base or not new_base or old_base == new_base or self._use_gh_cli:
+            return ()
+        client = self._client_for(target)
+        fkey = (target.repo, target.number, head_sha)
+        if fkey not in self._pr_files_cache:
+            resp = client.request(
+                "GET",
+                f"{target.api_url}/repos/{target.repo}/pulls/{target.number}/files?per_page=100",
+                allow_404=True,
+                allow_403=True,
+            )
+            if resp.status == 200 and isinstance(resp.json(), list):
+                self._pr_files_cache[fkey] = tuple(
+                    str(f.get("filename")) for f in resp.json() if isinstance(f, dict) and f.get("filename")
+                )
+            else:
+                self._pr_files_cache[fkey] = ()
+        pr_files = set(self._pr_files_cache[fkey])
+        if not pr_files:
+            return ()
+
+        cmp_resp = client.request(
+            "GET",
+            f"{target.api_url}/repos/{target.repo}/compare/{old_base}...{new_base}",
+            allow_404=True,
+            allow_403=True,
+        )
+        if cmp_resp.status != 200:
+            return ()
+        cmp_data = cmp_resp.json() or {}
+        moved = {
+            str(f.get("filename"))
+            for f in (cmp_data.get("files") or [])
+            if isinstance(f, dict) and f.get("filename")
+        }
+        return tuple(sorted(pr_files & moved))
+
+    def _fetch_job_log_tail(self, target: Any, check_url: str, max_lines: int = 80) -> str:
+        if self._use_gh_cli or not check_url:
+            return ""
+        match = JOB_ID_RE.search(check_url)
+        if not match:
+            return ""
+        job_id = match.group(1)
+        if job_id in self._job_logs_cache:
+            return self._job_logs_cache[job_id]
+        client = self._client_for(target)
+        resp = client.request(
+            "GET",
+            f"{target.api_url}/repos/{target.repo}/actions/jobs/{job_id}/logs",
+            use_etag=False,
+            allow_404=True,
+            allow_403=True,
+        )
+        if resp.status != 200:
+            self._job_logs_cache[job_id] = ""
+            return ""
+        lines = resp.text().splitlines()
+        excerpt = "\n".join(lines[-max_lines:])
+        self._job_logs_cache[job_id] = excerpt
+        return excerpt
+
+    def _enrich_failed_logs(self, target: Any, checks: List[Any], fetch_logs: bool) -> Tuple[Any, ...]:
+        if not fetch_logs:
+            return tuple(checks)
+        enriched = []
+        for chk in checks:
+            if chk.state in (core.CheckState.FAILED, core.CheckState.CANCELLED) and chk.url and not chk.log_excerpt:
+                excerpt = self._fetch_job_log_tail(target, chk.url)
+                if excerpt:
+                    chk = core.CheckRun(
+                        name=chk.name,
+                        state=chk.state,
+                        required=chk.required,
+                        advisory=chk.advisory,
+                        is_review_bot=chk.is_review_bot,
+                        description=chk.description,
+                        url=chk.url,
+                        log_excerpt=excerpt,
+                        raw_state=chk.raw_state,
+                    )
+            enriched.append(chk)
+        return tuple(enriched)
+
+    def _lightweight_etag_probe(self, target: Any) -> bool:
+        """Return True if PR or check-runs changed since cached ETag; False if both return 304 unchanged."""
+        if self._use_gh_cli:
+            return True
+        client = self._client_for(target)
+        r_pr = client.request("GET", f"{target.api_url}/repos/{target.repo}/pulls/{target.number}")
+        changed = not r_pr.from_cache_304
+        pr_data = r_pr.json() or {}
+        head_sha = ((pr_data.get("head") or {}).get("sha") or "")
+        if head_sha:
+            r_chk = client.request(
+                "GET",
+                f"{target.api_url}/repos/{target.repo}/commits/{head_sha}/check-runs?per_page=100",
+                allow_404=True,
+                allow_403=True,
+            )
+            if not r_chk.from_cache_304:
+                changed = True
+        return changed
+
+    def _fetch_via_rest(
+        self,
+        target: Any,
+        cfg: Any,
+        *,
+        prev_base_sha: Optional[str],
+        fetch_logs: bool,
+    ) -> Tuple[Any, bool]:
+        self.governor.state.transport = "rest-fallback" if self._prefer_rest else "rest"
+        client = self._client_for(target)
+        r_pr = client.request("GET", f"{target.api_url}/repos/{target.repo}/pulls/{target.number}")
+        pr = r_pr.json() or {}
+        changed = not r_pr.from_cache_304
+
+        if target.host not in self._viewer_cache:
+            r_user = client.request("GET", f"{target.api_url}/user", allow_403=True, allow_404=True)
+            self._viewer_cache[target.host] = str((r_user.json() or {}).get("login") or "") if r_user.status == 200 else ""
+        viewer = self._viewer_cache[target.host]
+
+        merged_at = pr.get("merged_at")
+        raw_state = str(pr.get("state") or "open").lower()
+        if merged_at or raw_state == "merged":
+            lifecycle = core.PRLifecycle.MERGED
+        elif raw_state == "closed":
+            lifecycle = core.PRLifecycle.CLOSED
+        else:
+            lifecycle = core.PRLifecycle.OPEN
+
+        head = pr.get("head") or {}
+        base = pr.get("base") or {}
+        head_sha = str(head.get("sha") or "")
+        head_branch = str(head.get("ref") or "")
+        base_sha = str(base.get("sha") or "")
+        base_branch = str(base.get("ref") or "")
+        author, _ = _who({"user": pr.get("user")})
+        is_draft = bool(pr.get("draft", False))
+
+        mergeable_bool = pr.get("mergeable")
+        mergeable_state = str(pr.get("mergeable_state") or "unknown").upper()
+        mergeable_str = "CONFLICTING" if mergeable_bool is False else ("MERGEABLE" if mergeable_bool is True else "UNKNOWN")
+        mergeability = _map_mergeability(mergeable_str, mergeable_state, is_draft)
+
+        required_names = self._required_checks(target, base_branch) if lifecycle == core.PRLifecycle.OPEN else ()
+        required_set = set(required_names)
+
+        checks: List[Any] = []
+        threads: List[Any] = []
+        top_comments: List[Any] = []
+        change_requests: List[Any] = []
+        approvals_count = 0
+        review_verdict = core.ReviewVerdict.NONE
+        overlap: Tuple[str, ...] = ()
+
+        if lifecycle == core.PRLifecycle.OPEN and head_sha:
+            r_runs = client.request(
+                "GET",
+                f"{target.api_url}/repos/{target.repo}/commits/{head_sha}/check-runs?per_page=100",
+                allow_404=True,
+                allow_403=True,
+            )
+            if not r_runs.from_cache_304:
+                changed = True
+            if r_runs.status == 200:
+                for run in (r_runs.json() or {}).get("check_runs") or []:
+                    if isinstance(run, dict):
+                        checks.append(_map_rest_check_run(run, required_set, cfg))
+
+            r_stat = client.request(
+                "GET",
+                f"{target.api_url}/repos/{target.repo}/commits/{head_sha}/status",
+                allow_404=True,
+                allow_403=True,
+            )
+            if r_stat.status == 200:
+                for item in (r_stat.json() or {}).get("statuses") or []:
+                    if isinstance(item, dict):
+                        checks.append(_map_rest_status(item, required_set, cfg))
+
+            # Reviews
+            r_rev = client.request(
+                "GET",
+                f"{target.api_url}/repos/{target.repo}/pulls/{target.number}/reviews?per_page=100",
+                allow_404=True,
+                allow_403=True,
+            )
+            latest_by_reviewer: Dict[str, str] = {}
+            if r_rev.status == 200 and isinstance(r_rev.json(), list):
+                for rev in r_rev.json():
+                    if not isinstance(rev, dict):
+                        continue
+                    r_login, r_bot = _who(rev)
+                    r_state = str(rev.get("state") or "").upper()
+                    if r_state in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
+                        latest_by_reviewer[r_login] = r_state
+                    if r_state == "CHANGES_REQUESTED" and r_login.lower() not in {author.lower(), viewer.lower()}:
+                        change_requests.append(
+                            core.ReviewComment(
+                                comment_id=str(rev.get("id") or ""),
+                                author=r_login,
+                                is_bot=r_bot,
+                                body=str(rev.get("body") or "Changes requested"),
+                                created_at=str(rev.get("submitted_at") or ""),
+                                url=str(rev.get("html_url") or ""),
+                            )
+                        )
+            approvals_count = sum(1 for st in latest_by_reviewer.values() if st == "APPROVED")
+            if any(st == "CHANGES_REQUESTED" for st in latest_by_reviewer.values()):
+                review_verdict = core.ReviewVerdict.CHANGES_REQUESTED
+            elif approvals_count > 0:
+                review_verdict = core.ReviewVerdict.APPROVED
+
+            # Inline review comments grouped into threads by in_reply_to_id
+            r_rc = client.request(
+                "GET",
+                f"{target.api_url}/repos/{target.repo}/pulls/{target.number}/comments?per_page=100",
+                allow_404=True,
+                allow_403=True,
+            )
+            if r_rc.status == 200 and isinstance(r_rc.json(), list):
+                by_root: Dict[str, List[Any]] = {}
+                root_meta: Dict[str, Dict[str, Any]] = {}
+                for cm in r_rc.json():
+                    if not isinstance(cm, dict):
+                        continue
+                    cid = str(cm.get("id") or "")
+                    parent_id = str(cm.get("in_reply_to_id") or cid)
+                    c_login, c_bot = _who(cm)
+                    rc = core.ReviewComment(
+                        comment_id=cid,
+                        author=c_login,
+                        is_bot=c_bot,
+                        body=str(cm.get("body") or ""),
+                        created_at=str(cm.get("created_at") or ""),
+                        url=str(cm.get("html_url") or ""),
+                        path=cm.get("path"),
+                        line=cm.get("line") or cm.get("original_line"),
+                    )
+                    by_root.setdefault(parent_id, []).append(rc)
+                    if parent_id == cid:
+                        root_meta[parent_id] = cm
+                for root_id, items in by_root.items():
+                    meta = root_meta.get(root_id) or {}
+                    # REST lacks isResolved; treat thread as unresolved if last reply is not from PR author/viewer
+                    last_author = items[-1].author.lower()
+                    inferred_resolved = last_author in {author.lower(), viewer.lower()} - {""}
+                    threads.append(
+                        core.ReviewThread(
+                            thread_id=root_id,
+                            path=meta.get("path") or items[0].path,
+                            line=meta.get("line") or items[0].line,
+                            resolved=inferred_resolved,
+                            is_bot=items[0].is_bot,
+                            comments=tuple(items),
+                            url=items[0].url,
+                        )
+                    )
+
+            # Issue-level PR comments
+            r_ic = client.request(
+                "GET",
+                f"{target.api_url}/repos/{target.repo}/issues/{target.number}/comments?per_page=100",
+                allow_404=True,
+                allow_403=True,
+            )
+            if r_ic.status == 200 and isinstance(r_ic.json(), list):
+                for cm in r_ic.json():
+                    if not isinstance(cm, dict):
+                        continue
+                    c_login, c_bot = _who(cm)
+                    top_comments.append(
+                        core.ReviewComment(
+                            comment_id=str(cm.get("id") or ""),
+                            author=c_login,
+                            is_bot=c_bot,
+                            body=str(cm.get("body") or ""),
+                            created_at=str(cm.get("created_at") or ""),
+                            url=str(cm.get("html_url") or ""),
+                        )
+                    )
+
+            if prev_base_sha and base_sha and prev_base_sha != base_sha:
+                overlap = self._base_overlap(target, head_sha, prev_base_sha, base_sha)
+
+        bot_pending, bot_done = _detect_bot_states(checks, top_comments, [], head_sha, cfg)
+        checks_final = self._enrich_failed_logs(target, checks, fetch_logs)
+        snap = core.PRSnapshot(
+            target=target,
+            lifecycle=lifecycle,
+            title=str(pr.get("title") or ""),
+            url=str(pr.get("html_url") or target.url),
+            head_branch=head_branch,
+            head_sha=head_sha,
+            base_branch=base_branch,
+            base_sha=base_sha,
+            author=author,
+            viewer=viewer,
+            is_draft=is_draft,
+            mergeability=mergeability,
+            behind_by=None,
+            review_verdict=review_verdict,
+            approvals_count=approvals_count,
+            approvals_required=None,
+            created_at=str(pr.get("created_at") or ""),
+            updated_at=str(pr.get("updated_at") or ""),
+            checks=checks_final,
+            required_check_names=required_names,
+            had_previous_passing_ci=False,
+            threads=tuple(threads),
+            top_level_comments=tuple(top_comments),
+            change_requests=tuple(change_requests),
+            base_overlap_files=overlap,
+            review_bot_pending=bot_pending,
+            review_bot_done=bot_done,
+            raw_merge_status=mergeable_state,
+            observed_at=core.utc_iso(),
+        )
+        return snap, changed
+
+    def fetch_snapshot(
+        self,
+        target: Any,
+        cfg: Any,
+        *,
+        prev_base_sha: Optional[str] = None,
+        fetch_logs: bool = False,
+        lightweight_probe: bool = False,
+    ) -> Tuple[Optional[Any], bool]:
+        if lightweight_probe and not self._lightweight_etag_probe(target):
+            return None, False
+
+        if self._prefer_rest and not self._use_gh_cli:
+            return self._fetch_via_rest(target, cfg, prev_base_sha=prev_base_sha, fetch_logs=fetch_logs)
+
+        owner, name = target.repo.split("/", 1)
+        try:
+            payload = self._graphql(
+                target,
+                CONSOLIDATED_PR_QUERY,
+                {"owner": owner, "repo": name, "number": target.number},
+            )
+        except core.ForgeRateLimitError:
+            if not self._use_gh_cli:
+                self._prefer_rest = True
+                return self._fetch_via_rest(target, cfg, prev_base_sha=prev_base_sha, fetch_logs=fetch_logs)
+            raise
+
+        data = payload.get("data") or {}
+        repo_data = data.get("repository") or {}
+        pr = repo_data.get("pullRequest")
+        if not isinstance(pr, dict):
+            raise core.ForgeNotFoundError(f"GitHub PR not found: {target.display_ref}")
+
+        viewer = str((data.get("viewer") or {}).get("login") or "")
+        raw_state = str(pr.get("state") or "OPEN").upper()
+        if raw_state == "MERGED":
+            lifecycle = core.PRLifecycle.MERGED
+        elif raw_state == "CLOSED":
+            lifecycle = core.PRLifecycle.CLOSED
+        else:
+            lifecycle = core.PRLifecycle.OPEN
+
+        head_sha = str(pr.get("headRefOid") or "")
+        head_branch = str(pr.get("headRefName") or "")
+        base_branch = str(pr.get("baseRefName") or "")
+        base_sha = str(((pr.get("baseRef") or {}).get("target") or {}).get("oid") or "")
+        author, _ = _who(pr)
+        is_draft = bool(pr.get("isDraft", False))
+        mergeable_raw = str(pr.get("mergeable") or "UNKNOWN")
+        merge_state_raw = str(pr.get("mergeStateStatus") or "UNKNOWN")
+        mergeability = _map_mergeability(mergeable_raw, merge_state_raw, is_draft)
+        review_verdict = _map_review_verdict(pr.get("reviewDecision"))
+
+        required_names = self._required_checks(target, base_branch) if lifecycle == core.PRLifecycle.OPEN else ()
+        required_set = set(required_names)
+
+        # Parse commits & head statusCheckRollup (paginate only if >100 contexts)
+        commit_nodes = ((pr.get("commits") or {}).get("nodes") or [])
+        had_prev_pass = False
+        check_nodes: List[Dict[str, Any]] = []
+        checks_after: Optional[str] = None
+        for idx, cnode in enumerate(commit_nodes):
+            commit = (cnode or {}).get("commit") or {}
+            oid = str(commit.get("oid") or "")
+            rollup = commit.get("statusCheckRollup") or {}
+            if oid and oid != head_sha and str(rollup.get("state") or "").upper() == "SUCCESS":
+                had_prev_pass = True
+            if idx == len(commit_nodes) - 1 and isinstance(rollup, dict):
+                contexts = rollup.get("contexts") or {}
+                check_nodes.extend(n for n in (contexts.get("nodes") or []) if isinstance(n, dict))
+                pinfo = contexts.get("pageInfo") or {}
+                if pinfo.get("hasNextPage") and pinfo.get("endCursor"):
+                    checks_after = str(pinfo["endCursor"])
+
+        while checks_after:
+            page = self._graphql(
+                target,
+                CHECK_ROLLUP_PAGE_QUERY,
+                {"owner": owner, "repo": name, "number": target.number, "after": checks_after},
+            )
+            pnodes = (((page.get("data") or {}).get("repository") or {}).get("pullRequest") or {}).get("commits", {}).get("nodes") or []
+            if not pnodes:
+                break
+            contexts = (((pnodes[-1] or {}).get("commit") or {}).get("statusCheckRollup") or {}).get("contexts") or {}
+            check_nodes.extend(n for n in (contexts.get("nodes") or []) if isinstance(n, dict))
+            pinfo = contexts.get("pageInfo") or {}
+            checks_after = str(pinfo["endCursor"]) if (pinfo.get("hasNextPage") and pinfo.get("endCursor")) else None
+
+        checks = [c for c in (_map_graphql_check(n, required_set, cfg) for n in check_nodes) if c is not None]
+
+        # Parse reviewThreads (paginate only if >100 threads)
+        threads_block = pr.get("reviewThreads") or {}
+        raw_threads = list(threads_block.get("nodes") or [])
+        t_page = threads_block.get("pageInfo") or {}
+        t_after = str(t_page["endCursor"]) if (t_page.get("hasNextPage") and t_page.get("endCursor")) else None
+        while t_after:
+            page = self._graphql(
+                target,
+                REVIEW_THREADS_PAGE_QUERY,
+                {"owner": owner, "repo": name, "number": target.number, "after": t_after},
+            )
+            tb = ((((page.get("data") or {}).get("repository") or {}).get("pullRequest") or {}).get("reviewThreads")) or {}
+            raw_threads.extend(tb.get("nodes") or [])
+            tp = tb.get("pageInfo") or {}
+            t_after = str(tp["endCursor"]) if (tp.get("hasNextPage") and tp.get("endCursor")) else None
+
+        threads: List[Any] = []
+        for th in raw_threads:
+            if not isinstance(th, dict):
+                continue
+            cnodes = ((th.get("comments") or {}).get("nodes") or [])
+            parsed_comments = []
+            for cm in cnodes:
+                if not isinstance(cm, dict):
+                    continue
+                c_login, c_bot = _who(cm)
+                parsed_comments.append(
+                    core.ReviewComment(
+                        comment_id=str(cm.get("databaseId") or cm.get("id") or ""),
+                        author=c_login,
+                        is_bot=c_bot,
+                        body=str(cm.get("body") or ""),
+                        created_at=str(cm.get("createdAt") or ""),
+                        url=str(cm.get("url") or ""),
+                        path=cm.get("path") or th.get("path"),
+                        line=cm.get("line") or th.get("line"),
+                    )
+                )
+            threads.append(
+                core.ReviewThread(
+                    thread_id=str(th.get("id") or ""),
+                    path=th.get("path"),
+                    line=th.get("line"),
+                    resolved=bool(th.get("isResolved", False)),
+                    outdated=bool(th.get("isOutdated", False)),
+                    is_bot=parsed_comments[0].is_bot if parsed_comments else False,
+                    comments=tuple(parsed_comments),
+                    url=parsed_comments[0].url if parsed_comments else "",
+                )
+            )
+
+        # Top-level comments
+        top_comments: List[Any] = []
+        for cm in ((pr.get("comments") or {}).get("nodes") or []):
+            if not isinstance(cm, dict):
+                continue
+            c_login, c_bot = _who(cm)
+            top_comments.append(
+                core.ReviewComment(
+                    comment_id=str(cm.get("databaseId") or cm.get("id") or ""),
+                    author=c_login,
+                    is_bot=c_bot,
+                    body=str(cm.get("body") or ""),
+                    created_at=str(cm.get("createdAt") or ""),
+                    url=str(cm.get("url") or ""),
+                )
+            )
+
+        # Reviews (approvals + change requests)
+        reviews_raw = [r for r in ((pr.get("reviews") or {}).get("nodes") or []) if isinstance(r, dict)]
+        latest_by_reviewer: Dict[str, str] = {}
+        change_requests: List[Any] = []
+        mine = {author.lower(), viewer.lower()} - {""}
+        for rev in reviews_raw:
+            r_login, r_bot = _who(rev)
+            r_state = str(rev.get("state") or "").upper()
+            if r_state in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
+                latest_by_reviewer[r_login] = r_state
+            if r_state == "CHANGES_REQUESTED" and r_login.lower() not in mine:
+                change_requests.append(
+                    core.ReviewComment(
+                        comment_id=str(rev.get("id") or ""),
+                        author=r_login,
+                        is_bot=r_bot,
+                        body=str(rev.get("body") or "Changes requested"),
+                        created_at=str(rev.get("submittedAt") or ""),
+                        url=str(rev.get("url") or ""),
+                    )
+                )
+        approvals_count = sum(1 for st in latest_by_reviewer.values() if st == "APPROVED")
+
+        overlap: Tuple[str, ...] = ()
+        if lifecycle == core.PRLifecycle.OPEN and prev_base_sha and base_sha and prev_base_sha != base_sha:
+            overlap = self._base_overlap(target, head_sha, prev_base_sha, base_sha)
+
+        bot_pending, bot_done = _detect_bot_states(checks, top_comments, reviews_raw, head_sha, cfg)
+        checks_final = self._enrich_failed_logs(target, checks, fetch_logs)
+
+        snap = core.PRSnapshot(
+            target=target,
+            lifecycle=lifecycle,
+            title=str(pr.get("title") or ""),
+            url=str(pr.get("url") or target.url),
+            head_branch=head_branch,
+            head_sha=head_sha,
+            base_branch=base_branch,
+            base_sha=base_sha,
+            author=author,
+            viewer=viewer,
+            is_draft=is_draft,
+            mergeability=mergeability,
+            behind_by=None,
+            review_verdict=review_verdict,
+            approvals_count=approvals_count,
+            approvals_required=None,
+            created_at=str(pr.get("createdAt") or ""),
+            updated_at=str(pr.get("updatedAt") or ""),
+            checks=checks_final,
+            required_check_names=required_names,
+            had_previous_passing_ci=had_prev_pass,
+            threads=tuple(threads),
+            top_level_comments=tuple(top_comments),
+            change_requests=tuple(change_requests),
+            base_overlap_files=overlap,
+            review_bot_pending=bot_pending,
+            review_bot_done=bot_done,
+            raw_merge_status=merge_state_raw,
+            observed_at=core.utc_iso(),
+        )
+        return snap, True
+
+    def list_open_prs(self, target: Any) -> List[Any]:
+        if self._use_gh_cli:
+            proc = subprocess.run(
+                [
+                    "gh", "pr", "list", "--repo", target.repo, "--state", "open", "--limit", "100",
+                    "--json", "number,headRefName,baseRefName,isCrossRepository,url",
+                ],
+                capture_output=True,
+                text=True,
+            )
+            if proc.returncode != 0:
+                raise core.ForgeTransientError(proc.stderr.strip() or "gh pr list failed")
+            rows = json.loads(proc.stdout) or []
+            return [
+                core.OpenPRNode(
+                    number=int(r["number"]),
+                    head_branch=str(r["headRefName"]),
+                    base_branch=str(r["baseRefName"]),
+                    is_cross_repo=bool(r.get("isCrossRepository", False)),
+                    url=str(r.get("url") or ""),
+                )
+                for r in rows
+            ]
+
+        client = self._client_for(target)
+        resp = client.request("GET", f"{target.api_url}/repos/{target.repo}/pulls?state=open&per_page=100")
+        rows = resp.json() or []
+        nodes = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            head = r.get("head") or {}
+            base = r.get("base") or {}
+            head_repo = ((head.get("repo") or {}).get("full_name") or "").lower()
+            base_repo = ((base.get("repo") or {}).get("full_name") or "").lower()
+            is_cross = bool(head_repo and base_repo and head_repo != base_repo)
+            nodes.append(
+                core.OpenPRNode(
+                    number=int(r["number"]),
+                    head_branch=str(head.get("ref") or ""),
+                    base_branch=str(base.get("ref") or ""),
+                    is_cross_repo=is_cross,
+                    url=str(r.get("html_url") or ""),
+                )
+            )
+        return nodes
+
+    def post_reply(
+        self,
+        target: Any,
+        body: str,
+        *,
+        thread_id: Optional[str] = None,
+        comment_id: Optional[str] = None,
+        resolve: bool = False,
+    ) -> Dict[str, Any]:
+        client = self._client_for(target)
+        if comment_id:
+            resp = client.request(
+                "POST",
+                f"{target.api_url}/repos/{target.repo}/pulls/{target.number}/comments/{comment_id}/replies",
+                json_body={"body": body},
+                use_etag=False,
+            )
+        else:
+            resp = client.request(
+                "POST",
+                f"{target.api_url}/repos/{target.repo}/issues/{target.number}/comments",
+                json_body={"body": body},
+                use_etag=False,
+            )
+        data = resp.json() or {}
+        resolved_ok = False
+        if resolve and thread_id:
+            mut = self._graphql(target, RESOLVE_THREAD_MUTATION, {"threadId": thread_id})
+            resolved_ok = bool(
+                (((mut.get("data") or {}).get("resolveReviewThread") or {}).get("thread") or {}).get("isResolved")
+            )
+        return {
+            "forge": target.forge.value,
+            "target": target.display_ref,
+            "id": data.get("id"),
+            "url": data.get("html_url") or target.url,
+            "resolved": resolved_ok,
+        }
+
+
+def _detect_bot_states(
+    checks: Sequence[Any],
+    comments: Sequence[Any],
+    reviews: Sequence[Dict[str, Any]],
+    head_sha: str,
+    cfg: Any,
+) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+    short = head_sha[:7]
+    pending: List[str] = []
+    done: List[str] = []
+    for bot in cfg.required_bots:
+        bl = bot.lower()
+        own_checks = [c for c in checks if bl in c.name.lower()]
+        own_comments = [c for c in comments if bl in c.author.lower()]
+        own_reviews = [r for r in reviews if bl in _who(r)[0].lower()]
+        on_head = any(((r.get("commit") or {}).get("oid") or "") == head_sha for r in own_reviews)
+        if own_checks:
+            is_done = all(c.state != core.CheckState.PENDING for c in own_checks)
+        else:
+            is_done = on_head or any(short and short in c.body for c in own_comments)
+        if is_done:
+            done.append(bot)
+        else:
+            pending.append(bot)
+    # Also note any generic pending review-automation check (e.g. Bugbot)
+    for chk in checks:
+        if chk.is_review_bot and chk.state == core.CheckState.PENDING and chk.name not in pending:
+            pending.append(chk.name)
+    return tuple(pending), tuple(done)
+
+
+def make_adapter(args: argparse.Namespace, governor: Any) -> GitHubAdapter:
+    return GitHubAdapter(
+        governor,
+        token_env=getattr(args, "token_env", None),
+        use_gh_cli=bool(getattr(args, "use_gh_cli", False)),
+    )
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    return core.execute_forge_cli("astack-watch-github", "github", make_adapter, argv=argv)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(130)

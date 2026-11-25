@@ -122,8 +122,8 @@ class DispatchTest(unittest.TestCase):
             ("claude", "anthropic", "claude-opus-4-6", "high", ["--plugin-dir", "--model", "claude-opus-4-6", "--effort", "high", "--append-system-prompt-file"]),
             ("codex", "openai", "gpt-5.4", "high", ["exec", "--model", "gpt-5.4", "--sandbox", "read-only", "--ephemeral"]),
             ("agy", "google", "gemini-2.5-pro", "high", ["-p", "--model", "gemini-2.5-pro", "--effort", "high", "--sandbox"]),
-            ("cursor", "cursor", "sonnet-4", "medium", ["-p", "--model", "sonnet-4", "--trust", "--mode", "ask"]),
-            ("devin", "devin", "sonnet", "medium", ["-p", "--model", "sonnet", "--respect-workspace-trust", "false", "--sandbox"]),
+            ("cursor", "cursor", "sonnet-4", "medium", ["-p", "--model", "sonnet-4", "--trust"]),
+            ("devin", "devin", "sonnet", "medium", ["--respect-workspace-trust", "false", "--model", "sonnet", "--permission-mode", "autonomous", "--sandbox", "-p", "--"]),
             ("pi", "openrouter", "deepseek-r1", "high", ["-p", "--provider", "openrouter", "--model", "deepseek-r1", "--thinking", "high", "--tools"]),
             ("gemini", "google", "gemini-2.5-pro", "", ["-m", "gemini-2.5-pro", "-p"]),
         ]
@@ -147,6 +147,66 @@ class DispatchTest(unittest.TestCase):
             self.assertEqual(preview["harness"], harness)
             for token in must_have:
                 self.assertIn(token, preview["argv"], f"{harness} missing {token!r} in {preview['argv']}")
+            if harness == "devin":
+                # Prompt MUST follow `-p --` (never a bare final positional arg before flags or without `--`)
+                idx_p = preview["argv"].index("-p")
+                self.assertEqual(preview["argv"][idx_p + 1], "--")
+                self.assertEqual(idx_p + 2, len(preview["argv"]) - 1)
+            if harness == "cursor":
+                # Reviewers need to execute/save reproductions (only researchers use read-only `--mode ask`)
+                self.assertNotIn("--mode", preview["argv"])
+
+        # Codex reviewer with external --repro-dir (outside repo) uses `-C <repro_dir> --sandbox workspace-write`
+        # AND explicitly excludes /tmp, $TMPDIR, and extra writable_roots so repos under /tmp or $TMPDIR stay read-only!
+        repro_out = self.dir / "repros"
+        repro_out.mkdir()
+        res_cx_repro = self.run_dispatch(
+            "run", "--harness", "codex", "--role", "reviewer",
+            "--provider", "openai", "--model", "gpt-5.4",
+            "--cwd", str(self.work), "--repro-dir", str(repro_out),
+            "--prompt", "Review auth.py", "--dry-run", "--json",
+        )
+        self.assertEqual(res_cx_repro.returncode, 0, res_cx_repro.stderr)
+        prev_cx = json.loads(res_cx_repro.stdout)
+        self.assertIn("--sandbox", prev_cx["argv"])
+        self.assertEqual(prev_cx["argv"][prev_cx["argv"].index("--sandbox") + 1], "workspace-write")
+        self.assertEqual(Path(prev_cx["argv"][prev_cx["argv"].index("-C") + 1]).resolve(), repro_out.resolve())
+        self.assertIn("sandbox_workspace_write.exclude_slash_tmp=true", prev_cx["argv"])
+        self.assertIn("sandbox_workspace_write.exclude_tmpdir_env_var=true", prev_cx["argv"])
+        self.assertIn("sandbox_workspace_write.writable_roots=[]", prev_cx["argv"])
+
+        # Overlapping --repro-dir in EITHER direction (inside --cwd OR ancestor of --cwd) MUST be rejected (exit 2)!
+        bad_repro = self.work / "repros"
+        bad_repro.mkdir()
+        for bad_dir in (bad_repro, self.work, self.dir):
+            res_bad_repro = self.run_dispatch(
+                "run", "--harness", "codex", "--role", "reviewer",
+                "--provider", "openai", "--model", "gpt-5.4",
+                "--cwd", str(self.work), "--repro-dir", str(bad_dir),
+                "--prompt", "Review auth.py", "--dry-run",
+            )
+            self.assertEqual(res_bad_repro.returncode, 2, f"expected exit 2 for overlapping repro-dir {bad_dir}")
+            self.assertIn("strictly disjoint", res_bad_repro.stderr)
+
+        # Auto-derived --out whose parent is an ancestor of --cwd (e.g. self.dir/out.md) MUST NOT make --cwd writable!
+        res_ancestor_out = self.run_dispatch(
+            "run", "--harness", "codex", "--role", "reviewer",
+            "--provider", "openai", "--model", "gpt-5.4",
+            "--cwd", str(self.work), "--out", str(self.dir / "codex.md"),
+            "--prompt", "Review auth.py", "--dry-run", "--json",
+        )
+        self.assertEqual(res_ancestor_out.returncode, 0, res_ancestor_out.stderr)
+        prev_anc = json.loads(res_ancestor_out.stdout)
+        self.assertIsNone(prev_anc["repro_dir"])
+        self.assertEqual(prev_anc["argv"][prev_anc["argv"].index("--sandbox") + 1], "read-only")
+
+        # Researcher on Cursor stays read-only (`--mode ask`) and on Codex stays `--sandbox read-only`
+        res_cur_res = self.run_dispatch(
+            "run", "--harness", "cursor", "--role", "researcher",
+            "--provider", "cursor", "--model", "sonnet-4",
+            "--cwd", str(self.work), "--prompt", "Inspect", "--dry-run", "--json",
+        )
+        self.assertIn("--mode", json.loads(res_cur_res.stdout)["argv"])
 
         # Custom CLI template via settings.json
         settings = self.dir / "settings.json"
@@ -199,18 +259,29 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(denied.returncode, 2)
         self.assertIn("not in approved reviewer_pool", denied.stderr)
 
-        # Approved Codex model -> writes report & structured receipt JSON
+        # Approved Codex model with --repro-dir -> writes report & structured receipt JSON AND redirects TMPDIR inside repro_dir/.tmp
+        _make_stub(
+            self.stub_bin,
+            "codex",
+            'out=""\nprev=""\nfor a in "$@"; do\n  if [ "$prev" = "-o" ]; then out="$a"; fi\n  prev="$a"\ndone\n'
+            'body=$(cat)\n'
+            'msg="VECTOR: auth\nMODEL: openai/gpt-5.4 (high)\nVERDICT: BLOCKED: token replay\nTMPDIR=$TMPDIR\n"\n'
+            'if [ -n "$out" ]; then printf "%s" "$msg" > "$out"; else printf "%s" "$msg"; fi\n',
+        )
         out_codex = self.dir / "out" / "codex-review.md"
+        repro_codex = self.dir / "repros-codex"
         ok_codex = self.run_dispatch(
             "run", "--settings", str(settings), "--provider", "openai", "--model", "gpt-5.4",
-            "--vector", "auth", "--cwd", str(self.work), "--prompt", "Review auth.py",
-            "--out", str(out_codex), "--json",
+            "--vector", "auth", "--cwd", str(self.work), "--repro-dir", str(repro_codex),
+            "--prompt", "Review auth.py", "--out", str(out_codex), "--json",
         )
         self.assertEqual(ok_codex.returncode, 0, ok_codex.stderr)
         payload = json.loads(ok_codex.stdout)
         self.assertEqual(payload["harness"], "codex")
         self.assertEqual(payload["vector"], "auth")
         self.assertIn("BLOCKED: token replay", out_codex.read_text())
+        self.assertIn(f"TMPDIR={(repro_codex / '.tmp').resolve()}", out_codex.read_text())
+        self.assertTrue((repro_codex / ".tmp").is_dir())
         receipt_path = out_codex.with_suffix(".md.receipt.json")
         self.assertTrue(receipt_path.is_file())
         rec = json.loads(receipt_path.read_text())
@@ -218,7 +289,29 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(rec["model"], "gpt-5.4")
         self.assertEqual(rec["exit_code"], 0)
 
-        # Approved Pi model -> runs cleanly
+        # Approved Pi model -> runs cleanly, AND ASTACK_DISPATCH_RECEIPT_DIR persists a receipt even without --out!
+        env_rdir = self.dir / "auto-receipts"
+        env_with_rdir = {
+            **os.environ,
+            "PATH": f"{self.stub_bin}{os.pathsep}/usr/bin{os.pathsep}/bin",
+            "ASTACK_DISPATCH_STRICT_PATH": "1",
+            "ASTACK_DISPATCH_RECEIPT_DIR": str(env_rdir),
+        }
+        ok_pi_env = subprocess.run(
+            [
+                sys.executable, "-B", str(BIN / "astack-dispatch"),
+                "run", "--settings", str(settings), "--provider", "anthropic", "--model", "claude-sonnet-4-6",
+                "--vector", "auth", "--cwd", str(self.work), "--prompt", "Review auth.py",
+            ],
+            capture_output=True, text=True, env=env_with_rdir,
+        )
+        self.assertEqual(ok_pi_env.returncode, 0, ok_pi_env.stderr)
+        auto_receipts = list(env_rdir.glob("*.receipt.json"))
+        self.assertEqual(len(auto_receipts), 1)
+        auto_rec = json.loads(auto_receipts[0].read_text())
+        self.assertEqual(auto_rec["harness"], "pi")
+        self.assertEqual(auto_rec["exit_code"], 0)
+
         out_pi = self.dir / "out" / "pi-review.md"
         ok_pi = self.run_dispatch(
             "run", "--settings", str(settings), "--provider", "anthropic", "--model", "claude-sonnet-4-6",
@@ -503,6 +596,32 @@ class MultiHarnessEvalRunnerTest(unittest.TestCase):
         self.assertTrue(ok_roll_one)
         ok_roll_mod, _ = self.ev.evaluate_tool_grader({"tool": "Agent", "input_match": '"subagent_type":"astack:reviewer".*"model":"sonnet"', "min": "1", "max": "1"}, r_events, codex_settings)
         self.assertTrue(ok_roll_mod)
+
+    def test_devin_eval_command_shape_and_failed_launch_gets_zero_score(self):
+        # Bug 1: Devin eval command places flags first and passes `-p -- <prompt>` (never bare trailing prompt)
+        devin_argv, devin_stdin = self.ev.build_eval_command("devin", "/usr/bin/devin", "Review repo", self.dir, model="sonnet")
+        self.assertIsNone(devin_stdin)
+        idx_p = devin_argv.index("-p")
+        self.assertEqual(devin_argv[idx_p + 1], "--")
+        self.assertEqual(devin_argv[idx_p + 2], "Review repo")
+        self.assertLess(devin_argv.index("--respect-workspace-trust"), idx_p)
+        self.assertLess(devin_argv.index("--permission-mode"), idx_p)
+        self.assertLess(devin_argv.index("--model"), idx_p)
+
+        # Bug 2: A harness that fails to launch (non-zero exit / empty output) MUST get score 0.0 (zero partial credit!)
+        bad_cli = _make_stub(self.dir, "broken-devin", "echo 'error: unknown argument' >&2\nexit 2\n")
+        res = self.ev.run_case(
+            ROOT / "evals" / "vectored-review-small-change",
+            "devin",
+            binary=str(bad_cli),
+            judge_harness="none",
+            timeout=30.0,
+        )
+        self.assertTrue(res["launch_failed"])
+        self.assertEqual(res["exit_code"], 2)
+        self.assertEqual(res["score"], 0.0)
+        self.assertEqual(res["graders"][0]["name"], "harness-run")
+        self.assertFalse(res["graders"][0]["passed"])
 
     def test_install_agents_installs_all_four_full_agents_for_every_harness(self):
         settings = self.dir / "settings.json"

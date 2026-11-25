@@ -14,7 +14,7 @@ Improve performance and tighten measured variance in small, grounded steps—com
 2. **Define the target.** Specify each metric to improve, the target number, and how it's measured (CPU, peak memory/allocations/cache misses/page faults, disk I/O, network calls/wire bytes, concurrent throughput/contention, binary/package size, or any requested metric).
 3. **Reproduce realistically.** Use realistic data sizes, history, state, and concurrency. If you can't reproduce the bottleneck, fix the workload first.
 4. **Baseline every important metric and its $\sigma$** (**benchmarking**), not just the primary target, so a win in one metric can't hide a regression in another. Record baseline median, standard deviation ($\sigma$), p99/spread, environment, and commands, and verify the harness detects regressions and executes real work.
-5. **Profile and trace** to see where time, memory, I/O, bytes, and jitter actually go (**diagnose**).
+5. **Profile and trace** to see where time, memory, I/O, bytes, and jitter actually go (**find-it**).
 6. **Keep an experiment log** of every attempt: hypothesis, change, before/after median and $\sigma$, Amdahl check, test status, and kept/reverted outcome.
 
 ## Each step (grounded $\sigma$-step hill-climbing & variance reduction)
@@ -46,8 +46,8 @@ If you have several independent ideas, test them in parallel in separate worktre
 ## Finish
 
 - **Agreed minimum attempt floor:** don't stop after a lucky early win, and don't pick a magic constant (**no-picked-constants**). Agree the minimum number of distinct measured attempts with the person before starting (or derive and record the floor in the experiment log from the task's time budget and remaining profiled headroom), and complete that floor across real bottlenecks and variance sources unless you hit a proven hardware/algorithmic ceiling backed by profiles and **research-this**.
-- **Break through plateaus:** if incremental tweaks stall short of the goal, try another optimization category, attack $\sigma$/variance directly, combine near misses, reread the hot path, or prototype alternative architectures (**explore-the-limits**).
-- **Know when to stop:** stop once the target (both baseline and variance stability) is met and the minimum attempt floor is satisfied. Before concluding further gains require trading functionality, run **research-this** and **explore-the-limits** to verify no compliant design exists; only then present the best compliant result, what limits it, and the trade-off with numbers to the person (**never-trade-functionality**, **decisions-in-plain-words**). Never relax the goal to declare victory.
+- **Break through plateaus:** if incremental tweaks stall short of the goal, try another optimization category, attack $\sigma$/variance directly, combine near misses, reread the hot path, or prototype alternative architectures (**swarm-hypothesis**).
+- **Know when to stop:** stop once the target (both baseline and variance stability) is met and the minimum attempt floor is satisfied. Before concluding further gains require trading functionality, run **research-this** and **swarm-hypothesis** to verify no compliant design exists; only then present the best compliant result, what limits it, and the trade-off with numbers to the person (**never-trade-functionality**, **decisions-in-plain-words**). Never relax the goal to declare victory.
 - **Report:** baseline vs. final median and $\sigma$ for every metric, steps kept and reverted, the full log, the current bottleneck, and the best next lead (**prove-it**).
 
 <!-- Adapts pstack's Hillclimb playbook (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->
