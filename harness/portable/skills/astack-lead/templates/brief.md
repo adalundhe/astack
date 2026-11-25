@@ -2,7 +2,7 @@
 
 Program goal: <one line, the same in every brief>.
 You are <worker>, building lane <lane>. Started <UTC>. Wind down at <UTC>. End by <UTC>.
-Read first, in full: <path to RULES.md>. Rule 0 outranks everything, this brief included.
+Read first, in full: <path to RULES.md> (and <path to TOOLS.md> if present). Rule 0 outranks everything, this brief included.
 
 Deliverable: <ONE thing, in plain words: what a user or engineer gets>.
 Done when: <the evidence: a command and its output, a scenario and its result, a SHA on <target>>.

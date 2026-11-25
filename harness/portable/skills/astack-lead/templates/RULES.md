@@ -1,7 +1,7 @@
 # <program>: rules every worker reads first
 
 Goal: <what the person gets, and how it is measured>.
-Lane log: <path to LANES.md>. Report format: <path to report.md>.
+Lane log: <path to LANES.md>. Tools catalog: <path to TOOLS.md>. Report format: <path to report.md>.
 Astack skills: <path to astack skills/ directory, for reading hidden skills by path>.
 
 0. MAKE IT WORK, THEN MAKE IT ROBUST, THEN MAKE IT FAST, in that order. This rule outranks every other.
@@ -24,7 +24,7 @@ Astack skills: <path to astack skills/ directory, for reading hidden skills by p
    - Medium/high-risk changes (shared interfaces, concurrency, persistence, security, or large diffs): run the broader/full suite (`<command>`) and clear lead vectored review (>=2 blind reviewers on different models per risky vector) before landing on `<target>`.
    - Rebase or merge `<target>` only when `<target>` moved since you branched (so untested code would otherwise land). After rebasing, run `astack-watch-pr patch-id-check --before <old_base>..<old_head> --after <new_base>..HEAD --json` (checks both `git patch-id` and `git range-diff` to ensure no behavior was dropped or resurrected); carry the prior verdict only when `carry_verdict` is `true` and incoming `<target>` commits do not overlap your blast radius—otherwise retest the combined tree. Never force-push shared/protected branches.
    - Takeover credit: when finishing or squashing another person's commits/PR, preserve original git authorship or add `Co-authored-by: Name <email>` trailers (`astack-watch-pr authorship-check`).
-   - Autonomy grant (from `settings.json`): mode `<supervised|unattended>`, allow `<list>`, deny `<list>`. Never take any action in `deny` without explicit per-action approval.
+   - Autonomy grant (from `settings.json`): mode `<supervised|unattended>`, allow `<list>`, deny `<list>`. Read-only/dry-run external probes are always allowed; under `unattended`, execute every action in `allow` (including out-of-dir work, user-space tool installs, feature-branch pushes, and opening PRs) without asking confirmation. Never take any action in `deny` without explicit per-action approval.
    - No worker may loosen a gate unilaterally—every gate relaxation requires the lead's countersign in `## Revisions`.
 
 3. WHERE: your isolated Slates in-memory VFS volume (`slates`, https://github.com/hyper-light/slates, preferred when available) or git worktree (<path>), on branch <prefix>/<lane>. Write only the paths your brief names. Builds and
@@ -39,6 +39,7 @@ Astack skills: <path to astack skills/ directory, for reading hidden skills by p
 5. PROJECT RULES: <the project's own binding rules, or their paths>.
 
 6. STANDING RULES. Each is a hidden astack skill; read its `SKILL.md` from the Astack skills folder above whenever its trigger fires.
+   - analyze-environment: discover CLIs/APIs/MCPs/services, run read-only/dry-run probes, maintain `TOOLS.md`, install user-space tools under `unattended`, and isolate only human-only auth steps.
    - decide-by-data: choose by measuring, never by argument.
    - ab-test: how to measure: metrics, environment, baseline noise, the bar, variants, write-up, decision.
    - baseline: same client and same platform for every system.

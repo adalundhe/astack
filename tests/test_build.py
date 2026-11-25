@@ -526,6 +526,33 @@ class BuildTest(unittest.TestCase):
         self.assertIn("whole failure environment", find_it)
         self.assertIn("CPU architecture", find_it)
 
+        # Verify analyze-environment, TOOLS.md, unattended autonomy, read-only dry-run, no internal Open Items, and bin/ recovery
+        env_skill = (ROOT / "skills/analyze-environment/SKILL.md").read_text()
+        self.assertIn("needs-install", env_skill)
+        self.assertIn("needs-human-auth", env_skill)
+        self.assertIn("TOOLS.md", env_skill)
+        self.assertTrue((ROOT / "skills/lead/templates/TOOLS.md").is_file())
+        self.assertIn("TOOLS & ACCESS CATALOG", (ROOT / "agents/researcher.md").read_text())
+
+        dec_skill = (ROOT / "skills/decisions-in-plain-words/SKILL.md").read_text()
+        self.assertIn("out_of_dir_work", dec_skill)
+        self.assertIn("user_space_tool_install", dec_skill)
+        self.assertIn("read-only and dry-run", dec_skill)
+        self.assertIn("Never list internal astack/harness state", dec_skill)
+        self.assertIn("autonomy", (ROOT / "agents/lead.md").read_text())
+
+        review_src = (ROOT / "skills/review/SKILL.md").read_text()
+        self.assertNotIn("tell the person to run `/astack:setup`", review_src)
+        self.assertIn("single-model reviewer pool", review_src)
+        self.assertIn("single-model reviewer pool", (ROOT / "skills/wat/SKILL.md").read_text())
+        self.assertIn("single-model reviewer pool", (ROOT / "skills/whatsup/SKILL.md").read_text())
+        self.assertIn("single-model reviewer pool", lead_src)
+
+        setup_src = (ROOT / "skills/setup/SKILL.md").read_text()
+        self.assertIn("out_of_dir_work", setup_src)
+        self.assertIn("user_space_tool_install", setup_src)
+        self.assertIn("bootstrap `bin/astack-*`", setup_src)
+
         self.assertTrue((ROOT / "evals/find-it-and-fix-it-bug/verify.py").is_file())
         self.assertTrue((ROOT / "evals/bugbash-investigates-and-proves-fix/verify.py").is_file())
         _, fi_prompt = front_matter(ROOT / "evals/find-it-and-fix-it-bug/prompt.md")

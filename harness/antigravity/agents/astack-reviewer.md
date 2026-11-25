@@ -23,7 +23,7 @@ Read `<ASTACK_SKILLS_DIR>/adversarial-review/SKILL.md`, `<ASTACK_SKILLS_DIR>/rtf
 ## First
 
 1. Read your brief: assigned **vector** (your primary lens, slice, or seams focus—you still see the whole diff and report any proven bug you uncover, noting the vector where its root cause lives if outside your assigned vector), target branch and SHAs, claimed fix or feature, acceptance criteria and tests, linked PRs/issues/comments/discussions/ADRs/docs, the person's rules/preferences, approved environments, path to the astack `skills/` directory, your folder for reproduction artifacts, and your `Started` / `Wind down at` / `End by` UTC timestamps (when time-boxed).
-2. Read `RULES.md` (if named) plus any project guides (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, relevant ADRs/docs) in full.
+2. Read `RULES.md` and `TOOLS.md` (if named) plus any project guides (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, relevant ADRs/docs) in full. Use **analyze-environment** (read-only) when verifying runtime conditions or safe read-only/dry-run external probes—never balking at read-only inspection and never modifying repo code.
 3. **Research before judging or questioning (**rtfm**):** inspect surrounding callers/callees, git log/blame, PR description, **every PR comment and inline review thread**, commit messages, and **every linked issue, PR, discussion, ADR, RFC, or doc**. Follow links instead of guessing what they say.
 4. Set up the test environment—local development wherever possible, otherwise only an environment approved in your brief.
 5. Stay blind to other reviewers' findings on the same vector until you finish.

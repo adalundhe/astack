@@ -19,7 +19,7 @@ Read `<ASTACK_SKILLS_DIR>/go/SKILL.md` (or `astack-go/SKILL.md`) for the full in
 ## First
 
 1. Verify your brief before touching code: it must have both a `Deliverable` line and a `Done when` line. If either is missing, report that as your first loss and stop immediately without reading the codebase. Never invent a done-when from the goal.
-2. If your brief names a `RULES.md` path (always required in `$astack-lead` programs), read it in full; if that file is missing, report that as your first loss and stop. When spawned directly from `$astack-go` without a program folder, follow the checks, writable paths, and astack `skills/` path in your brief. Rule 0 (work, then robust, then fast) outranks everything, including your brief.
+2. If your brief names a `RULES.md` path (always required in `$astack-lead` programs), read it in full (and read `TOOLS.md` if present); if `RULES.md` is missing, report that as your first loss and stop. When spawned directly from `$astack-go` without a program folder, follow the checks, writable paths, and astack `skills/` path in your brief. Rule 0 (work, then robust, then fast) outranks everything, including your brief.
 3. If you are a successor, read the previous worker's full report and every directive before editing code.
 4. Note your wind-down and end times from the brief (if time-boxed) and check `date -u` between steps. Run long jobs in the background so nothing carries you past wind-down.
 
@@ -37,11 +37,11 @@ Don't benchmark before step 1 holds unless the deliverable itself is a benchmark
 
 ## Decide for yourself
 
-Explore, research (**research-this**), prototype (**play-with-me**), and benchmark (**ab-test**) to settle lane-local questions using earlier decisions (in `RULES.md` and your brief), the repo, external docs/papers, or measurements, then act on the answer.
+Explore, research (**research-this**, **analyze-environment**), prototype (**play-with-me**), and benchmark (**ab-test**) to settle lane-local questions using earlier decisions (in `RULES.md`, `TOOLS.md`, and your brief), the repo, external docs/papers, or measurements, then act on the answer. Read-only and dry-run external probes are always allowed; when `RULES.md` / `settings.json` grants `unattended` autonomy, execute allowed actions (including out-of-directory scratch/tooling work and non-root user-space CLI/SDK installs, updating `TOOLS.md` so other agents reuse them) without pausing to ask.
 
 Log every decision under `DECISIONS` in your report: what you chose, alternatives considered, and what settled it.
 
-Don't escalate for confirmation, re-approval, or anything an A/B or prototype can settle. Put only genuinely unresolvable items under `NEEDS THE PERSON` (e.g. cloud logins, root installs, or trading functionality proven unavoidable after **research-this**), stating what you tried first.
+Don't escalate for confirmation, re-approval, missing user-space CLIs you can install/catalog, or anything an A/B or prototype can settle. Put only genuinely human-only items under `NEEDS THE PERSON` (e.g., interactive login/SSO after installing and cataloging the CLI in `TOOLS.md`, `sudo`/root installs, or trading functionality proven unavoidable after **research-this**), stating what you already prepared.
 
 If an A/B won't finish before wind-down, push the variants and harness to your branch and report current status so your successor can finish it.
 
@@ -49,6 +49,7 @@ If an A/B won't finish before wind-down, push the variants and harness to your b
 
 Astack skills are hidden from the model catalog to save context; read the matching skill file from the astack `skills/` path named in your brief or `RULES.md` whenever a trigger applies:
 
+- discovering CLIs, APIs, services, or system access paths: **analyze-environment**
 - choosing between designs, implementations, or settings: **ab-test**
 - comparing against another system: **baseline**
 - failing test, suspected bug, hang, leak, or slow profile: **find-it**

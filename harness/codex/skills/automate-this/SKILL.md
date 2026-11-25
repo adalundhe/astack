@@ -13,10 +13,10 @@ Replace repeated manual commands, polling, and environment chores with scripts, 
   - read **orchestral** (plus **checkpoint**, **suspend**, **resume**) for dependency-graph (DAG) wave and multi-stage concurrent Python/shell pipelines with upfront cycle checks, branch-aware failure skipping, `fail_fast`, wave streaming, live workflow/step pause-resume, and SQLite crash recovery;
   - read **werkflow** for decorator DAG workflows with inter-step data injection, `.werkflow.json`/prompts, and external integrations (`werkflow-modules`).
 - **Automate environment chores.** Put setup, cleanup, and health checks in scripts instead of relying on manual steps.
-- **Make it reusable.** Save project scripts in the repo's scripts folder, or capture reusable workflows as a skill.
+- **Make it reusable:** save project scripts in the repo's scripts folder (or capture reusable workflows as a skill), and record newly installed CLIs or shared helpers in `<program>/TOOLS.md` (**analyze-environment**) so other agents immediately find and use them.
 - **Keep bulk output out of context.** Send wide searches, long logs, and heavy command output to a subagent or filter script that returns only conclusions or failures. Read only the file sections you need.
 - **Fail loudly.** Scripts exit non-zero when a check fails and print a one-line reason.
 
-Referenced skills: `event-driven` (`../event-driven/SKILL.md`), `setup` (`../astack-setup/SKILL.md`), `taskex` (`../taskex/SKILL.md`), `checkpoint` (`../checkpoint/SKILL.md`), `suspend` (`../suspend/SKILL.md`), `resume` (`../resume/SKILL.md`), `orchestral` (`../orchestral/SKILL.md`), `werkflow` (`../werkflow/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `event-driven` (`../event-driven/SKILL.md`), `setup` (`../astack-setup/SKILL.md`), `taskex` (`../taskex/SKILL.md`), `checkpoint` (`../checkpoint/SKILL.md`), `suspend` (`../suspend/SKILL.md`), `resume` (`../resume/SKILL.md`), `orchestral` (`../orchestral/SKILL.md`), `werkflow` (`../werkflow/SKILL.md`), `analyze-environment` (`../analyze-environment/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's guard-the-context-window principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

@@ -1,6 +1,6 @@
 # astack
 
-A multi-harness agent toolkit for Claude Code, Codex, Cursor / Cursor CLI, Antigravity (`agy`), Pi, Devin, and other Agent Skills hosts with one entry point (`go`) that routes on demand to 71 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, root-cause diagnosis, cross-harness vectored review, σ-grounded benchmarking, graded research, and coding rules.
+A multi-harness agent toolkit for Claude Code, Codex, Cursor / Cursor CLI, Antigravity (`agy`), Pi, Devin, and other Agent Skills hosts with one entry point (`go`) that routes on demand to 72 hidden skills: DAG task planning, automated workflows, checkpoint/suspend/resume, parallel workers, root-cause diagnosis, cross-harness vectored review, σ-grounded benchmarking, graded research, and coding rules.
 
 Only `go` stays in the model catalog, so idle sessions cost one skill's worth of context instead of thousands of tokens. Adapted in part from [pstack](https://github.com/cursor/plugins/tree/main/pstack) and [mattpocock/skills](https://github.com/mattpocock/skills).
 
@@ -32,7 +32,7 @@ Start a new session and run `$astack-go setup` (installs `astack-worker.toml` pl
 agy plugin install ./harness/antigravity
 ```
 
-Ships native `plugin.json`, root `hooks.json` (`PostToolUse` lane-log stamper), all 72 skills, `bin/astack-*`, and all four native agents (`astack-lead`, `astack-worker`, `astack-reviewer`, `astack-researcher`). Validate anytime with `agy plugin validate harness/antigravity --strict`.
+Ships native `plugin.json`, root `hooks.json` (`PostToolUse` lane-log stamper), all 73 skills, `bin/astack-*`, and all four native agents (`astack-lead`, `astack-worker`, `astack-reviewer`, `astack-researcher`). Validate anytime with `agy plugin validate harness/antigravity --strict`.
 
 **Pi, Devin, Cursor CLI (`agent`), and other Agent Skills hosts**
 
@@ -64,7 +64,7 @@ measured against the current release on the same machine. Merges go to main afte
 
 ## Skills
 
-72 skills total (`go` + 71 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
+73 skills total (`go` + 72 hidden). Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex; `go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex.
 
 ### Entry point, planning, and catch-up
 
@@ -149,6 +149,7 @@ Indexed in `go` and checked by `review`:
 - `technical-writing`: standard for concise, concrete, code-verified technical docs.
 - `wat`: rewrites the last message to lead with the bottom line and cut jargon and meta-commentary.
 - `rtfm`: checks your prompt, repo docs/code/history, local environment, and official docs before asking questions.
+- `analyze-environment`: discovers local/external CLIs, APIs, MCP servers, services, and env-var names, runs safe read-only/dry-run and auth-status probes, installs missing user-space tooling under `unattended`, publishes a shared `TOOLS.md` catalog for all agents, and isolates only human-only auth steps.
 - `research-this`: investigates internal + external sources, checks quotes in place, and grades findings A–F (`kiln`-compatible).
 - `decisions-in-plain-words`: resolves what it can, logs why, and escalates only real human calls with a recommendation.
 - `create-adc`: works through an architecture decision one evidenced exchange at a time and publishes `AD_<N>.md`.

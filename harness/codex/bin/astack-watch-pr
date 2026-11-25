@@ -119,6 +119,7 @@ FORBIDDEN_REPLY_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = (
     ("internal review estimator jargon", re.compile(r"\b(?:capture[- ]recapture|Burnham[- ]Overton|jackknife|astack-review-ledger|astack-dispatch)\b", re.IGNORECASE)),
     ("bracketed internal rule/skill tag", re.compile(r"\[(?:rule|skill):\s*[a-z0-9-]+\]", re.IGNORECASE)),
     ("internal priority code (P0-P5)", re.compile(r"(?:^|[\s(\[])P[0-5](?:[\s:)\]-]|$)", re.MULTILINE)),
+    ("internal harness/reviewer-pool state", re.compile(r"\b(?:reviewer_pool|(?:single|1)[- ]model\s+(?:reviewer\s+)?pool|TOOLS\.md)\b", re.IGNORECASE)),
 )
 BARE_SHA_START_RE = re.compile(r"(?:^|\n)\s*[0-9a-f]{7,40}\s+(?:says|shows|did|added|changed|bootstrapped|fixed)\b")
 
@@ -1848,6 +1849,8 @@ def build_remediation_brief(
 
 DEFAULT_AUTONOMY_ALLOW: Tuple[str, ...] = (
     "local_worktrees_and_experiments",
+    "out_of_dir_work",
+    "user_space_tool_install",
     "feature_branch_push",
     "feature_branch_rebase_force_with_lease",
     "open_and_update_pr",

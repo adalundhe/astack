@@ -230,6 +230,8 @@ class GoodCitizenRateLimitAndPolicyTest(unittest.TestCase):
                 "Violates [rule: no-picked-constants].",
                 "Blocking P0 defect fixed.",
                 "69a34f1 says cluster was bootstrapped.",
+                "Open Item: single-model reviewer pool needs setup.",
+                "Checked TOOLS.md and reviewer_pool defaults.",
             ):
                 violations = core.audit_reply_text(leaky, clear_receipt)
                 self.assertTrue(violations, f"expected violation for {leaky!r}")
@@ -1498,6 +1500,9 @@ class PatchIdCarryOverTest(unittest.TestCase):
                 self.assertIn("# Lead PR Remediation Brief:", brief)
                 self.assertIn("Workers NEVER spawn subagents", brief)
                 self.assertIn("You (the lead)", brief)
+
+            self.assertIn("out_of_dir_work", core.DEFAULT_AUTONOMY_ALLOW)
+            self.assertIn("user_space_tool_install", core.DEFAULT_AUTONOMY_ALLOW)
 
 
 if __name__ == "__main__":
