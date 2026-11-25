@@ -1,6 +1,6 @@
 {
   "name": "astack",
-  "version": "0.7.18",
+  "version": "0.7.19",
   "description": "Run a program of work as lanes. A lead gives each lane one deliverable and a worker subagent a hard time limit to build it, holds workers to work, then robust, then fast, verifies every merge itself, and brings the person only real decisions, in plain words.",
   "author": {
     "name": "Ada Lündhé"
