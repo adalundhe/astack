@@ -1,12 +1,12 @@
 ---
 name: comment-cop
-description: "Strip comments that narrate or excuse the code, keeping only what code can't express (API contracts, external constraints, legal headers, issue links). Use when writing, reviewing, or cleaning up comments."
+description: "Strip comments that narrate or excuse code, keeping only API contracts, constraints, and links. Use when writing, reviewing, or cleaning up comments."
 disable-model-invocation: true
 ---
 
 # Comment cop
 
-Remove comments that the code already explains (or should explain), and keep only what code can't express.
+Remove comments that the code already explains (or should explain), and keep only what code can't express, because narrating comments go stale faster than code changes.
 
 ## Start with
 
@@ -31,5 +31,7 @@ Remove comments that the code already explains (or should explain), and keep onl
 - external constraints (vendor bugs, protocol quirks, OS limitations) with a link to the source;
 - links to issues, specs, or ADs explaining a non-obvious decision;
 - lint suppressions explaining why the rule doesn't apply to that line.
+
+**Showing it:** quote the offending comment next to the self-explanatory code (or contradicting code) and show the clearer name, refactor, or deletion.
 
 <!-- Adapts pstack's comment-sicko agent and no-comments skill (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

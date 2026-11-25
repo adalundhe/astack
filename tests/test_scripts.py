@@ -1404,6 +1404,159 @@ class GoModeHookTest(Scratch):
         self.assertIn("astack BAP", repeat_ctx)
         self.assertIn("astack Go mode — ACTIVE (Lead role)", repeat_ctx)
 
+    def test_auto_memory_recall_injects_matching_and_related_lessons_without_tool_calls(self):
+        state_root = self.dir / "state-lessons"
+        astack_home = self.dir / "astack-home"
+        ws = self.dir / "billing-api"
+        ws.mkdir()
+
+        # Direct active lesson, related-project active lesson, and superseded lesson (ignored)
+        l1 = astack_home / "billing-api" / "lessons" / "raw-hmac" / "LESSON.md"
+        l1.parent.mkdir(parents=True)
+        l1.write_text(
+            "---\nlesson: raw-hmac\nproject: billing-api\nrelated_projects: []\n"
+            "status: active\nupdated: 2026-11-25T12:00Z\n---\n\n# Hash raw webhook bytes before JSON parsing\n",
+            encoding="utf-8",
+        )
+        l2 = astack_home / "payments-gw" / "lessons" / "retry-order" / "LESSON.md"
+        l2.parent.mkdir(parents=True)
+        l2.write_text(
+            "---\nlesson: retry-order\nproject: payments-gw\nrelated_projects: [billing-api]\n"
+            "status: active\nupdated: 2026-11-24T10:00Z\n---\n\n# Preserve idempotency key across retries\n",
+            encoding="utf-8",
+        )
+        l3 = astack_home / "billing-api" / "lessons" / "retired-xml" / "LESSON.md"
+        l3.parent.mkdir(parents=True)
+        l3.write_text(
+            "---\nlesson: retired-xml\nproject: billing-api\nstatus: superseded\n---\n\n# Old XML note\n",
+            encoding="utf-8",
+        )
+
+        env = {**os.environ, "ASTACK_STATE_DIR": str(state_root), "ASTACK_HOME": str(astack_home)}
+
+        # SessionStart recalls active direct + related lessons even before Go mode activates!
+        r_start = subprocess.run(
+            [str(BIN / "astack-go-hook"), "--harness", "claude-code", "--event", "SessionStart"],
+            input=json.dumps({"session_id": "recall-1", "source": "startup", "cwd": str(ws)}),
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r_start.returncode, 0, r_start.stderr)
+        ctx = json.loads(r_start.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("billing-api/raw-hmac", ctx)
+        self.assertIn("payments-gw/retry-order", ctx)
+        self.assertNotIn("retired-xml", ctx)
+
+        # Antigravity SessionStart emits injectSteps with matching lessons
+        r_ag = subprocess.run(
+            [str(BIN / "astack-go-hook"), "--harness", "antigravity", "--event", "SessionStart"],
+            input=json.dumps({"conversationId": "ag-recall-1", "workspacePaths": [str(ws)]}),
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r_ag.returncode, 0, r_ag.stderr)
+        ag_msg = json.loads(r_ag.stdout)["injectSteps"][0]["systemMessage"]["systemMessage"]
+        self.assertIn("billing-api/raw-hmac", ag_msg)
+
+        # CLI `astack-go-mode lessons --cwd ... --json` exposes the exact same list
+        r_cli = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-go-mode"), "lessons", "--cwd", str(ws), "--json"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r_cli.returncode, 0, r_cli.stderr)
+        data = json.loads(r_cli.stdout)
+        self.assertEqual(data["project"], "billing-api")
+        self.assertEqual([x["lesson"] for x in data["lessons"]], ["raw-hmac", "retry-order"])
+
+
+class GuardHookTest(Scratch):
+    def _run_guard(self, harness, event_name, payload, settings_path=None):
+        env = {**os.environ}
+        if settings_path is not None:
+            env["ASTACK_SETTINGS_FILE"] = str(settings_path)
+        else:
+            env["ASTACK_SETTINGS_FILE"] = str(self.dir / "missing-settings.json")
+        return subprocess.run(
+            [str(BIN / "astack-guard-hook"), "--harness", harness, "--event", event_name],
+            input=json.dumps(payload),
+            capture_output=True, text=True, env=env,
+        )
+
+    def test_blocks_destructive_commands_and_honors_autonomy_across_all_four_harnesses(self):
+        # 1. Safe commands pass fast-path cleanly
+        r_safe_cc = self._run_guard("claude-code", "PreToolUse", {"tool_input": {"command": "pytest tests/"}})
+        self.assertEqual(r_safe_cc.returncode, 0)
+        self.assertEqual(r_safe_cc.stdout.strip(), "")
+
+        r_safe_ag = self._run_guard("antigravity", "PreToolUse", {"toolCall": {"args": {"CommandLine": "git status"}}})
+        self.assertEqual(json.loads(r_safe_ag.stdout), {})
+
+        r_safe_cur = self._run_guard("cursor", "beforeShellExecution", {"command": "ls -la"})
+        self.assertEqual(json.loads(r_safe_cur.stdout), {"permission": "allow"})
+
+        # Quoted text inside commit message or echo must NEVER false-trigger!
+        r_quoted = self._run_guard(
+            "claude-code", "PreToolUse",
+            {"tool_input": {"command": 'git commit -m "block git reset --hard and rm -rf /"'}},
+        )
+        self.assertEqual(r_quoted.stdout.strip(), "")
+
+        # Safe feature-branch --force-with-lease (used by squish) is ALLOWED!
+        r_feat = self._run_guard(
+            "claude-code", "PreToolUse",
+            {"tool_input": {"command": "git push --force-with-lease origin feat/retry-jitter"}},
+        )
+        self.assertEqual(r_feat.stdout.strip(), "")
+
+        # 2. Protected-branch force-push is BLOCKED across Claude Code, Codex, Antigravity, Cursor
+        r_cc_push = self._run_guard(
+            "claude-code", "PreToolUse",
+            {"tool_input": {"command": "git push --force origin main"}},
+        )
+        cc_out = json.loads(r_cc_push.stdout)
+        self.assertEqual(cc_out["hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertIn("push_protected_branch", cc_out["hookSpecificOutput"]["permissionDecisionReason"])
+
+        r_ag_reset = self._run_guard(
+            "antigravity", "PreToolUse",
+            {"toolCall": {"args": {"CommandLine": "git reset --hard HEAD~1"}}},
+        )
+        ag_out = json.loads(r_ag_reset.stdout)
+        self.assertEqual(ag_out["decision"], "deny")
+        self.assertIn("destructive_git_reset", ag_out["reason"])
+
+        r_cur_rm = self._run_guard(
+            "cursor", "beforeShellExecution",
+            {"command": "rm -rf /"},
+        )
+        cur_out = json.loads(r_cur_rm.stdout)
+        self.assertEqual(cur_out["permission"], "deny")
+        self.assertIn("destructive_rm", cur_out["agent_message"])
+
+        # 3. gh pr merge is blocked by default (merge_pr denied), but ALLOWED when explicitly permitted in settings.json
+        r_merge_blocked = self._run_guard(
+            "codex", "PreToolUse",
+            {"tool_input": {"command": "gh pr merge 42 --squash"}},
+        )
+        self.assertEqual(json.loads(r_merge_blocked.stdout)["hookSpecificOutput"]["permissionDecision"], "deny")
+
+        allow_settings = self.dir / "allow-merge.json"
+        allow_settings.write_text(json.dumps({"autonomy": {"mode": "unattended", "allow": ["merge_pr"], "deny": []}}))
+        r_merge_allowed = self._run_guard(
+            "codex", "PreToolUse",
+            {"tool_input": {"command": "gh pr merge 42 --squash"}},
+            settings_path=allow_settings,
+        )
+        self.assertEqual(r_merge_allowed.stdout.strip(), "")
+
+        # 4. Destructive git clean -fdx and raw SQL DROP DATABASE blocked; nested bash -c caught too
+        for bad_cmd in ("git clean -fdx", 'bash -c "git reset --hard"', 'psql "$DB_URL" -c "DROP DATABASE prod;"'):
+            res = subprocess.run(
+                [sys.executable, "-B", str(BIN / "astack-guard"), "check", bad_cmd, "--json"],
+                capture_output=True, text=True,
+                env={**os.environ, "ASTACK_SETTINGS_FILE": str(self.dir / "missing-settings.json")},
+            )
+            self.assertEqual(res.returncode, 1, f"expected block for {bad_cmd}: {res.stdout}")
+            self.assertFalse(json.loads(res.stdout)["allowed"])
+
 
 if __name__ == "__main__":
     unittest.main()

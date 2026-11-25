@@ -13,7 +13,28 @@
       }
     ]
   },
+  "astack-guard": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./bin/astack-guard-hook --harness antigravity --event PreToolUse",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
   "astack-go-mode": {
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "./bin/astack-go-hook --harness antigravity --event SessionStart",
+        "timeout": 10
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "read_file|view_file|run_command",

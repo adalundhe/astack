@@ -443,6 +443,149 @@ class EvalReproductionVerifiersTest(unittest.TestCase):
         self.assertEqual(vec["estimate"]["empirical_joint_miss_rate"], 0.0)
         self.assertFalse(vec["landing_blocked"])
 
+    def test_v09_eval_verifiers_redteam_squish_lookback_and_sprint(self):
+        # 1) redteam-breaks-and-hardens: buggy fails -> fixed with red-first test passes -> leftover debug file fails
+        ws_rt = self.dir / "redteam"
+        ws_rt.mkdir()
+        _scaffold_eval("redteam-breaks-and-hardens", ws_rt)
+        self.assertEqual(_run_verify("redteam-breaks-and-hardens", ws_rt)[0], 1)
+
+        (ws_rt / "repo" / "src" / "vault.py").write_text(
+            "from __future__ import annotations\n"
+            "import hashlib, hmac, threading\n"
+            "from pathlib import Path\n\n"
+            "class TenantVault:\n"
+            "    def __init__(self, root: Path, secret: bytes, max_writes: int = 2) -> None:\n"
+            "        self.root = root.resolve()\n"
+            "        self.root.mkdir(parents=True, exist_ok=True)\n"
+            "        self._secret = secret\n"
+            "        self._max_writes = max_writes\n"
+            "        self._counts: dict[str, int] = {}\n"
+            "        self._lock = threading.Lock()\n\n"
+            "    def make_token(self, tenant: str) -> str:\n"
+            "        sig = hmac.new(self._secret, tenant.encode('utf-8'), hashlib.sha256).hexdigest()\n"
+            "        return f'{tenant}:{sig}'\n\n"
+            "    def authenticate(self, token: str) -> str:\n"
+            "        if ':' not in token:\n"
+            "            raise PermissionError('malformed token')\n"
+            "        tenant, sig = token.split(':', 1)\n"
+            "        expected = hmac.new(self._secret, tenant.encode('utf-8'), hashlib.sha256).hexdigest()\n"
+            "        if not tenant or not hmac.compare_digest(sig, expected):\n"
+            "            raise PermissionError('invalid token')\n"
+            "        return tenant\n\n"
+            "    def write_blob(self, token: str, name: str, data: bytes) -> Path:\n"
+            "        tenant = self.authenticate(token)\n"
+            "        tenant_root = (self.root / tenant).resolve()\n"
+            "        target = (tenant_root / name).resolve()\n"
+            "        if not target.is_relative_to(tenant_root):\n"
+            "            raise ValueError('path escapes tenant directory')\n"
+            "        with self._lock:\n"
+            "            if self._counts.get(tenant, 0) >= self._max_writes:\n"
+            "                raise RuntimeError('quota exceeded')\n"
+            "            self._counts[tenant] = self._counts.get(tenant, 0) + 1\n"
+            "        target.parent.mkdir(parents=True, exist_ok=True)\n"
+            "        target.write_bytes(data)\n"
+            "        return target\n"
+        )
+        # Fixed code without new regression tests must STILL fail red-first check
+        self.assertEqual(_run_verify("redteam-breaks-and-hardens", ws_rt)[0], 1)
+        (ws_rt / "repo" / "tests" / "test_redteam_regressions.py").write_text(
+            "import shutil, sys, tempfile, unittest\nfrom pathlib import Path\n"
+            "sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))\n"
+            "from vault import TenantVault\n\n"
+            "class RedteamRegressions(unittest.TestCase):\n"
+            "    def setUp(self):\n"
+            "        self.d = Path(tempfile.mkdtemp())\n"
+            "        self.addCleanup(shutil.rmtree, self.d, ignore_errors=True)\n"
+            "    def test_malformed_token_and_traversal_rejected(self):\n"
+            "        v = TenantVault(self.d, b's', max_writes=2)\n"
+            "        with self.assertRaises(PermissionError):\n"
+            "            v.authenticate('bad')\n"
+            "        tok = v.make_token('acme')\n"
+            "        with self.assertRaises(ValueError):\n"
+            "            v.write_blob(tok, '../escape.txt', b'x')\n"
+        )
+        code_rt, out_rt, err_rt, _ = _run_verify("redteam-breaks-and-hardens", ws_rt)
+        self.assertEqual(code_rt, 0, out_rt + err_rt)
+
+        # Leftover *_DEBUG_* artifact fails verify
+        (ws_rt / "repo" / "vault_DEBUG_abc123.log").write_text("debug\n")
+        self.assertEqual(_run_verify("redteam-breaks-and-hardens", ws_rt)[0], 1)
+
+        # 2) squish-consolidates-noisy-branch: 6 commits fails -> squished preserving tree + Bob's credit passes
+        ws_sq = self.dir / "squish"
+        ws_sq.mkdir()
+        _scaffold_eval("squish-consolidates-noisy-branch", ws_sq)
+        self.assertEqual(_run_verify("squish-consolidates-noisy-branch", ws_sq)[0], 1)
+
+        base_sha = (ws_sq / "program" / "base_sha.txt").read_text().strip()
+        subprocess.run(["git", "-C", str(ws_sq / "repo"), "reset", "--soft", base_sha], check=True)
+        subprocess.run(
+            ["git", "-C", str(ws_sq / "repo"), "commit", "-q", "-m", "feat: add cap and jitter to backoff\n\nCo-authored-by: Bob <bob@example.invalid>"],
+            check=True,
+        )
+        code_sq, out_sq, err_sq, _ = _run_verify("squish-consolidates-noisy-branch", ws_sq)
+        self.assertEqual(code_sq, 0, out_sq + err_sq)
+
+        # 3) lookback-and-lookup-lessons: unedited fails -> valid LESSON.md + retired stale passes -> in-repo lesson fails
+        ws_lb = self.dir / "lookback"
+        ws_lb.mkdir()
+        _scaffold_eval("lookback-and-lookup-lessons", ws_lb)
+        self.assertEqual(_run_verify("lookback-and-lookup-lessons", ws_lb)[0], 1)
+
+        stale = ws_lb / "program" / "astack_home" / "billing" / "lessons" / "legacy-xml-parser" / "LESSON.md"
+        stale.write_text(stale.read_text().replace("status: active", "status: superseded"))
+        new_lesson = ws_lb / "program" / "astack_home" / "billing" / "lessons" / "webhook-raw-body-hmac" / "LESSON.md"
+        new_lesson.parent.mkdir(parents=True, exist_ok=True)
+        new_lesson.write_text(
+            "---\nlesson: webhook-raw-body-hmac\nproject: billing\nrelated_projects: [payments-gateway]\n"
+            "keywords: [webhook, hmac, json]\nstatus: active\ncreated: 2026-11-25T14:00Z\nupdated: 2026-11-25T14:00Z\n---\n\n"
+            "# Verify webhook HMAC on raw bytes\n\n"
+            "## Overview\nHash raw UTF-8 body before JSON parsing.\n\n"
+            "## Skills and tools used\n- `bugbash`\n\n"
+            "## Details\nKey order changes broke parsed-JSON verification.\n\n"
+            "## Successes\n- Regression test with reordered keys.\n\n"
+            "## Issues\n- Rejected TLS expiry theory via `openssl s_client`.\n\n"
+            "## Best path & guards\n- Guard in middleware.\n\n"
+            "## References\n- `repo/src/webhook.py`\n"
+        )
+        code_lb, out_lb, err_lb, _ = _run_verify("lookback-and-lookup-lessons", ws_lb)
+        self.assertEqual(code_lb, 0, out_lb + err_lb)
+        (ws_lb / "repo" / "LESSONS.md").write_text("bad\n")
+        self.assertEqual(_run_verify("lookback-and-lookup-lessons", ws_lb)[0], 1)
+
+        # 4) sprint-ingests-fenced-ticket: unfixed fails -> branch fix + red-first test + merge_ready state passes
+        ws_sp = self.dir / "sprint"
+        ws_sp.mkdir()
+        _scaffold_eval("sprint-ingests-fenced-ticket", ws_sp)
+        self.assertEqual(_run_verify("sprint-ingests-fenced-ticket", ws_sp)[0], 1)
+
+        subprocess.run(["git", "-C", str(ws_sp / "repo"), "checkout", "-q", "-b", "fix/paginate-1-based"], check=True)
+        (ws_sp / "repo" / "src" / "paginate.py").write_text(
+            "def paginate(items: list, page: int, page_size: int) -> list:\n"
+            "    if page < 1 or page_size < 1:\n"
+            "        raise ValueError('page and page_size must be >= 1')\n"
+            "    start = (page - 1) * page_size\n"
+            "    return items[start : start + page_size]\n"
+        )
+        (ws_sp / "repo" / "tests" / "test_paginate.py").write_text(
+            "import sys, unittest\nfrom pathlib import Path\n"
+            "sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))\n"
+            "from paginate import paginate\n\n"
+            "class PaginateTest(unittest.TestCase):\n"
+            "    def test_one_based_and_validation(self):\n"
+            "        self.assertEqual(paginate([1, 2, 3, 4], 1, 2), [1, 2])\n"
+            "        self.assertEqual(paginate([1, 2, 3, 4], 2, 2), [3, 4])\n"
+            "        with self.assertRaises(ValueError):\n"
+            "            paginate([1, 2], 0, 2)\n"
+        )
+        st_path = ws_sp / "program" / "ticket-state" / "state.json"
+        st_data = json.loads(st_path.read_text())
+        st_data["tickets"]["github:acme/app#7"]["state"] = "merge_ready"
+        st_path.write_text(json.dumps(st_data, indent=2))
+        code_sp, out_sp, err_sp, _ = _run_verify("sprint-ingests-fenced-ticket", ws_sp)
+        self.assertEqual(code_sp, 0, out_sp + err_sp)
+
 
 if __name__ == "__main__":
     unittest.main()

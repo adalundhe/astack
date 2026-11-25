@@ -1,3 +1,5 @@
+Skills directory: <resolved absolute path from `astack-tools skills-dir`, never `..`>
+
 # <lane>: <the deliverable in a few words>
 
 Program goal: <one line, the same in every brief>.

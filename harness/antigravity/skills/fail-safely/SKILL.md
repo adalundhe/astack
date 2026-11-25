@@ -1,23 +1,23 @@
 ---
 name: fail-safely
-description: "Design and review networked, cloud, edge, and distributed components to survive partial failure without cascading outages: bounded timeouts/queues/pools, jittered backoff with retry budgets, decoupled health probes, graceful drain, origin shielding, and failure-domain spread."
+description: "Design networked and distributed boundaries to survive partial failure without cascading outages. Use when building or reviewing network clients, services, probes, or deploys."
 disable-model-invocation: true
 ---
 
 # Fail safely
 
-Assume any downstream, network hop, host, or failure domain can slow down, restart, or vanish. Design every boundary to degrade cleanly instead of amplifying a blip into a fleet outage.
+Assume any downstream, network hop, host, or failure domain can slow down, restart, or vanish. Design every boundary to degrade cleanly instead of turning a blip into a fleet outage.
 
-Apply this across whatever compute, orchestrator, serverless, edge/CDN, or messaging platform the system runs on (**analyze-environment**).
+Apply this across whatever compute, orchestrator, serverless, edge/CDN, or messaging platform the system runs on (`analyze-environment`).
 
 ## Start with
 
-1. **Bound every wait, queue, pool, and fan-out (**no-picked-constants**):** set explicit connect, read, and total deadlines on every network and DB call. Cap connection pools, worker concurrency, edge subrequests, and queue depths with backpressure or load shedding instead of unbounded growth.
-2. **Prevent retry storms and origin stampedes:** retry only idempotent operations (**safe-to-rerun**) with exponential backoff, full jitter, a retry budget, and circuit breakers or bulkheads. Behind CDNs and caches, protect origins with shielding, request coalescing, stale-while-revalidate/stale-if-error, and rate limits.
-3. **Decouple liveness from external dependencies:** liveness checks verify only whether the process itself is wedged. Never query external DBs or upstream APIs inside liveness probes, because a downstream blip will restart the entire fleet at once. Use readiness checks for serving readiness and startup checks for slow boot.
-4. **Drain gracefully on deploys and shutdown:** handle `SIGTERM`, wait for load-balancer deregistration to propagate before closing listeners, finish in-flight requests within grace time, and close pools cleanly so deploys don't spike 502s/503s.
-5. **Survive host, zone, and origin loss:** spread replicas across independent failure domains, set disruption budgets and explicit CPU/memory limits, and keep critical tiers stateless or cleanly replicated.
-6. **Prove resilience under injected faults (**full-spectrum-testing**):** simulate slow or blackholed downstreams, mid-request shutdown, pool exhaustion, and partial dependency loss. Happy-path tests never prove resilience.
+1. **Bound every wait, queue, pool, and fan-out (**no-picked-constants**):** set explicit connect, read, and total deadlines on every network and DB call. Cap pools, concurrency, subrequests, and queues with backpressure, because unbounded queues exhaust memory and wedge callers.
+2. **Prevent retry storms and origin stampedes:** retry only idempotent calls (**safe-to-rerun**) with exponential backoff, full jitter, and a retry budget. Add circuit breakers or bulkheads, because synchronized retries amplify partial outages into fleet storms. Behind CDNs and caches, protect origins with shielding, coalescing, stale-if-error, and rate limits.
+3. **Decouple liveness from external dependencies:** liveness probes check only whether the process itself is wedged. Never query external DBs or APIs in liveness probes, because a downstream blip will restart the entire fleet. Use readiness checks for traffic and startup checks for slow boot.
+4. **Drain gracefully on deploys and shutdown:** handle `SIGTERM` and wait for load-balancer deregistration before closing listeners. Finish in-flight requests within grace time, then close pools cleanly so deploys never spike 502s/503s.
+5. **Survive host, zone, and origin loss:** spread replicas across independent failure domains and set disruption budgets. Enforce explicit CPU/memory limits, and keep critical tiers stateless or cleanly replicated.
+6. **Prove resilience under injected faults (**full-spectrum-testing**):** simulate slow or blackholed downstreams, mid-request shutdown, pool exhaustion, and dependency loss. Happy-path tests never prove resilience.
 
 ## Watch for
 
@@ -28,13 +28,13 @@ Apply this across whatever compute, orchestrator, serverless, edge/CDN, or messa
 - single-zone critical services lacking disruption budgets or origin failover;
 - serverless or edge handlers hitting cold-start storms or subrequest caps.
 
-**The test:** if one downstream stalls for 30s, or a host, zone, or origin drops mid-traffic, does the system degrade cleanly and recover automatically?
+**The test:** if one downstream stalls for 30s, or a host or zone drops mid-traffic, does the system degrade cleanly?
 
 ## When it doesn't fit
 
 - local single-process CLIs or offline scripts with no network callers or live serving SLO;
 - single-node local dev fixtures where multi-domain disruption budgets don't apply.
 
-**Showing it:** inject latency, dependency failure, or shutdown under concurrent load and show the hang, retry storm, fleet restart loop, OOM, or dropped requests.
+**Showing it:** inject latency, dependency failure, or shutdown under concurrent load. Show the hang, retry storm, restart loop, OOM, or dropped requests.
 
-Referenced skills: `analyze-environment` (`../analyze-environment/SKILL.md`), `no-picked-constants` (`../no-picked-constants/SKILL.md`), `safe-to-rerun` (`../safe-to-rerun/SKILL.md`), `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `no-picked-constants` (`../no-picked-constants/SKILL.md`), `safe-to-rerun` (`../safe-to-rerun/SKILL.md`), `full-spectrum-testing` (`../full-spectrum-testing/SKILL.md`). Read any cited skill file before acting when its trigger applies.

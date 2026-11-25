@@ -1,18 +1,21 @@
 ---
 name: minimize-state-stores
-description: "Keep one source of truth for each piece of data; add caches, copies, or long-lived state only when measurements justify them. Use when writing or reviewing caching, denormalization, or stateful code."
+description: "Keep one source of truth per datum; add caches or extra state only when measurements justify them. Use when writing or reviewing caching, denormalization, or stateful code."
 ---
 
 # Minimize state stores
 
-Keep one source of truth for every piece of data. Only introduce caches, copies, or long-lived state when measurements prove they're needed.
+Keep one source of truth for every piece of data, because every extra copy drifts stale. Introduce caches, copies, or long-lived state only when measurements prove they're needed.
 
 ## Start with
 
 1. **Keep one source of truth** and compute derived values on demand.
 2. **Keep state as narrow as possible:** local variable before request scope, request before process, process before shared state. Avoid mutable globals.
 3. **Optimize the slow path before caching around it** (**benchmarking**).
-4. **Build justified caches properly:** when measurements prove a cache is needed, give it a single owner, invalidation on source updates, a bounded size with eviction, explicit staleness limits accepted by users, and a measured hit rate. Test it empty, stale, full, under miss bursts, and across restarts.
+4. **Build justified caches properly:** when measurements prove a cache is needed, enforce every requirement below:
+   - give it a single owner and explicit invalidation on source updates;
+   - bound its size with eviction, set user-accepted staleness limits, and track hit rate;
+   - test it empty, stale, full, under miss bursts, and across restarts.
 
 ## Watch for
 

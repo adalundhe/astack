@@ -1,11 +1,11 @@
 ---
 name: run-it-back
-description: "Restate the goal, problem, user-visible done-when, exclusions, and assumptions in short checkable lines before starting. Use before planning or whenever a request is ambiguous."
+description: "Restate goal, problem, user-visible done-when, exclusions, and assumptions in short checkable lines. Use before planning or whenever a request is ambiguous."
 ---
 
 # Run it back
 
-Restate what the person asked for in short, easily corrected lines.
+Restate what the person asked for in short, easily corrected lines so misreads surface before work starts.
 
 From their message, referenced files, and earlier decisions, state one plain line each for:
 

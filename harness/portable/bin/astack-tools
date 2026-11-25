@@ -203,8 +203,12 @@ def _ensure_private_dir(path: Path, root: Path | None = None) -> tuple[bool, str
 
 def inspect_astack_home(home_dir: Path | None = None) -> dict:
     target = (home_dir or astack_home_dir()).expanduser()
-    exists = target.exists()
-    is_dir = target.is_dir()
+    try:
+        exists = target.exists()
+        is_dir = target.is_dir() if exists else False
+    except OSError:
+        exists = False
+        is_dir = False
     mode: str | None = None
     if is_dir:
         if os.name == "nt":

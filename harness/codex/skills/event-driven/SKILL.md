@@ -5,15 +5,15 @@ description: "Wake work on the event that unblocks it instead of timers, sleeps,
 
 # Event-driven, not timers
 
-Trigger work from the event that unblocks it rather than a timer, sleep, or polling loop.
+Trigger work from the event that unblocks it, not timers or polling, because sleeps waste time when work finishes early and race when it finishes late.
 
 ## Start with
 
-1. **Wait directly on the unblocking event:** a channel, condition variable, future/promise, notification, file watcher, or webhook.
+1. **Wait directly on the unblocking event:** use a channel, condition variable, future/promise, notification, file watcher, or webhook.
 2. **Add an event if none exists:** have the producer emit one rather than polling it.
 3. **Derive or adapt timeouts and deadlines** instead of hardcoding them (**no-picked-constants**).
 4. **Keep event ordering replayable:** identical inputs and seeds should produce identical event order.
-5. **Apply this to agent workflows too:** wait for completion notifications from runs or workers instead of polling by hand (**automate-this**).
+5. **Apply this to agent workflows too:** wait for completion notifications from runs or workers instead of polling by hand (`automate-this`).
 
 ## Watch for
 
@@ -28,9 +28,10 @@ Trigger work from the event that unblocks it rather than a timer, sleep, or poll
 ## When it doesn't fit
 
 - inherently time-based work: deadlines, timeouts, heartbeats, and explicit schedules (e.g. a nightly job);
+- drift or clock check-ins supervising long runs where completion notifications do not catch stalls;
 - retries after failure paced by the server's signal (e.g. `Retry-After`);
-- polling an external system you don't control that exposes no event mechanism, at its documented rate (noted in code).
+- polling an uncontrolled external system with no event API, at its documented rate (noted in code).
 
-**Showing it:** measure added latency or wasted idle work from the timer, or demonstrate a state change missed between polls using a controlled clock.
+**Showing it:** measure wasted idle time or added latency from the timer. Or use a controlled clock to show a state change missed between polls.
 
-Referenced skills: `no-picked-constants` (`../no-picked-constants/SKILL.md`), `automate-this` (`../automate-this/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `no-picked-constants` (`../no-picked-constants/SKILL.md`). Read any cited skill file before acting when its trigger applies.

@@ -1,12 +1,14 @@
 ---
 name: fix-it
-description: "Apply minimal, behavior-proven bug fixes: classify behavior on the desired/expected matrix, back with failing behavior tests, fix root causes without state or lock hacks, check plausible system/perf impact, harden tests for review, and prove before/after. Use whenever fixing a confirmed bug."
+description: "Apply minimal, behavior-proven fixes to confirmed root causes without state hacks or regressions. Use whenever fixing a confirmed bug."
 disable-model-invocation: true
 ---
 
 # Fix it
 
-Fix the confirmed root cause cleanly, minimally, and provably. Avoid accidental state, locking hacks, speculative optimizations, and out-of-scope refactors.
+Fix the confirmed root cause cleanly, minimally, and provably. Avoid accidental state, lock hacks, speculative optimizations, and out-of-scope refactors.
+
+**Role guard:** workers and single-agent hosts only—read-only reviewers diagnose and verify, never apply fixes.
 
 ## Classify behavior first
 
@@ -17,23 +19,25 @@ Evaluate the bug and any side effect along two axes:
 
 | | **Expected** | **Unexpected** |
 |---|---|---|
-| **Desired** | Not a bug. | **Doc gap:** update docs to match reality (**technical-writing**). |
-| **Undesired** | **Known issue:** check whether remaining failures mean you patched a symptom instead of the root cause. | **Novel bug:** shrink the repro (**find-it**) to test in isolation, check callers (**blast-radius**), and file follow-ups (**track-it**) or fix in scope. |
+| **Desired** | Not a bug. | **Doc gap:** update docs to match reality. |
+| **Undesired** | **Known issue:** check whether remaining failures mean you patched a symptom instead of the root cause. | **Novel bug:** shrink the repro (**find-it**), check callers (**blast-radius**), and fix in scope or log a follow-up. |
 
 ## Ten rules for every fix
 
-1. **Repro and test first (**find-it**, **tests-assert-behaviour**):** back every fix with a repro and failing behavior test. Strengthen or parameterize existing tests before adding new files.
-2. **Keep it minimal (**simplify-me**, **yagni**):** write the smallest correct fix using existing patterns and libraries.
-3. **Stay inside the fault boundary (**minimize-state-stores**, **find-it**):** don't add extra states, duplicate stores, or refactor outside the affected area.
-4. **Fix concurrency at the state level (**no-shared-writes**):** treat races and deadlocks as mismanaged state first, because arbitrary locks hide bugs instead of solving them.
-5. **Make implicit state machines explicit (**no-implicit-states**):** never hack around boolean-flag soup; make the minimal refactor to explicit states.
-6. **Let the code speak (**comment-cop**):** clear code and tests explain the fix; skip narrating comments.
-7. **Harden against review edge cases:** strengthen tests for every proven edge case or failure mode surfaced by lead **review**.
-8. **Don't rearchitect inside a bug fix (**rearchitect**):** fix the specific bug cleanly and note any deeper architectural flaw in the PR.
+1. **Repro and test first (**find-it**):** back every fix with a repro and failing behavior test. Extend existing tests before adding files.
+2. **Keep it minimal:** write the smallest correct fix using existing patterns, because broad edits widen blast radius and mask regressions.
+3. **Stay inside the fault boundary:** avoid extra state, duplicate stores, or unrelated refactors, because extra state drifts and creates new bugs.
+4. **Fix concurrency at the state level:** treat races and deadlocks as mismanaged state first, because arbitrary locks hide bugs instead of solving them.
+5. **Make implicit state machines explicit:** replace boolean-flag soup with explicit states, because flag combinations hide impossible transitions.
+6. **Let the code speak:** clear code and tests explain the fix; skip narrating comments.
+7. **Harden against review edge cases:** strengthen tests for every proven edge case or failure mode surfaced in review.
+8. **Don't rearchitect inside a bug fix:** fix the specific bug cleanly and note deeper flaws in the PR, because mixed refactors obscure root-cause verification.
 9. **Prove before and after (**prove-it**):** a fix is done only when every failure reproduces without it and disappears with it.
-10. **Check plausible system and perf impact (**benchmarking**, **clamber**, **ab-test**, **never-trade-functionality**):**
-    - Check whether the fix plausibly shifts compute complexity, memory/allocations, storage/queries, network/protocols, caching, concurrency/tail latency, or startup/FDs.
-    - When **blast-radius** shows plausible impact, benchmark against baseline noise to prove no regression. Skip heavy benchmarking on localized fixes with no plausible system impact.
-    - Fix perf regressions only with **benchmarking** and **clamber**; never guess or optimize outside scope.
+10. **Check plausible system and perf impact:**
+    - Check shifts in compute, memory, storage, network, caching, tail latency, or FDs.
+    - When **blast-radius** shows plausible impact, benchmark against baseline noise via **benchmarking**. Skip heavy benchmarking on localized fixes.
+    - Fix perf regressions only with measured profiles; never guess or optimize outside scope.
 
-Finish with **no-leaked-secrets** and **cleanup** (removing `<file>_DEBUG_<shorthash>.<type>` artifacts and temp hooks). Report every **failed or reverted fix approach** to the lead so it gets logged as `decided:`, passed to post-fix reviewers, and preserved via **make-it-stick**.
+Finish with **cleanup** to delete `<file>_DEBUG_<shorthash>.<type>` files, temp hooks, and any secrets. Report every **failed or reverted fix approach** to the lead for `decided:` and review.
+
+**Done when:** the failing test goes red-to-green, plausible impact is checked, artifacts are cleaned, and failed approaches are reported.

@@ -1,6 +1,18 @@
 {
-  "description": "Stamp astack lane logs with UTC timestamps and keep Go mode (Lead role) sticky across prompts and compaction.",
+  "description": "Enforce runtime safety guards, auto-recall ~/.astack lessons, stamp lane logs with UTC timestamps, and keep Go mode (Lead role) sticky across prompts and compaction.",
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/astack-guard-hook --harness claude-code --event PreToolUse",
+            "args": []
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit|Bash",

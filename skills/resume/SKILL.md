@@ -1,23 +1,23 @@
 ---
 name: resume
-description: "Resume suspended (PAUSED) taskex runs/schedules and orchestral workflows/steps in place, or recover failed, cancelled, or crashed taskex and orchestral runs from durable SQLite checkpoints without duplicating completed work. Use when unpausing or restarting interrupted automation."
+description: "Unpause live taskex/orchestral runs or recover crashed runs from SQLite checkpoints without duplicates. Use when unpausing or restarting interrupted Python automation."
 disable-model-invocation: true
 ---
 
 # Resume
 
-Unpause live `PAUSED` runs, schedules, steps, or workflows in place—or recover failed, cancelled, and crashed `taskex` / `orchestral` runs from durable checkpoints.
+Unpause live `PAUSED` runs in place, or recover failed, cancelled, and crashed `taskex` / `orchestral` runs from checkpoints. Scope: Python `taskex`/`orchestral` automation only; use `whatsup` for agentic sessions, and atomic files/commits under `agentic-only`.
 
 ## 1. Choose live unpause vs. checkpoint recovery
 
-- **Live unpause (same runner, `PAUSED`):** continues the exact run or workflow in place and unfreezes pause-aware timeouts.
-- **Restart-from-checkpoint (failed, cancelled, or fresh process with `SQLiteCheckpointStore`):** loads saved checkpoints so completed steps skip and incomplete steps start with `last_checkpoint()` populated.
+- **Live unpause (same runner, `PAUSED`):** continues in place and unfreezes timeouts. Prefer this while the process is alive because in-memory state stays intact.
+- **Checkpoint replay (failed, cancelled, or fresh process):** loads `SQLiteCheckpointStore` state so completed steps skip and incomplete steps read `last_checkpoint()`. Use after crashes because process memory is gone.
 
 ## 2. Resume `taskex` runs and schedules
 
 - **Live unpause:**
-  - Single run (async/thread callable or `SIGSTOP`-paused POSIX shell command): `run = await runner.resume(token)` (returns the same `Run`; sends `SIGCONT` to paused POSIX process groups).
-  - Recurring schedule: `await runner.resume_schedule(token)` (unpauses active run and schedule loop).
+  - Single run: `run = await runner.resume(token)` returns the same `Run` and sends `SIGCONT` to paused POSIX process groups.
+  - Recurring schedule: `await runner.resume_schedule(token)` unpauses both the active run and schedule loop.
 - **Restart-from-checkpoint recovery:**
   1. Inspect saved progress first: `cp = await runner.get_checkpoint(old_token)` or `await runner.get_latest_task_checkpoint("etl")`.
   2. Same runner (task registered): `new_run = await runner.resume(old_token)`.
@@ -29,13 +29,13 @@ Unpause live `PAUSED` runs, schedules, steps, or workflows in place—or recover
              # Or seed directly: runner.run(process_items, *args, alias="etl", resume_from=cp)
              res = await runner.wait(new_run.token)
      ```
-  - **Async store gotcha (`taskex`):** with an async `CheckpointStore`, use `await runner.resume(...)` or pass an already-awaited `Checkpoint` object to `resume_from=`; passing a string token to sync `runner.run(..., resume_from=...)` raises `TypeError`.
+  - **Async store gotcha (`taskex`):** use `await runner.resume(...)` or pass an awaited `Checkpoint` to `resume_from=`. Passing a string token to sync `runner.run(..., resume_from=...)` raises `TypeError`.
 
 ## 3. Resume and recover `orchestral` workflows and steps
 
-- **Live workflow unpause:** `await orch.resume(wait=True)` resumes all paused steps (`SIGCONT` / unblocks coroutines & threads / schedules) and continues remaining waves.
-- **Live single-step unpause:** `await orch.resume_step(target)` (by `Step`, name/`alias`, or run token).
-- **Workflow crash/failure recovery (same instance or fresh process):** rebuild the workflow with the same `workflow_id` and `checkpoint_store` (or `Env(MERCURY_SYNC_CHECKPOINT_DB_PATH=...)`) and call `await orch.resume(...)`:
+- **Live workflow unpause:** `await orch.resume(wait=True)` resumes all paused steps (`SIGCONT`, coroutines, threads, schedules) and continues remaining waves.
+- **Live single-step unpause:** `await orch.resume_step(target)` by `Step`, `alias`, or run token.
+- **Workflow crash/failure recovery:** rebuild the workflow with the same `workflow_id` and `checkpoint_store` (or `MERCURY_SYNC_CHECKPOINT_DB_PATH`). Then call `await orch.resume(...)` in the same or fresh process:
   ```python
   with SQLiteCheckpointStore("./state/workflow.db") as store:
       async with Orchestral(
@@ -51,11 +51,14 @@ Unpause live `PAUSED` runs, schedules, steps, or workflows in place—or recover
           # and seeds remaining steps with their latest task checkpoints (last_checkpoint()).
           await orch.resume(wait=True, fail_fast=True, timeout="10m")
   ```
-- **Explicit step-level seeding:** seed individual steps with `wf.add_task(..., resume_from=token | task_name | checkpoint)` or `wf.add_command(..., resume_from=...)` (works with both sync and async `CheckpointStore` implementations).
+- **Explicit step seeding:** pass `resume_from=token | task_name | checkpoint` to `wf.add_task` or `wf.add_command`. Works with both sync and async `CheckpointStore` implementations.
 
 ## 4. Verify recovery
 
-Check the outcome explicitly (**prove-it**, **no-hidden-flow-control**, **safe-to-rerun**):
-- Assert `res.status == RunStatus.COMPLETE` (for `taskex`) or `orch.status == WorkflowStatus.COMPLETED` with every step `RunStatus.COMPLETE` (for `orchestral`).
-- Confirm checkpoint linkage (`new_run.resumed_from_checkpoint_id` in `taskex`; restored prior step results and non-duplicated outputs in `orchestral`).
-- Pair with **taskex**, **orchestral**, **checkpoint**, and **suspend**.
+Check the outcome explicitly (**prove-it**, **safe-to-rerun**):
+
+- Assert `res.status == RunStatus.COMPLETE` (`taskex`) or `orch.status == WorkflowStatus.COMPLETED` with every step `RunStatus.COMPLETE` (`orchestral`).
+- Confirm checkpoint linkage (`new_run.resumed_from_checkpoint_id` in `taskex`; restored prior results and non-duplicated outputs in `orchestral`).
+- Pair with `taskex`, `orchestral`, `checkpoint`, and `suspend`.
+
+**Done when:** resumed runs finish `COMPLETE`/`COMPLETED`, checkpoint linkage is verified, and completed steps produced no duplicate side effects.

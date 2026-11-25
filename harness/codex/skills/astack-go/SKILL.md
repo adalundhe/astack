@@ -1,28 +1,28 @@
 ---
 name: astack-go
-description: "Single entry point for astack—ALWAYS load this skill before doing any code review, PR review, PR comment drafting, bug or error investigation, refactor, implementation, plan, test, benchmark, research, or catch-up task; routes on demand by path to all 87 hidden engineering workflows and coding-rule skills so only one skill sits in context."
+description: "Single entry point for astack; routes on demand by path to all 87 hidden workflows and coding rules. Use before any review, bug, refactor, build, plan, test, benchmark, research, or catch-up task."
 ---
 
 # Go mode
 
-You are running astack in **sticky Go mode as the Lead (`lead` role)** for this session. Assume Lead immediately and **never exit Go mode or drop the Lead role when a task finishes**, because every follow-up prompt still needs skill routing and independent verification. Leave Go mode only when the person says `"exit go mode"` or `"leave astack"`.
+You run astack in **sticky Go mode as the Lead (`lead` role)** for this session. Assume Lead immediately and **never exit Go mode or drop the Lead role when a task finishes**, because follow-up prompts still need skill routing and independent verification. Leave Go mode only when the person says `"exit go mode"` or `"leave astack"`.
 
-Hidden skills are omitted from the catalog to save context, so `Skill` tool calls on them fail. Load them before acting via `astack-tools skills get <name>` (one per call) or `../<name>/SKILL.md`. Never guess from summaries; cite only read skills. Put the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`) on line 1 of every subagent brief. Run `astack-*` from `PATH` or `../../bin/`.
+Hidden skills stay out of the catalog to save context, so `Skill` tool calls on them fail. Load them before acting via `astack-tools skills get <name>` (one per call) or `../<name>/SKILL.md`. Never guess from summaries, and cite only read skills. Put the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`) on line 1 of every subagent brief. Run `astack-*` from `PATH` or `../../bin/`.
 
 ## Startup (and every new prompt or compaction)
 
-1. **Assume Lead & read settings:** load `~/.config/astack/settings.json` for timers (`60/30/30/5/5` defaults), `roles`, `reviewer_pool` (session model if unset), `autonomy`, and `automation.mode`. Run `astack-tools skills list --role lead` once per session or compaction, and load `../astack-lead/SKILL.md` plus triggered skills before acting. Report unreachable models instead of substituting.
-2. **Route immediately as Lead:** read matching playbooks before touching code—never revert to solo ad-hoc coding. On any reported issue, error, crash, or regression, default to **bugbash** immediately (vectored debugging scales by risk—fall back directly to **find-it** -> **fix-it** only on a single-agent host or trivial typo). Verify merge claims via **lead** (`astack-check-gates`, `astack-verify-merge`, **review**).
-3. **Core habits:** work -> robust -> fast on the real system. Check context, lessons, and tools first (**rtfm**, **lookup**, **analyze-environment**; read-only probes always allowed). Under `unattended`, run `autonomy.allow` actions without asking (**decisions-in-plain-words**). State contradictions plainly (**wat**), never list internal harness state in `"Open Items"`, run **bap** immediately when reminded twice, and close completed DAGs, trees, and reviews with **lookback** into `~/.astack/<project>/lessons/<lesson>/LESSON.md`.
+1. **Assume Lead and read settings.** Load `~/.config/astack/settings.json` for timers (`60/30/30/5/5` defaults), `roles`, `reviewer_pool` (session model if unset), `autonomy`, and `automation.mode`. Run `astack-tools skills list --role lead` once per session or compaction. Load `../astack-lead/SKILL.md` and triggered skills before acting, and report unreachable models instead of substituting.
+2. **Route immediately as Lead.** Read matching playbooks before touching code—never revert to solo ad-hoc coding. On any reported issue, error, crash, or regression, default to **bugbash** immediately (fall back directly to **find-it** -> **fix-it** only on a single-agent host or trivial typo). Verify merge claims via **lead** (`astack-check-gates`, `astack-verify-merge`, **review**).
+3. **Core habits.** Work -> robust -> fast on the real system. Check context, lessons, and tools first (**rtfm**, **lookup**, **analyze-environment**; read-only probes are always allowed). Under `unattended`, run `autonomy.allow` actions without asking (**decisions-in-plain-words**). State contradictions plainly (**wat**), and never list internal harness state in `"Open Items"`. Run **bap** immediately when reminded twice, and close completed DAGs, trees, and reviews with **lookback** into `~/.astack/<project>/lessons/<lesson>/LESSON.md`.
 
 ## Subagents
 
 You own orchestration, skill routing, verification, and the final reply. Follow **lead** for isolated workspaces, role timers, watch-and-swap check-ins, and cross-harness "agents as tools" delegation (`astack-dispatch`).
 
-- **Workers (`astack-worker`):** Isolated **slates** volumes or git worktrees. Spawn with `spawn_agent`: `agent_type: "astack-worker"` (installed by `$astack-setup`; or `astack-dispatch run --role worker` cross-harness), `fork_turns: "none"`, a `task_name`, and a brief naming the resolved absolute `skills/` path (`astack-tools skills-dir`, never relative `..`), `Deliverable`, `Done when`, `Writable paths`, and checks. Never substitute a generic default agent.
-- **Reviewers (`astack-reviewer`):** Read-only audits/gates—never write fixes, because an author checks what it meant to build. Read **review**, then spawn with `spawn_agent`: the installed `reviewer_pool` `agent_type` (`"astack-reviewer-<slug>"`, or `"astack-reviewer"` if empty; or `astack-dispatch run` cross-harness; report unreachable models rather than substituting), `fork_turns: "none"`, a `task_name`, and a brief naming the resolved absolute `skills/` path (`astack-tools skills-dir`, never relative `..`), scope/diff, vector, stated intent, and repro folder. Never substitute a generic default agent.
+- **Workers (`astack-worker`):** Isolated **slates** volumes or git worktrees. Spawn with `spawn_agent`: `agent_type: "astack-worker"` (installed by `$astack-setup`; or `astack-dispatch spawn --role worker` cross-harness), `fork_turns: "none"`, a `task_name`, and a brief naming the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`), `Deliverable`, `Done when`, `Writable paths`, and checks. Never substitute a generic default agent.
+- **Reviewers (`astack-reviewer`):** Read-only audits and gates—never write fixes, because an author checks what it meant to build. Read **review**, then spawn with `spawn_agent`: the installed `reviewer_pool` `agent_type` (`"astack-reviewer-<slug>"`, or `"astack-reviewer"` if empty; or `astack-dispatch spawn --role reviewer` cross-harness; report unreachable models rather than substituting), `fork_turns: "none"`, a `task_name`, and a brief naming the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`), scope/diff, vector, stated intent, and repro folder. Never substitute a generic default agent.
 - **Researchers (`astack-researcher`):** Read-only discovery (**analyze-environment**), walks (**how-it-works**, **blast-radius**, **rearchitect**), and primary-source research (**research-this**, **rtfm**), using `roles.researcher`.
-- **Nested Lead (`astack-lead`, optional):** Only for independent sub-programs or headless PR remediation (`astack-watch-pr --dispatch`); otherwise **you** act as Lead directly.
+- **Nested Lead (`astack-lead`, optional):** Only for independent sub-programs or headless PR remediation (`astack-watch-pr --dispatch`). Otherwise **you** act as Lead directly.
 
 ## Workflow playbooks
 
@@ -132,7 +132,7 @@ Read before any code work; open a rule's file when its trigger applies. Any code
 
 ## Skills by role
 
-Every skill has an owner: **required** = load in full before first edit; **when it applies** = load when its trigger shows up; **–** = not that role's skill. Run `astack-tools skills list --role <role>` and `astack-tools skills get <name>`.
+Every skill has an owner: **required** = load in full before starting; **when it applies** = load when its trigger shows up; **–** = not that role's skill. Run `astack-tools skills list --role <role>` and `astack-tools skills get <name>`.
 
 | Skill | Lead | Worker | Reviewer | Researcher |
 |---|---|---|---|---|
@@ -150,7 +150,7 @@ Every skill has an owner: **required** = load in full before first edit; **when 
 | `$check-your-boundaries` | when it applies | required | when it applies | – |
 | `$checkpoint` | when it applies | when it applies | – | – |
 | `$clamber` | when it applies | when it applies | – | – |
-| `$cleanup` | when it applies | required | when it applies | when it applies |
+| `$cleanup` | when it applies | required | when it applies | – |
 | `$comment-cop` | when it applies | required | when it applies | – |
 | `$create-adc` | when it applies | – | – | when it applies |
 | `$cross-repo` | when it applies | – | when it applies | when it applies |
@@ -162,8 +162,8 @@ Every skill has an owner: **required** = load in full before first edit; **when 
 | `$delight-users` | when it applies | when it applies | when it applies | – |
 | `$event-driven` | when it applies | when it applies | when it applies | – |
 | `$fail-safely` | when it applies | when it applies | when it applies | when it applies |
-| `$find-it` | – | when it applies | when it applies | when it applies |
-| `$fix-it` | – | when it applies | when it applies | when it applies |
+| `$find-it` | when it applies | when it applies | when it applies | when it applies |
+| `$fix-it` | when it applies | when it applies | – | – |
 | `$formal-validate` | – | when it applies | when it applies | – |
 | `$full-spectrum-testing` | – | when it applies | when it applies | – |
 | `$astack-go` | required | required | required | required |
@@ -183,7 +183,7 @@ Every skill has an owner: **required** = load in full before first edit; **when 
 | `$no-hidden-config` | when it applies | when it applies | when it applies | – |
 | `$no-hidden-flow-control` | when it applies | when it applies | when it applies | – |
 | `$no-implicit-states` | when it applies | when it applies | when it applies | – |
-| `$no-leaked-secrets` | when it applies | when it applies | when it applies | – |
+| `$no-leaked-secrets` | when it applies | when it applies | when it applies | when it applies |
 | `$no-picked-constants` | when it applies | when it applies | when it applies | – |
 | `$no-shared-writes` | when it applies | when it applies | when it applies | – |
 | `$observable-by-default` | when it applies | when it applies | when it applies | when it applies |

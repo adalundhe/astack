@@ -1,24 +1,24 @@
 ---
 name: check-your-boundaries
-description: "Parse and validate external data into domain types once at the boundary, then trust those types inside. Use when writing or reviewing code handling requests, CLI args, config, env vars, files, DB rows, or API replies."
+description: "Parse and validate external data into domain types once at the boundary, then trust those types inside. Use when handling requests, CLI args, config, files, or API replies."
 ---
 
 # Check your boundaries
 
-Parse external data into the program's own types once where it enters, then trust those types inside.
+Parse external data into domain types once where it enters, then trust those types inside, because scattered re-checks hide invalid shapes and duplicate parsing bugs.
 
 ## Start with
 
-1. **Parse at the edge.** Run requests, CLI arguments, config, environment variables, files, database rows, and external API replies through one parse step that returns a domain type or a typed error (**no-hidden-flow-control**).
-2. **Trust types inside.** Don't repeat validation or add defensive null checks for guarantees the type already enforces. If internal code feels like it needs a check, tighten the type.
-3. **Distinguish swappable primitives.** Wrap values that share a primitive type (such as two kinds of IDs or different units) in distinct types when mixing them up causes real bugs, and validate once at construction.
-4. **Derive types from the source schema.** Generate or derive types from the owning schema (API spec, database schema, protocol definition) instead of maintaining a hand-written copy.
-5. **Keep core logic pure.** Keep framework and transport types in a thin outer shell so core logic operates on plain domain types and functions.
+1. **Parse at the edge.** Pass requests, CLI args, config, env vars, files, DB rows, and API replies through one boundary parser. Return a domain type or a typed error (**no-hidden-flow-control**).
+2. **Trust types inside.** Skip repeat validation and defensive null checks for guarantees the type already enforces. If internal code feels like it needs a check, tighten the type.
+3. **Distinguish swappable primitives.** Wrap values sharing a primitive type (like distinct IDs or units) in separate types when mix-ups cause real bugs. Validate each once at construction.
+4. **Derive types from the source schema.** Generate types from the owning API spec, DB schema, or protocol definition, because hand-written copies silently drift from the source.
+5. **Keep core logic pure.** Keep framework and transport types in a thin outer shell so core logic operates on plain domain types.
 
 ## Watch for
 
 - repeated validation or null checks on data that already crossed a boundary;
-- raw external payloads (dicts, JSON blobs, env strings, HTTP request objects, DB rows) passed deep into core logic;
+- raw external payloads (dicts, JSON blobs, env strings, HTTP requests, DB rows) passed deep into core logic;
 - framework or transport types appearing in core function signatures;
 - hand-written types duplicating an existing schema;
 - functions accepting multiple easily swapped parameters of the same primitive type;

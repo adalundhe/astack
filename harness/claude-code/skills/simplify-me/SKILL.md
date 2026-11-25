@@ -1,19 +1,24 @@
 ---
 name: simplify-me
-description: "Trim unnecessary code and complexity from recent changes or code under review while keeping correctness, edge cases, and performance intact. Use after implementation, before review, or during review."
+description: "Trim unnecessary code and complexity without losing correctness, edge cases, or speed. Use after coding or during review."
 disable-model-invocation: true
 ---
 
 # Simplify me
 
-Make recently written code (or code under review) smaller, clearer, and easier to test without losing correctness, edge-case handling, or performance.
+Make recent code smaller, clearer, and easier to test. Keep correctness, edge-case handling, and performance intact.
 
-1. **Check diff growth and read end to end** with fresh eyes. During PR rounds, run `astack-watch-pr diff-guard`: if review grew the diff, cut and narrow first before adding code.
-2. **Cut unnecessary parts:** remove dead code, unused options, duplicated logic, single-caller wrappers, pass-through layers, and narrating comments (**comment-cop**, **yagni**).
-3. **Make what remains straightforward:** flatten deep nesting, split oversized functions, replace clever tricks with plain fast code, and keep state local or computed (**minimize-state-stores**, **no-implicit-states**).
-4. **Improve testability:** separate pure logic from I/O and inject hidden inputs like clocks or globals (**check-your-boundaries**).
-5. **Verify every simplification:** keep changes only if all tests pass and robustness/performance don't regress. Benchmark if speed or memory could shift (**benchmarking**), and run **ab-test** if two options look close.
-6. **Never drop behavior to simplify** (**never-trade-functionality**), and don't add structure that merely looks tidier.
-7. **Summarize** what you cut or simplified, what you intentionally kept as-is, and why.
+**Skip if already minimal:** if the diff is small and clean, make no edits and say so. Churning working code adds risk without value.
 
-Referenced skills: `comment-cop` (`${CLAUDE_SKILL_DIR}/../comment-cop/SKILL.md`), `yagni` (`${CLAUDE_SKILL_DIR}/../yagni/SKILL.md`), `minimize-state-stores` (`${CLAUDE_SKILL_DIR}/../minimize-state-stores/SKILL.md`), `no-implicit-states` (`${CLAUDE_SKILL_DIR}/../no-implicit-states/SKILL.md`), `check-your-boundaries` (`${CLAUDE_SKILL_DIR}/../check-your-boundaries/SKILL.md`), `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`), `never-trade-functionality` (`${CLAUDE_SKILL_DIR}/../never-trade-functionality/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+1. **Check diff growth first.** Read the change end to end with fresh eyes. During PR rounds, run `astack-watch-pr diff-guard --base <ref>`, because review rounds pile on cheap patches. If review grew the diff, cut and narrow before adding code.
+2. **Cut unnecessary parts.** Remove dead code, unused options, duplicated logic, single-caller wrappers, pass-through layers, and narrating comments (**comment-cop**, **yagni**).
+3. **Simplify what remains.** Flatten deep nesting and split oversized functions. Replace clever tricks with plain, fast code. Keep state local or computed instead of mirrored in extra flags or caches.
+4. **Improve testability.** Separate pure logic from I/O. Inject hidden inputs like clocks or globals rather than reading them deep inside helpers.
+5. **Verify every cut.** Keep a simplification only when all tests pass and speed does not regress. Run **benchmarking** if latency or memory could shift, or compare close options with `ab-test`.
+6. **Never drop behavior to simplify** (**never-trade-functionality**). Skip structural changes that merely look tidier.
+
+**Done when:** `diff-guard` shows no unjustified bloat, all tests pass, and behavior is unchanged. Stop once further edits only shuffle style.
+
+**Reply:** list what you cut or simplified, what you kept as-is, and why.
+
+Referenced skills: `comment-cop` (`${CLAUDE_SKILL_DIR}/../comment-cop/SKILL.md`), `yagni` (`${CLAUDE_SKILL_DIR}/../yagni/SKILL.md`), `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`), `never-trade-functionality` (`${CLAUDE_SKILL_DIR}/../never-trade-functionality/SKILL.md`). Read any cited skill file before acting when its trigger applies.

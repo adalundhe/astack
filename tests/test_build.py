@@ -110,7 +110,7 @@ class BuildTest(unittest.TestCase):
             data = json.loads(val.stdout)
             self.assertGreaterEqual(data["components"]["skills"], 88)
             self.assertEqual(data["components"]["agents"], 4)
-            self.assertEqual(data["components"]["hooks"], 2)
+            self.assertEqual(data["components"]["hooks"], 3)
 
         with tempfile.TemporaryDirectory(prefix="astack-agy-install-") as td:
             fake_home = Path(td)
@@ -410,6 +410,7 @@ class BuildTest(unittest.TestCase):
                 "astack-watch-pr", "astack-watch-github", "astack-watch-gitlab", "astack-watch-bitbucket",
                 "astack-watch-tickets",
                 "astack-release", "astack-go-mode", "astack-go-hook",
+                "astack-guard", "astack-guard-hook",
             ):
                 self.assertTrue((HARNESS / tool / "bin" / script).stat().st_mode & 0o111, f"{tool}/{script}")
             for mod in (
@@ -736,6 +737,7 @@ class BuildTest(unittest.TestCase):
             hook_text = (HARNESS / hook_rel).read_text()
             json.loads(hook_text)
             self.assertIn("astack-go-hook", hook_text, f"{hook_rel} missing astack-go-hook")
+            self.assertIn("astack-guard-hook", hook_text, f"{hook_rel} missing astack-guard-hook")
 
         tech_writing = (ROOT / "skills/technical-writing/SKILL.md").read_text()
         self.assertIn("Discover and audit impacted docs on every change", tech_writing)
@@ -752,7 +754,7 @@ class BuildTest(unittest.TestCase):
         self.assertIn("**make-it-stick**", bap_src)
         self.assertIn("**lookup**", bap_src)
         self.assertIn("**lookback**", bap_src)
-        self.assertIn("run **bap** immediately", go_src)
+        self.assertIn("run **bap** immediately", go_src.lower())
 
         rtfm_src = (ROOT / "skills/rtfm/SKILL.md").read_text()
         self.assertIn("**lookup**", rtfm_src)
@@ -873,9 +875,17 @@ class BuildTest(unittest.TestCase):
             if md_file.parent.name not in ("lookback", "lookup"):
                 self.assertNotIn("<repo>/lessons/", stext, f"{md_file} references forbidden <repo>/lessons/ path")
 
-        # Readability guard: keep prose concise across all 88 skills (prevent 30+ word/sentence bloat from creeping back)
+        # Readability & description guards across all 88 skills (beat competitors on clarity and zero CLI clipping)
         for skill_md in sorted((ROOT / "skills").glob("*/SKILL.md")):
-            _, body = front_matter(skill_md)
+            fields, body = front_matter(skill_md)
+            desc = fields.get("description", "").strip().strip('"')
+            self.assertIn(" Use ", desc, f"{skill_md.relative_to(ROOT)} description missing ' Use ' trigger clause")
+            what = desc.partition(" Use ")[0]
+            self.assertLessEqual(
+                len(what),
+                110,
+                f"{skill_md.relative_to(ROOT)} description 'what' exceeds 110 chars ({len(what)}): {what!r}",
+            )
             clean = re.sub(r"```.*?```", "", body, flags=re.S)
             clean = re.sub(r"<!--.*?-->", "", clean, flags=re.S)
             sents = []
@@ -892,18 +902,63 @@ class BuildTest(unittest.TestCase):
                 avg = sum(sents) / len(sents)
                 self.assertLessEqual(
                     avg,
-                    20.0,
-                    f"{skill_md.relative_to(ROOT)} avg words/sentence too dense ({avg:.1f} > 20.0); keep one idea per sentence",
+                    16.0,
+                    f"{skill_md.relative_to(ROOT)} avg words/sentence too dense ({avg:.1f} > 16.0); keep one idea per sentence",
                 )
+
+        # Every coding-rule skill must have **Showing it:** matching agents/reviewer.md
+        for rule_name in (
+            "comment-cop", "delight-users", "no-bolt-ons", "yagni",
+            "data-structures-first", "no-implicit-states", "no-hidden-flow-control",
+            "no-hidden-config", "minimize-state-stores", "check-your-boundaries",
+            "no-shared-writes", "safe-to-rerun", "safe-to-deploy", "least-privilege",
+            "safe-iac", "fail-safely", "observable-by-default", "no-picked-constants",
+            "event-driven", "never-trade-functionality", "no-leaked-secrets",
+            "tests-assert-behaviour",
+        ):
+            rtext = (ROOT / "skills" / rule_name / "SKILL.md").read_text()
+            self.assertIn("**Showing it:**", rtext, f"coding rule {rule_name} missing **Showing it:** section")
+
+        # Never track Python bytecode (.pyc) in git
+        if shutil.which("git") and (ROOT / ".git").exists():
+            tracked_pyc = subprocess.run(
+                ["git", "-C", str(ROOT), "ls-files", "*.pyc", "**/*.pyc"],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(tracked_pyc.returncode, 0, tracked_pyc.stderr)
+            self.assertEqual(
+                tracked_pyc.stdout.strip(),
+                "",
+                f"tracked .pyc bytecode files found in git:\n{tracked_pyc.stdout}",
+            )
 
         self.assertTrue((ROOT / "evals/find-it-and-fix-it-bug/verify.py").is_file())
         self.assertTrue((ROOT / "evals/bugbash-investigates-and-proves-fix/verify.py").is_file())
+        for new_eval in (
+            "redteam-breaks-and-hardens",
+            "squish-consolidates-noisy-branch",
+            "lookback-and-lookup-lessons",
+            "sprint-ingests-fenced-ticket",
+        ):
+            self.assertTrue((ROOT / "evals" / new_eval / "verify.py").is_file(), f"{new_eval} missing verify.py")
         _, fi_prompt = front_matter(ROOT / "evals/find-it-and-fix-it-bug/prompt.md")
         for leaked_hint in ("find-it", "fix-it", "_in_retry", "no-implicit-states", "shrink"):
             self.assertNotIn(leaked_hint, fi_prompt, f"find-it-and-fix-it-bug prompt spoon-feeds {leaked_hint!r}")
         _, bb_prompt = front_matter(ROOT / "evals/bugbash-investigates-and-proves-fix/prompt.md")
         for leaked_hint in ("find-it", "fix-it", "challenge", "prove-it", "astack:reviewer", "astack:worker", "tenant_id"):
             self.assertNotIn(leaked_hint, bb_prompt, f"bugbash-investigates-and-proves-fix prompt spoon-feeds {leaked_hint!r}")
+        _, rt_prompt = front_matter(ROOT / "evals/redteam-breaks-and-hardens/prompt.md")
+        for leaked_hint in ("redteam", "TenantVault", "fail-open", "split-lock", "traversal"):
+            self.assertNotIn(leaked_hint, rt_prompt, f"redteam-breaks-and-hardens prompt spoon-feeds {leaked_hint!r}")
+        _, sq_prompt = front_matter(ROOT / "evals/squish-consolidates-noisy-branch/prompt.md")
+        for leaked_hint in ("squish", "authorship-check", "patch-id-check", "Co-authored-by"):
+            self.assertNotIn(leaked_hint, sq_prompt, f"squish-consolidates-noisy-branch prompt spoon-feeds {leaked_hint!r}")
+        _, lb_prompt = front_matter(ROOT / "evals/lookback-and-lookup-lessons/prompt.md")
+        for leaked_hint in ("lookback", "lookup", "LESSON.md", "legacy-xml-parser"):
+            self.assertNotIn(leaked_hint, lb_prompt, f"lookback-and-lookup-lessons prompt spoon-feeds {leaked_hint!r}")
+        _, sp_prompt = front_matter(ROOT / "evals/sprint-ingests-fenced-ticket/prompt.md")
+        for leaked_hint in ("sprint", "astack-watch-tickets", "UNTRUSTED", "merge_ready"):
+            self.assertNotIn(leaked_hint, sp_prompt, f"sprint-ingests-fenced-ticket prompt spoon-feeds {leaked_hint!r}")
 
 
 if __name__ == "__main__":

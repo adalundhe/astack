@@ -1,24 +1,25 @@
 ---
 name: werkflow
-description: "Author, configure, run, and manage modular DAG workflows with werkflow and werkflow-modules (Workflow, WorkflowGroup, @step, @requires, CLI flags, and all 15 modules). Use for sophisticated scripted pipelines and multi-system automation."
+description: "Author, configure, and run modular DAG workflows with werkflow and werkflow-modules (@step, @requires, CLI). Use for scripted multi-system pipelines."
 disable-model-invocation: true
 ---
 
 # Werkflow
 
-Author, configure, and run sophisticated DAG workflows with `werkflow` (`https://github.com/adalundhe/werkflow`) and `werkflow-modules` (`https://github.com/adalundhe/werkflow-modules`), Python >= 3.11.
+Author, configure, and run modular DAG workflows with `werkflow` (`https://github.com/adalundhe/werkflow`) and `werkflow-modules` (`https://github.com/adalundhe/werkflow-modules`, Python >= 3.11).
 
 ## Setup and execution
 
-- Check installed `uv`, Python `>=3.11`, core packages, and modules via `astack-tools doctor`.
-- Install via `astack-tools install` (`--profile standard` installs core + shell/file/git/github/http/python/system/secrets/encryption; use `--profile all` or `--modules docker,aws,jira,metrikflow,appito` for extras; load into a shell with `eval "$(astack-tools env)"`). Prefer `astack-tools install --profile all` over `pip install 'werkflow[all]'`—it pins the fixed `werkflow-docker>=0.4.1` / `werkflow-metrikflow>=0.3.1` releases and also includes `werkflow-jira` and `werkflow-appito`.
+- Check `automation.mode` in `~/.config/astack/settings.json` and run `astack-tools doctor`. Never install Python packages under `agentic-only` without explicit permission.
+- Under `python-stack`, run `astack-tools install` (`--profile standard` for core modules, or `--profile all` / `--modules docker,aws,jira,metrikflow,appito`). Load into a shell with `eval "$(astack-tools env)"`.
+- Prefer `astack-tools install --profile all` over `pip install 'werkflow[all]'`, because it pins fixed `werkflow-docker>=0.4.1` and `werkflow-metrikflow>=0.3.1` releases plus `werkflow-jira` and `werkflow-appito`.
 - **Run non-interactively (for agents and CI):**
   ```bash
   astack-tools werkflow run path/to/workflow.py --ci --no-prompt --graceful-abort \
     --config-path .werkflow.json --log-level info --logfiles-directory ./logs
   ```
-  - `--ci` disables spinners/graphics.
-  - `--no-prompt` skips interactive prompts and resolves values from `.werkflow.json` (`project_options`) or uppercase env vars (`RESULT_KEY.upper()`).
+  - `--ci` disables spinners and interactive graphics.
+  - `--no-prompt` resolves prompt values from `.werkflow.json` (`project_options`) or uppercase env vars (`RESULT_KEY.upper()`).
   - `--graceful-abort` catches step exceptions cleanly and calls `workflow.close()`.
 
 ## Authoring pattern
@@ -41,7 +42,7 @@ class RepoCheckWorkflow(Workflow):
         return {"cwd": cwd, "py_files": files}
 
     @step("locate")
-    async def check(self, cwd: str, py_files: list[str] = []):
+    async def check(self, cwd: str, py_files: list[str]):
         await self.logger.console.aio.info(f"Checking {len(py_files)} files in {cwd}")
         await self.batch(
             self.shell.run("ruff check ."),
@@ -55,21 +56,21 @@ class RepoCheckWorkflow(Workflow):
 
 ### Core rules and gotchas
 
-- **DAG & concurrency:** `@step('dep_a', 'dep_b', condition=lambda ctx: ..., skip_on_fail=False, prompts=[...])` builds a `networkx.DiGraph` and runs each topological generation concurrently via `asyncio.gather`.
+- **DAG & concurrency:** `@step('dep_a', 'dep_b', condition=lambda ctx: ..., skip_on_fail=False, prompts=[...])` builds a `networkx.DiGraph`. Each topological wave runs concurrently via `asyncio.gather`.
 - **Data passing:**
   - Returning a `dict` merges non-`None` keys into downstream context (`next_args`).
   - Returning a non-dict stores the value under the step method's name (`self.shortname`).
-  - Downstream `@step` methods declare matching parameter names; `.env` keys (lowercased), `.werkflow.json` `project_options`, and `command_directory` are also injected automatically.
+  - Downstream `@step` methods declare matching parameter names. `.env` keys (lowercased), `.werkflow.json` `project_options`, and `command_directory` inject automatically.
 - **`Workflow` helpers:**
   - `await self.batch(*coros, timeout=None)` — concurrent `asyncio.gather` (flattens returned lists).
   - `await self.sequence(*coros)` — sequential execution.
-  - `await self.as_async(sync_fn, *args, **kwargs)` — offload sync call via `asyncio.to_thread`.
+  - `await self.as_async(sync_fn, *args, **kwargs)` — offload sync calls via `asyncio.to_thread`.
   - `self.defer(coro_fn, *args, timeout=60, fail_on_timeout=True)` + `await self.finalize(timeout=None)` — background tasks drained later.
   - `await self.wait(coro, timeout=60, fail_on_timeout=True)` — timeout wrapper raising or returning `StepTimeoutError`.
   - `self.get_project_option("key")` — reads `project_options` from `.werkflow.json`.
-- **Prompts (`werkflow.prompt`):** `InputPrompt`, `SecurePrompt`, `ConfirmationPrompt`, `OptionPrompt`, `KeyValuePrompt`, `RepeatPrompt`. Give every prompt a `result_key` so `--no-prompt` resolves it deterministically from `.werkflow.json` or `RESULT_KEY.upper()`.
-- **Single-group discovery rule:** `werkflow run` scans all `Workflow` and `WorkflowGroup` subclasses in the file. For multi-workflow files, either set `priority = 1, 2, ...` on each `Workflow` (with no `WorkflowGroup`) OR list **every** `Workflow` inside one `WorkflowGroup` (`workflows = [FirstWorkflow, SecondWorkflow]`). Leaving an ungrouped `Workflow` beside a `WorkflowGroup` raises `MultipleWorkflowsViolationError`.
-- **Cleanup:** always close modules in `async def close(self)` and avoid leaving `logs/` untracked in git (**cleanup**).
+- **Prompts (`werkflow.prompt`):** `InputPrompt`, `SecurePrompt`, `ConfirmationPrompt`, `OptionPrompt`, `KeyValuePrompt`, `RepeatPrompt`. Give every prompt a `result_key` so `--no-prompt` resolves it from `.werkflow.json` or `RESULT_KEY.upper()`.
+- **Single-group discovery rule:** `werkflow run` scans all `Workflow` and `WorkflowGroup` subclasses in the file. In multi-workflow files, either set `priority = 1, 2, ...` on each `Workflow` (no `WorkflowGroup`) or list **every** `Workflow` in one `WorkflowGroup`. Leaving an ungrouped `Workflow` beside a `WorkflowGroup` raises `MultipleWorkflowsViolationError`.
+- **Cleanup:** always close modules in `async def close(self)` and keep `logs/` out of git (**cleanup**).
 
 ## Available `werkflow-modules`
 
@@ -93,6 +94,8 @@ class RepoCheckWorkflow(Workflow):
 
 ## Managing werkflow automation
 
-- Keep project workflows under `workflows/` (or `scripts/workflows/`) alongside a documented `.werkflow.json.example` (never commit secrets; pass secrets via env vars or `werkflow-secrets`).
-- Test workflows with `--ci --no-prompt --graceful-abort` on a safe/local target before running against real infrastructure (**prove-it**, **safe-to-rerun**).
-- For lightweight Python/shell DAG waves with durable SQLite checkpointing and pause/resume (without module integrations or automatic return-value injection), prefer **orchestral**; for standalone tracked async/shell tasks, watchers, or recurring jobs, prefer **taskex**.
+- Keep project workflows in `workflows/` (or `scripts/workflows/`) with a `.werkflow.json.example`. Pass secrets via env vars or `werkflow-secrets`, never committed files.
+- Test with `--ci --no-prompt --graceful-abort` on a safe local target before hitting real infrastructure (**prove-it**, **safe-to-rerun**).
+- Prefer `orchestral` for lightweight DAG waves with SQLite pause/resume. Prefer `taskex` for standalone tracked tasks, watchers, or schedules.
+
+**Done when:** the workflow passes `--ci --no-prompt --graceful-abort` on a safe target, closes all modules in `close()`, leaves no untracked logs, and reruns cleanly.

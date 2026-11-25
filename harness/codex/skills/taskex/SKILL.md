@@ -1,16 +1,17 @@
 ---
 name: taskex
-description: "Author, run, and manage tracked async/sync Python callables, shell commands, watchers, recurring schedules, SQLite checkpoints, and live/crash-resumable pause-resume jobs using taskex (TaskRunner). Use for async tasks, watchers, or resumable Python automation."
+description: "Run tracked async/sync Python callables, shell commands, schedules, and resumable jobs with taskex. Use for async tasks, watchers, or resumable Python automation."
 ---
 
 # TaskEx
 
-Run and supervise async coroutines, sync callables, shell commands, watchers, recurring schedules, and checkpointed pause/resume tasks with `taskex` (`https://github.com/adalundhe/taskex`, Python >= 3.11).
+Run and supervise async coroutines, sync callables, shell commands, watchers, schedules, and resumable jobs with `taskex` (`https://github.com/adalundhe/taskex`, Python >= 3.11).
 
 ## Setup and execution
 
-- Check availability with `astack-tools doctor`; install or upgrade via `astack-tools install` (`--from-github` if PyPI lags `main`), or `uv add taskex` inside a Python project.
-- Run standalone scripts via `astack-tools python <script.py>` (or `eval "$(astack-tools env)"`) so deps stay isolated from the repo.
+- Check `automation.mode` in `~/.config/astack/settings.json` and run `astack-tools doctor`. Never install Python packages under `agentic-only` without permission.
+- Under `python-stack`, install via `astack-tools install` (`--from-github` if PyPI lags `main`), or `uv add taskex` inside a Python repo.
+- Run standalone scripts via `astack-tools python <script.py>` (or `eval "$(astack-tools env)"`). Dependencies then stay isolated from the repo.
 
 ## Core API
 
@@ -41,12 +42,12 @@ raise SystemExit(asyncio.run(main()))
 
 ### Tasks, subprocesses, and schedules
 
-- **Python callables:** `runner.run(fn, *args, alias="name", timeout="30s", resume_from=..., **kwargs)` runs async functions on the loop and sync functions on the configured executor, returning a `Run` with unique `run.token`. Use `runner.bundle(fn, *args, **kwargs)` to bind varied calls under one alias.
-- **Shell commands:** `runner.command(cmd, *args, alias="name", env=..., cwd=..., shell=False, timeout="30s", resume_from=...)`. Keep `shell=False` by default, and never interpolate untrusted input into `cmd`.
-- **Env gotcha:** `env=...` replaces the child environment instead of merging. Pass `{**os.environ, ...}` to preserve `PATH`.
-- **Inspecting results:** `await runner.wait(token)` and `wait_all(tokens)` return typed snapshots (`status`, `result`, `error`, `trace`, `elapsed`, `paused_duration`, `checkpoint`). Read live output via `get_task_update(token)`, `run.get_stdout()`, and `run.get_stderr()`.
-- **Schedules & retention:** pass `schedule="30s"`, `trigger="ON_START"`, `repeat="ALWAYS"` (or `int`), plus `keep`, `max_age`, and `keep_policy`. Control schedules with `pause_schedule`, `resume_schedule`, `cancel_schedule`, or `stop_schedules`.
-- **Clean lifecycle:** use `async with TaskRunner(...) as runner:` (or `shutdown()` / `stop()` / `abort()`). On POSIX, timeouts send `SIGTERM` -> `SIGKILL` to the process group and reap children.
+- **Python callables.** Call `runner.run(fn, *args, alias="name", timeout="30s", resume_from=..., **kwargs)` to get a `Run` with `run.token`. Use `runner.bundle(fn, *args, **kwargs)` to group varied calls under one alias.
+- **Shell commands.** Call `runner.command(cmd, *args, alias="name", env=..., cwd=..., shell=False, timeout="30s", resume_from=...)`. Keep `shell=False` and pass separate arg strings, because shell expansion opens command injection.
+- **Env gotcha.** `env=...` replaces the child environment instead of merging. Pass `{**os.environ, ...}` to preserve `PATH`.
+- **Inspecting results.** `await runner.wait(token)` and `wait_all(tokens)` return typed snapshots (`status`, `result`, `error`, `trace`, `elapsed`, `paused_duration`, `checkpoint`). Read live streams via `get_task_update(token)`, `run.get_stdout()`, and `run.get_stderr()`.
+- **Schedules & retention.** Pass `schedule="30s"`, `trigger="ON_START"`, `repeat="ALWAYS"` (or `int`), plus `keep`, `max_age`, and `keep_policy`. Control schedules via `pause_schedule`, `resume_schedule`, `cancel_schedule`, or `stop_schedules`.
+- **Clean lifecycle.** Use `async with TaskRunner(...) as runner:` (or `shutdown()` / `stop()` / `abort()`). On POSIX, timeouts send `SIGTERM` then `SIGKILL` to the process group.
 
 ## Checkpointing, pause, and crash recovery
 
@@ -82,23 +83,18 @@ async def main() -> int:
 raise SystemExit(asyncio.run(main()))
 ```
 
-### Rules and stores
+### Playbooks and store pointers
 
-- **Async helpers:** `last_checkpoint()`, `await pause_point()`, `await checkpoint(state, metadata=None, check_pause=True)`, `get_run_context()`. `checkpoint()` persists first, then honors any pending pause.
-- **Sync helpers (`"thread"` / `"none"`):** `last_checkpoint()`, `pause_point_sync()`, `checkpoint_sync(...)`.
-- **`"process"` caveat:** `ContextVar` cannot cross OS processes; use external `await runner.checkpoint(token, state)` or switch to `"thread"` / `"none"`.
-- **Stores:** default is `MemoryCheckpointStore`. For crash durability, use `SQLiteCheckpointStore(path)` (WAL mode, JSON-serializable state) via `Env(MERCURY_SYNC_CHECKPOINT_DB_PATH=...)` (runner-managed) or `with SQLiteCheckpointStore(...) as store:` (caller-managed across restarts). Custom `CheckpointStore` implementations may use sync or async methods.
-- **External checkpoint API:** `runner.checkpoint`, `get_checkpoint`, `get_latest_task_checkpoint`, `list_checkpoints`, and `clear_checkpoints`.
-
-### Pause/resume and restart recovery
-
-- **Live pause (`RunStatus.PAUSED`):** `await runner.pause(token)` suspends callables at `pause_point()`/`checkpoint()` or sends `SIGSTOP` to POSIX shell process groups. `await runner.resume(token)` unblocks them (`SIGCONT`). Timeouts freeze while paused, and cancelling a paused run safely unblocks threads and sends `SIGCONT`+`SIGTERM`.
-- **Restart recovery:** call `await runner.resume(old_token_or_task_name, *args, call=fn, **kwargs)` (even in a fresh `TaskRunner` sharing the SQLite store), or pass `resume_from=...` to `runner.run(...)` / `runner.command(...)`.
+- **Checkpoints (**checkpoint**).** Use `last_checkpoint()`, `await checkpoint(...)`, or `checkpoint_sync(...)` (`"thread"` / `"none"`). For `"process"` tasks, call `await runner.checkpoint(token, state)` because `ContextVar` cannot cross OS processes. Default store is `MemoryCheckpointStore`. For crash durability, pass `SQLiteCheckpointStore(path)` or set `Env(MERCURY_SYNC_CHECKPOINT_DB_PATH=...)`.
+- **Live pause (**suspend**).** Call `await runner.pause(token)` to pause at `pause_point()`/`checkpoint()`, or send `SIGSTOP` to POSIX shell groups. Timeouts freeze while paused.
+- **Recovery (**resume**).** Call `await runner.resume(token_or_name, *args, call=fn, **kwargs)` on a live or fresh `TaskRunner` sharing the SQLite store. Or pass `resume_from=...` to `runner.run(...)` or `runner.command(...)`.
 
 ## Hygiene
 
 - Check `res.status` explicitly and exit non-zero on failure (**no-hidden-flow-control**).
 - Save reusable repo scripts in `scripts/` and make reruns idempotent (**safe-to-rerun**).
-- See **checkpoint**, **suspend**, and **resume** for operational playbooks; use **orchestral** for DAG waves or **werkflow** for `@step` data injection and `werkflow-modules`.
+- Prefer `orchestral` for DAG waves, or `werkflow` for `@step` data injection and `werkflow-modules`.
 
-Referenced skills: `no-hidden-flow-control` (`../no-hidden-flow-control/SKILL.md`), `safe-to-rerun` (`../safe-to-rerun/SKILL.md`), `checkpoint` (`../checkpoint/SKILL.md`), `suspend` (`../suspend/SKILL.md`), `resume` (`../resume/SKILL.md`), `orchestral` (`../orchestral/SKILL.md`), `werkflow` (`../werkflow/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+**Done when:** the script runs via `astack-tools python`, checks `res.status`, exits non-zero on failure, and survives an idempotent rerun or resume.
+
+Referenced skills: `checkpoint` (`../checkpoint/SKILL.md`), `suspend` (`../suspend/SKILL.md`), `resume` (`../resume/SKILL.md`), `no-hidden-flow-control` (`../no-hidden-flow-control/SKILL.md`), `safe-to-rerun` (`../safe-to-rerun/SKILL.md`). Read any cited skill file before acting when its trigger applies.

@@ -1,25 +1,28 @@
 ---
 name: automate-this
-description: "Replace repeated manual commands, polling, and noisy searches with scripts, watchers, or subagents (using taskex, orchestral, or werkflow when python-stack is enabled) to keep bulk output out of context."
+description: "Replace repeated commands, manual polling, and noisy searches with scripts, watchers, or Python runners. Use whenever work repeats or dumps noisy output."
 disable-model-invocation: true
 ---
 
 # Automate this
 
-Replace repeated commands, manual polling, and noisy log dumps with scripts, watchers, and subagents, because manual chores burn context and hide real failures.
+Replace repeated commands, manual polling, and noisy logs with scripts and watchers, because manual chores burn context and hide real failures.
 
-- **Use watchers instead of polling (**event-driven**):** for CI, long test runs, PRs, or agent progress, start one background watcher that returns on the event. Never re-check by hand.
-- **Script anything you run twice:** turn repeated commands into a parameterized script with clear exit codes. Check `automation.mode` in `~/.config/astack/settings.json` (**setup**):
-  - When `"agentic-only"` (or Python stack absent): use pure-agentic flows, shell/repo-native scripts, and subagents.
-  - When `"python-stack"` is enabled (verify via `astack-tools doctor`; run via `astack-tools python` or `astack-tools werkflow`):
-    - **taskex** (+ **checkpoint**, **suspend**, **resume**) for async/sync tasks, shell watchers, recurring schedules, and SQLite pause/resume;
-    - **orchestral** (+ **checkpoint**, **suspend**, **resume**) for DAG waves, cycle checks, branch-aware skipping, and workflow-level pause/resume;
-    - **werkflow** for decorator `@step` DAGs with return-value injection and `werkflow-modules` integrations.
+- **Use watchers instead of polling (**event-driven**):** use `astack-watch-pr` for PRs and CI, or `astack-status` for lane state. For other waits, start one background watcher that returns on the event. Never re-check by hand.
+- **Script anything you run twice:** turn repeated commands into a parameterized script with clear exit codes. Check `automation.mode` in `~/.config/astack/settings.json` (set via `setup`):
+  - **`"agentic-only"`** (or Python stack absent): use shell or repo-native scripts, watchers, and pure-agentic flows.
+  - **`"python-stack"`:** verify via `astack-tools doctor`. Run scripts through `astack-tools python` or `astack-tools werkflow`.
+  - **taskex**: async or sync tasks, shell watchers, and recurring schedules.
+  - **orchestral**: DAG waves, cycle checks, and branch-aware skipping.
+  - **Pause and recovery:** pair either runner with **checkpoint**, **suspend**, and **resume**.
+  - **werkflow**: decorator `@step` DAGs with return-value injection and `werkflow-modules` integrations.
 - **Automate environment chores:** script setup, cleanup, and health checks instead of repeating manual steps.
-- **Make helpers reusable:** save project scripts in `scripts/` (or capture recurring flows as a skill) and record shared tools in `<program>/TOOLS.md` (**analyze-environment**).
-- **Keep bulk output out of context:** send wide searches and noisy logs to a subagent or filter script that returns only failures and conclusions.
-- **Fail loudly:** exit non-zero on failure and print a one-line reason.
+- **Make helpers reusable:** save project scripts in `scripts/`, or capture recurring flows as a skill. Record shared tools in `<program>/TOOLS.md` (`analyze-environment`).
+- **Keep bulk output out of context:** filter wide searches and noisy logs through a script—or a subagent if Lead. Return only failures and conclusions.
+- **Fail loudly:** exit non-zero on failure and print a one-line reason, because silent exits let broken scripts look successful.
 
-Referenced skills: `event-driven` (`${CLAUDE_SKILL_DIR}/../event-driven/SKILL.md`), `setup` (`${CLAUDE_SKILL_DIR}/../setup/SKILL.md`), `taskex` (`${CLAUDE_SKILL_DIR}/../taskex/SKILL.md`), `checkpoint` (`${CLAUDE_SKILL_DIR}/../checkpoint/SKILL.md`), `suspend` (`${CLAUDE_SKILL_DIR}/../suspend/SKILL.md`), `resume` (`${CLAUDE_SKILL_DIR}/../resume/SKILL.md`), `orchestral` (`${CLAUDE_SKILL_DIR}/../orchestral/SKILL.md`), `werkflow` (`${CLAUDE_SKILL_DIR}/../werkflow/SKILL.md`), `analyze-environment` (`${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+**Done when:** the repeated step runs via one reusable script or watcher with clean exit codes and compact output.
+
+Referenced skills: `event-driven` (`${CLAUDE_SKILL_DIR}/../event-driven/SKILL.md`), `taskex` (`${CLAUDE_SKILL_DIR}/../taskex/SKILL.md`), `orchestral` (`${CLAUDE_SKILL_DIR}/../orchestral/SKILL.md`), `checkpoint` (`${CLAUDE_SKILL_DIR}/../checkpoint/SKILL.md`), `suspend` (`${CLAUDE_SKILL_DIR}/../suspend/SKILL.md`), `resume` (`${CLAUDE_SKILL_DIR}/../resume/SKILL.md`), `werkflow` (`${CLAUDE_SKILL_DIR}/../werkflow/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's guard-the-context-window principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

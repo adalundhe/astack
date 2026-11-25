@@ -1,22 +1,34 @@
 ---
 name: track-it
-description: "Create and maintain issues for lanes in the project's tracker (GitHub, Jira, Linear, etc.) without duplicates, updating states on events and closing with proof. Run by the lead when tracking is requested."
+description: "Turn specs or DAGs into dependency-ordered tracker issues and sync state transitions with proof. Use when creating or updating tracker tickets."
 disable-model-invocation: true
 ---
 
 # Track it
 
-Create and keep issues up to date in the project's issue tracker. For watching GitHub Issues, Jira, or Linear queues and automatically ingesting and implementing matched tickets via **go**, use **sprint**.
+Create and maintain dependency-ordered issues in the project's tracker (GitHub Issues, Jira, Linear, etc.). For watching queues and driving tickets via `go`, use **sprint**.
 
-Only the lead updates the tracker; workers report to the lead and don't edit tickets directly.
+Only the Lead updates the tracker, because parallel worker edits create duplicates and status conflicts. Workers report outcomes to the Lead instead.
 
-1. **Identify the tracker:** use what the person specified, or infer it from repo conventions (commit messages, PR links, branch names—**rtfm**). If none exists, ask which tracker to use while continuing unblocked work.
-2. **Use existing credentials:** use the tracker's authenticated CLI, API, or connected tool. If not logged in, ask the person to sign in.
-3. **Match project structure:** map goals to epics/milestones, tasks to issues/stories, and dependencies to "blocked by" links, following existing templates and labels.
-4. **Populate issues from the task plan** (**dagify**): outcome-oriented title, description, acceptance criteria, test plan, and link to the plan.
-5. **Avoid duplicates:** search existing issues first and keep a task-to-issue mapping so reruns update existing tickets instead of creating copies (**safe-to-rerun**).
-6. **Sync on state transitions:** move issues on real events—in progress on start, in review when PR opens, done on verified merge, blocked with reason (**event-driven**).
-7. **Close with proof:** record what changed, the PR/SHA, and how done-when was verified (**prove-it**). If a task is split or re-planned, note that on the ticket instead of deleting it.
-8. **Limit notifications** to the person (or anyone they explicitly ask to include).
+## 1. Confirm tracker and credentials
 
-Referenced skills: `go` (`${CLAUDE_SKILL_DIR}/../go/SKILL.md`), `sprint` (`${CLAUDE_SKILL_DIR}/../sprint/SKILL.md`), `rtfm` (`${CLAUDE_SKILL_DIR}/../rtfm/SKILL.md`), `dagify` (`${CLAUDE_SKILL_DIR}/../dagify/SKILL.md`), `safe-to-rerun` (`${CLAUDE_SKILL_DIR}/../safe-to-rerun/SKILL.md`), `event-driven` (`${CLAUDE_SKILL_DIR}/../event-driven/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+1. **Identify the tracker.** Use what the person named, or infer it from commits, PR links, and branch names. Ask if none exists while continuing unblocked work.
+2. **Verify credentials read-only.** Run `astack-watch-tickets auth-check --tracker <tracker> --json` (or the tracker's authenticated CLI). If auth fails, isolate the human login step (**decisions-in-plain-words**). Never retry bad credentials.
+
+## 2. Spec -> Blocked-Tickets flow
+
+1. **Anchor with a parent Epic or PRD issue.** Summarize the spec, goals, and architecture in a reachable tracker issue or repo doc. Never link unreachable local `~/.cache/astack/` paths inside external tickets.
+2. **Draft slices and confirm first.** Split the spec or **dagify** plan into vertical, testable slices with a `Blocked by` DAG. Confirm titles, acceptance criteria, and order first, honoring `~/.config/astack/settings.json` `autonomy`.
+3. **Avoid duplicates.** Search existing issues before creating anything. Save the task-to-issue mapping in `<program>/tickets.json` so reruns update existing tickets instead of duplicating them.
+4. **Create upstream blockers first.** Follow topological order so root issues exist before dependents. Every `Blocked by` link then resolves to a real `#N` or `KEY`.
+5. **Gate `sprint` readiness.** Include an outcome-oriented title, parent Epic link, acceptance criteria, test plan, and `Blocked by` refs. Never tag a blocked downstream ticket as `sprint`-ready until upstream blockers close.
+
+## 3. Sync states and close with proof
+
+1. **Move on real transitions.** Mark `in progress` on start and `in review` when the PR opens. Mark `done` on verified merge, or `blocked` with the blocker ref.
+2. **Close with proof (**prove-it**).** Post what changed, the PR or SHA, and how done-when passed. When a ticket splits or re-plans, note the update instead of deleting it.
+3. **Keep notifications narrow.** Notify only the person or people explicitly requested.
+
+**Reply:** list the parent Epic ref, created or updated ticket IDs in dependency order, `<program>/tickets.json`, and ready vs. blocked tickets.
+
+Referenced skills: `sprint` (`${CLAUDE_SKILL_DIR}/../sprint/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`), `dagify` (`${CLAUDE_SKILL_DIR}/../dagify/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`). Read any cited skill file before acting when its trigger applies.

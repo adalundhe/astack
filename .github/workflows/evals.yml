@@ -1,0 +1,119 @@
+name: Evals (diff-selected ablation)
+
+on:
+  workflow_dispatch:
+    inputs:
+      harness:
+        description: "Target harness CLI (claude, codex, agy)"
+        required: true
+        default: "codex"
+        type: choice
+        options:
+          - codex
+          - claude
+          - agy
+      case:
+        description: "Eval case glob (default: * or diff-selected)"
+        required: true
+        default: "bugbash-investigates-and-proves-fix"
+        type: string
+      ablation:
+        description: "Run with-without ablation"
+        required: true
+        default: "with-without"
+        type: choice
+        options:
+          - with-without
+          - none
+  pull_request:
+    types: [labeled]
+
+jobs:
+  run-evals:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.label.name == 'run-evals')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Select diff-affected eval cases
+        id: select
+        env:
+          INPUT_CASE: ${{ inputs.case }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          python3 -B - <<'PY'
+          import os, subprocess
+          explicit = os.environ.get("INPUT_CASE", "").strip()
+          if explicit:
+              cases = explicit
+          else:
+              base = os.environ.get("BASE_REF") or "main"
+              diff = subprocess.run(
+                  ["git", "diff", "--name-only", f"origin/{base}...HEAD"],
+                  capture_output=True, text=True,
+              ).stdout.splitlines()
+              selected = set()
+              mapping = {
+                  "skills/bugbash/": "bugbash-investigates-and-proves-fix",
+                  "skills/find-it/": "find-it-and-fix-it-bug",
+                  "skills/fix-it/": "find-it-and-fix-it-bug",
+                  "skills/redteam/": "redteam-breaks-and-hardens",
+                  "skills/squish/": "squish-consolidates-noisy-branch",
+                  "skills/lookback/": "lookback-and-lookup-lessons",
+                  "skills/lookup/": "lookback-and-lookup-lessons",
+                  "skills/sprint/": "sprint-ingests-fenced-ticket",
+                  "lib/astack_tickets/": "sprint-ingests-fenced-ticket",
+                  "skills/review/": "vectored-review-*",
+                  "skills/leave-feedback/": "leave-feedback-audits-before-posting",
+                  "skills/lead/": "lead-rejects-gamed-gate",
+              }
+              for f in diff:
+                  for prefix, glob in mapping.items():
+                      if f.startswith(prefix):
+                          selected.add(glob)
+              cases = ",".join(sorted(selected)) if selected else "bugbash-investigates-and-proves-fix"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"cases={cases}\n")
+          print(f"Selected cases: {cases}")
+          PY
+      - name: Install Codex CLI when selected
+        if: (inputs.harness || 'codex') == 'codex'
+        run: npm install -g @openai/codex
+      - name: Run ablation evals
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          HARNESS: ${{ inputs.harness || 'codex' }}
+          ABLATION: ${{ inputs.ablation || 'with-without' }}
+          CASES: ${{ steps.select.outputs.cases }}
+        run: |
+          if [ "$HARNESS" = "codex" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "OPENAI_API_KEY secret not configured; skipping paid eval run."
+            exit 0
+          fi
+          mkdir -p eval-results
+          IFS=',' read -ra PATTERNS <<< "$CASES"
+          for pat in "${PATTERNS[@]}"; do
+            python3 -B scripts/eval.py \
+              --harness "$HARNESS" \
+              --case "$pat" \
+              --ablation "$ABLATION" \
+              --json > "eval-results/${pat//\*/all}.json"
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-ablation-results
+          path: eval-results/
+          if-no-files-found: ignore

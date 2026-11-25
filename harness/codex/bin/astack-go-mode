@@ -33,7 +33,7 @@ from pathlib import Path
 import re
 import sys
 import time
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
 SCHEMA_VERSION = 1
@@ -185,6 +185,147 @@ def extract_prompt(event: Dict[str, Any]) -> str:
     return ""
 
 
+def extract_workspace_dir(event: Dict[str, Any]) -> Optional[Path]:
+    cwd = event.get("cwd")
+    if isinstance(cwd, str) and cwd.strip():
+        return Path(cwd.strip()).expanduser()
+    for key in ("workspacePaths", "workspace_roots"):
+        vals = event.get(key)
+        if isinstance(vals, list) and vals and isinstance(vals[0], str) and vals[0].strip():
+            return Path(vals[0].strip()).expanduser()
+    return None
+
+
+def _astack_home_dir() -> Path:
+    if override := os.environ.get("ASTACK_HOME"):
+        return Path(override).expanduser()
+    return Path.home() / ".astack"
+
+
+def _normalize_project_slug(path: Path) -> str:
+    cur = path
+    try:
+        resolved = path.resolve()
+        cur = resolved
+        for candidate in (resolved, *resolved.parents):
+            if (candidate / ".git").exists():
+                cur = candidate
+                break
+    except OSError:
+        pass
+    raw = cur.name.lower()
+    slug = re.sub(r"[^a-z0-9._-]+", "-", raw).strip("-._")
+    return slug
+
+
+def _parse_lesson_fm(text: str) -> Dict[str, Any]:
+    match = re.match(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", text, re.S)
+    if not match:
+        return {}
+    fields: Dict[str, Any] = {}
+    list_key: Optional[str] = None
+    for line in match.group(1).splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        if list_key and re.match(r"^\s*-\s+", line):
+            item = re.sub(r"^\s*-\s+", "", line).strip().strip("'\"")
+            if item and isinstance(fields.get(list_key), list):
+                fields[list_key].append(item)
+            continue
+        list_key = None
+        if ":" not in line:
+            continue
+        k, _, v = line.partition(":")
+        k, v = k.strip(), v.strip()
+        if not k:
+            continue
+        if v == "":
+            fields[k] = []
+            list_key = k
+        elif v.startswith("[") and v.endswith("]"):
+            inner = v[1:-1].strip()
+            fields[k] = [p.strip().strip("'\"") for p in inner.split(",") if p.strip()] if inner else []
+        else:
+            fields[k] = v.strip("'\"")
+    return fields
+
+
+def discover_active_lessons(workspace_dir: Optional[Path], limit: int = 6) -> Tuple[str, List[Dict[str, str]]]:
+    """Return (project_slug, matching active lessons from ~/.astack) — fails open on any OSError."""
+    if workspace_dir is None:
+        return "", []
+    slug = _normalize_project_slug(workspace_dir)
+    if not slug:
+        return "", []
+    root = _astack_home_dir()
+    try:
+        if not root.is_dir():
+            return slug, []
+        resolved_root = root.resolve()
+        project_dirs = sorted(
+            (p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")),
+            key=lambda p: p.name,
+        )
+    except OSError:
+        return slug, []
+
+    found: List[Dict[str, str]] = []
+    for pdir in project_dirs:
+        ldir = pdir / "lessons"
+        try:
+            if not ldir.is_dir() or not ldir.resolve().is_relative_to(resolved_root):
+                continue
+            lesson_dirs = sorted(
+                (x for x in ldir.iterdir() if x.is_dir() and not x.name.startswith(".")),
+                key=lambda x: x.name,
+            )
+        except OSError:
+            continue
+        for item in lesson_dirs:
+            doc = item / "LESSON.md"
+            try:
+                if not doc.is_file() or not doc.resolve().is_relative_to(resolved_root):
+                    continue
+                raw = doc.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            fm = _parse_lesson_fm(raw)
+            status = str(fm.get("status") or "active").strip().lower()
+            if status != "active":
+                continue
+            rel = fm.get("related_projects")
+            related = [str(r).strip().lower() for r in (rel if isinstance(rel, list) else []) if str(r).strip()]
+            if pdir.name.lower() != slug and slug not in related:
+                continue
+            body = re.sub(r"\A---\r?\n.*?\r?\n---(?:\r?\n|\Z)", "", raw, count=1, flags=re.S)
+            title = ""
+            for line in body.splitlines():
+                st = line.strip()
+                if st:
+                    title = st.lstrip("#").strip()
+                    break
+            found.append({
+                "project": pdir.name,
+                "lesson": item.name,
+                "title": title or item.name,
+                "path": str(doc),
+                "updated": str(fm.get("updated") or fm.get("created") or ""),
+            })
+    found.sort(key=lambda r: (r["project"].lower() == slug, r["updated"], r["lesson"]), reverse=True)
+    return slug, found[:limit]
+
+
+def format_lessons_block(slug: str, lessons: List[Dict[str, str]]) -> str:
+    if not lessons:
+        return ""
+    lines = [f"[astack lessons — {slug} (auto-recalled from ~/.astack)]"]
+    for item in lessons:
+        lines.append(f"- {item['project']}/{item['lesson']}: {item['title']} (`{item['path']}`)")
+    lines.append("Read any matching `LESSON.md` before acting when relevant, and verify claims against current code.")
+    return "\n".join(lines)
+
+
 def is_subagent_event(event: Dict[str, Any]) -> bool:
     for key in ("parent_session_id", "parentSessionId", "agent_id", "subagent_type", "subagentType"):
         val = event.get(key)
@@ -239,7 +380,14 @@ def build_bap_notice(skills_dir: Path) -> str:
     )
 
 
-def build_reminder(harness: str, skills_dir: Path, *, post_compact: bool = False, bap: bool = False) -> str:
+def build_reminder(
+    harness: str,
+    skills_dir: Path,
+    *,
+    post_compact: bool = False,
+    bap: bool = False,
+    lessons_block: str = "",
+) -> str:
     go_path = _go_skill_path(skills_dir)
     lead_path = _lead_skill_path(skills_dir)
     if harness == "claude-code":
@@ -256,6 +404,7 @@ def build_reminder(harness: str, skills_dir: Path, *, post_compact: bool = False
         else ""
     )
     prefix = f"{build_bap_notice(skills_dir)}\n\n" if bap else ""
+    suffix = f"\n\n{lessons_block}" if lessons_block else ""
     return (
         f"{prefix}"
         f"[astack Go mode — ACTIVE (Lead role)]{compact_note}\n"
@@ -264,6 +413,7 @@ def build_reminder(harness: str, skills_dir: Path, *, post_compact: bool = False
         f"(2) route immediately as Lead — reported issue/error/crash/regression -> `bugbash` (do not solo-debug); multi-step build/refactor -> `dagify`/`treeify`/`lead`; multi-repo PR/deploy -> `cross-repo`; PR -> `watch-pr`; live incident -> `triage`/`net-trace`; audit -> `review`; "
         f"(3) delegate execution, audits, and discovery to dedicated {roles} subagents with `{skills_dir}` on line 1 of every brief, enforce `settings.json` timers/autonomy, and run `review` before landing. "
         f"Only leave Go mode if the user explicitly says {exit_hint}."
+        f"{suffix}"
     )
 
 
@@ -339,10 +489,14 @@ def _pid_alive(pid: Any) -> bool:
 def find_live_dispatches(session_id: str, dispatch_dir: Optional[Path] = None) -> List[Dict[str, Any]]:
     """Return live astack-dispatch runs belonging to this session (or unbound runs)."""
     sdir = dispatch_dir or default_dispatch_state_dir()
-    if not sdir.is_dir():
+    try:
+        if not sdir.is_dir():
+            return []
+        entries = sorted(sdir.iterdir(), key=lambda p: p.name)
+    except OSError:
         return []
     live: List[Dict[str, Any]] = []
-    for entry in sorted(sdir.iterdir(), key=lambda p: p.name):
+    for entry in entries:
         if not entry.name.endswith(".json") or entry.name.endswith(".job.json") or entry.name.startswith("."):
             continue
         try:
@@ -419,7 +573,7 @@ def handle_hook(
             ),
         }
 
-    # 2. SessionStart (Claude Code, Codex, Cursor)
+    # 2. SessionStart (Claude Code, Codex, Cursor, Antigravity)
     if event_name in ("SessionStart", "sessionStart"):
         source = str(event.get("source") or "").strip().lower()
         if source == "clear":
@@ -428,9 +582,31 @@ def handle_hook(
                 record["updated_at"] = now
                 save_session(state_dir, session_id, record)
             return format_output(harness, event_name, None)
+        ws_dir = extract_workspace_dir(event)
+        slug, active_lessons = discover_active_lessons(ws_dir)
+        lessons_block = format_lessons_block(slug, active_lessons)
+        lessons_sig = _prompt_hash(lessons_block) if lessons_block else ""
         if current_state == GoModeState.ACTIVE.value:
             is_compact = source in ("compact", "resume", "")
-            return format_output(harness, event_name, build_reminder(harness, skills_dir, post_compact=is_compact))
+            if record is not None and lessons_sig:
+                record["last_lessons_hash"] = lessons_sig
+                record["updated_at"] = now
+                save_session(state_dir, session_id, record)
+            return format_output(
+                harness,
+                event_name,
+                build_reminder(harness, skills_dir, post_compact=is_compact, lessons_block=lessons_block),
+            )
+        if lessons_block:
+            updated_rec = dict(record or {})
+            updated_rec.setdefault("schema_version", SCHEMA_VERSION)
+            updated_rec.setdefault("state", GoModeState.INACTIVE.value)
+            updated_rec["session_id"] = session_id
+            updated_rec["harness"] = harness
+            updated_rec["last_lessons_hash"] = lessons_sig
+            updated_rec["updated_at"] = now
+            save_session(state_dir, session_id, updated_rec)
+            return format_output(harness, event_name, lessons_block)
         return format_output(harness, event_name, None)
 
     # 2. PostToolUse (detects model auto-loading go/astack-go or subagent listing non-lead role)
@@ -530,6 +706,13 @@ def handle_hook(
                 save_session(state_dir, session_id, record)
             return format_output(harness, event_name, None)
 
+    ws_dir = extract_workspace_dir(event)
+    slug, active_lessons = discover_active_lessons(ws_dir)
+    lessons_block = format_lessons_block(slug, active_lessons)
+    lessons_sig = _prompt_hash(lessons_block) if lessons_block else ""
+    prev_lessons_sig = str((record or {}).get("last_lessons_hash") or "")
+    include_lessons = lessons_block if (lessons_block and (compacted or lessons_sig != prev_lessons_sig)) else ""
+
     updated = dict(record or {})
     updated.update({
         "schema_version": SCHEMA_VERSION,
@@ -540,15 +723,20 @@ def handle_hook(
         "updated_at": now,
         "last_prompt_hash": p_hash or prev_hash,
         "last_step_count": step_count if step_count is not None else prev_steps,
+        "last_lessons_hash": lessons_sig or prev_lessons_sig,
     })
     save_session(state_dir, session_id, updated)
-    return format_output(harness, event_name, build_reminder(harness, skills_dir, post_compact=compacted, bap=bap_triggered))
+    return format_output(
+        harness,
+        event_name,
+        build_reminder(harness, skills_dir, post_compact=compacted, bap=bap_triggered, lessons_block=include_lessons),
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="astack-go-mode",
-        description="Maintain sticky session-scoped astack Go mode (Lead role) across turns and compaction.",
+        description="Maintain sticky session-scoped astack Go mode (Lead role) and auto-recall ~/.astack lessons across turns and compaction.",
     )
     parser.add_argument("--hook", action="store_true", help="Run as a lifecycle hook reading JSON from stdin")
     parser.add_argument(
@@ -574,6 +762,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_off = sub.add_parser("off", help="Deactivate Go mode for a session ID")
     p_off.add_argument("--session", required=True)
     p_off.add_argument("--state-dir", type=Path, default=None)
+
+    p_lessons = sub.add_parser("lessons", help="Show active ~/.astack lessons auto-recalled for a workspace")
+    p_lessons.add_argument("--cwd", type=Path, default=None)
+    p_lessons.add_argument("--limit", type=int, default=6)
+    p_lessons.add_argument("--json", dest="as_json", action="store_true")
     return parser
 
 
@@ -629,6 +822,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "updated_at": utc_now(),
         })
         print(f"{args.session}: inactive")
+        return 0
+
+    if args.command == "lessons":
+        ws = (args.cwd.expanduser() if args.cwd else Path.cwd())
+        slug, lessons = discover_active_lessons(ws, limit=max(1, args.limit))
+        if args.as_json:
+            print(json.dumps({"project": slug, "lessons": lessons}, indent=2))
+        else:
+            block = format_lessons_block(slug, lessons)
+            print(block if block else f"No active lessons for {slug or ws}")
         return 0
 
     parser.print_help()

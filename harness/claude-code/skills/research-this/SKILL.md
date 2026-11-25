@@ -1,30 +1,30 @@
 ---
 name: research-this
-description: "Research a question across internal sources (code, logs, data, docs) and external sources (specs, papers, official docs, web), verify quotes against their citations, and grade each finding A–F. Use before unsettled decisions, before accepting a functionality trade-off, or when claims need graded evidence."
+description: "Research internal and external sources, verify quotes in place, and grade every finding A–F. Use before unsettled decisions, functionality trade-offs, or graded claims."
 disable-model-invocation: true
 ---
 
 # Research this
 
-Investigate a question across internal and external sources, quote every source, verify each quote in place, and grade every finding A–F consistently.
+Investigate a question across internal and external sources. Quote every source, verify each quote in place, and grade every finding A–F.
 
 ## Look inside and outside
 
-1. **Frame the question:** state the decision or suspected limit this serves and what finding would change your approach. When hitting a performance or design wall, explicitly ask how other systems hit the target without sacrificing functionality or guarantees.
-2. **Search inside:** code, measurements, data, logs, traces, metrics, docs, media on your machines, past records (earlier conversations, plans, CI runs, deployments), and available CLIs/APIs/MCPs/services (**analyze-environment**, publishing discovered tools to `TOOLS.md`).
-3. **Search outside:** standards and official docs, peer-reviewed papers (arXiv, Semantic Scholar, Crossref, PubMed), books, preprints/news, blogs, and forums.
-4. **Cover both sides.** Research isn't complete without both internal and external sources—or an explicit reason why one side has none.
-5. **Parallelize lookups:** when subagents or configured provider CLIs are available, check `roles.researcher` (`provider`, `model`, `effort`) in `~/.config/astack/settings.json` if present and fan out independent strands to read-only researchers, collecting viable competing implementations to prototype and measure (**swarm-hypothesis**, **ab-test**) alongside any proven limits.
+1. **Frame the question:** state the decision or limit this serves and what finding would change course. When hitting a wall, ask how other systems hit the target without sacrificing functionality.
+2. **Search inside:** inspect code, measurements, data, logs, traces, docs, media, and past records. Check available CLIs, APIs, MCPs, and services (**analyze-environment**), publishing discovered tools to `TOOLS.md`.
+3. **Search outside:** check standards, official docs, peer-reviewed papers (arXiv, Semantic Scholar, Crossref, PubMed), books, preprints, blogs, and forums.
+4. **Cover both sides,** because internal habits miss external breakthroughs and external theory misses local constraints. State explicitly whenever one side has no sources.
+5. **Parallelize lookups (Lead-only, per `lead`):** check `roles.researcher` (`provider`, `model`, `effort`) in `~/.config/astack/settings.json` when present. Fan out independent strands to read-only researchers. Collect competing implementations to prototype and measure (`swarm-hypothesis`, `ab-test`) alongside proven limits.
 
 ## Record what you find
 
-- **Each source:** record its kind (from the table below) and exact location: `file:line`, URL and section, DOI, record ID, or the exact measurement command run. Include author, date, host machine, and origin (shared authority across multiple sources, such as a vendor's docs and blog) when known. Flag out-of-date sources for this question.
-- **Each finding:** one concrete claim with its citations (source, exact quoted text, and location). Explicitly mark inferred claims that go beyond what the source directly states.
-- **Counterclaims:** list any source arguing against a finding; if you have doubts without a source, rate them `strong`, `moderate`, or `weak`.
+- **Each source:** record its kind and exact location (`file:line`, URL + section, DOI, record ID, or command run). Note author, date, host, and shared origin (e.g. a vendor's docs and blog), and flag stale sources.
+- **Each finding:** state one concrete claim with citations (source, exact quote, location). Mark inferred claims that go beyond what the source states.
+- **Counterclaims:** list any source arguing against a finding. Rate unsourced doubts `strong`, `moderate`, or `weak`.
 
 ## Check the quotes
 
-Verify every quote at its cited location. A quote counts as **found** if its words appear in order (ignoring whitespace, case, curly vs. straight quotes/dashes, and edge punctuation; `...` marks omitted words). Anything you can't inspect directly (PDFs, JS-rendered or gated pages, unreachable files) stays **unchecked** with the reason noted.
+Verify every quote at its cited location. A quote is **found** when its words appear in order (`...` marks omissions). Ignore whitespace, case, quote/dash style, and edge punctuation. Mark uninspectable sources (PDFs, gated/JS pages, unreachable files) **unchecked** with the reason.
 
 ## Grade each finding
 
@@ -61,9 +61,9 @@ Citation verification multipliers:
 Compute each finding's score:
 
 1. **Per-citation contribution:** `source_weight × citation_multiplier`.
-2. **Deduplicate by origin:** multiple citations sharing one origin (same site, file, DOI, or named origin) count once at their highest value. Combine independent origins as `support = 1 − ∏(1 − origin_max)`.
-3. **Discount inferences:** if the claim is inferred rather than directly stated, multiply `support` by `0.8`.
-4. **Combine counterclaims:** score sourced counterclaims the same way; for unsourced doubts, use `strong = 0.6`, `moderate = 0.35`, `weak = 0.15`. Combine as `against = 1 − ∏(1 − c)`.
+2. **Deduplicate by origin:** count citations from one site, file, DOI, or vendor once at their highest value. Deduplication matters because ten pages from one vendor are still one voice. Combine independent origins as `support = 1 − ∏(1 − origin_max)`.
+3. **Discount inferences:** multiply `support` by `0.8` when a claim is inferred rather than stated.
+4. **Combine counterclaims:** score sourced counterclaims the same way. For unsourced doubts, use `strong = 0.6`, `moderate = 0.35`, `weak = 0.15`, combined as `against = 1 − ∏(1 − c)`.
 5. **Final score:** `round(support × (1 − 0.8 × against) × 100)`.
 
 | Grade | Score | Confidence |
@@ -74,12 +74,14 @@ Compute each finding's score:
 | D | 30–49 | low |
 | F | < 30 | very low |
 
-Examples: one product doc with a verified quote scores **A** (`0.85 × 1.0 = 85`); the same quote unchecked scores **C** (`0.85 × 0.75 = 64`); a blog link with no quote scores **F** (`0.5 × 0.5 = 25`).
+Examples: one verified product-doc quote scores **A** (`0.85 × 1.0 = 85`). The same quote unchecked scores **C** (`0.85 × 0.75 = 64`), and an unquoted blog link scores **F** (`0.5 × 0.5 = 25`).
 
 ## Present it
 
-Report each finding with its grade, score, and one-line rationale (e.g. `"2 independent sources (code, standard); 2 of 2 quotes verified"`), its quotes and verification status, and any counterclaims, followed by numbered sources. Never present a research claim without its sources and grade.
+Report each finding with its grade, score, and one-line rationale (e.g. `"2 independent sources (code, standard); 2/2 quotes verified"`). Include quotes, verification status, counterclaims, and numbered sources. Never present a research claim without its sources and grade.
 
-When `kiln` is available, record findings through it (`research_start`, `research_add`, `research_get`), which checks quotes and computes grades identically.
+When `kiln` is available, record findings via `research_start`, `research_add`, and `research_get`, which verify quotes and compute identical grades.
 
-Referenced skills: `analyze-environment` (`${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`), `swarm-hypothesis` (`${CLAUDE_SKILL_DIR}/../swarm-hypothesis/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+**Done when:** both internal and external sides are covered, every quote is verified or marked unchecked, and every finding carries an A–F grade.
+
+Referenced skills: `analyze-environment` (`${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`). Read any cited skill file before acting when its trigger applies.

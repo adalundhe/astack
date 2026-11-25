@@ -1,25 +1,29 @@
 ---
 name: never-trade-functionality
-description: "Ensure optimizations keep exact results, freshness, durability, error visibility, and features—researching compliant approaches before claiming any trade-off is unavoidable. Use when optimizing or proposing approximate/deferred variants."
+description: "Ensure optimizations preserve exact results, freshness, durability, error visibility, and features. Use when optimizing or proposing approximate/deferred variants."
 disable-model-invocation: true
 ---
 
 # Never trade functionality for speed
 
-A faster implementation must still do everything the slower one did: same accuracy, freshness, guarantees, and visible errors.
+A faster implementation must keep the same accuracy, freshness, guarantees, and visible errors, because silent accuracy or freshness drops are regressions, not speedups.
 
 ## Start with
 
-1. **Optimize in order** (**clamber**): eliminate unnecessary work, do less work, do it more efficiently, defer or move it off the hot path, parallelize it.
+1. **Optimize in order** (`clamber`): eliminate unnecessary work, do less work, do it more efficiently, defer off the hot path, or parallelize.
 2. **Keep robustness intact:** don't introduce new ways to stall, lose data, or crash.
 3. **Speed up the uncached path first** before reaching for a cache (**minimize-state-stores**).
 4. **Prove unused work is actually unused** before removing it—never assume.
-5. **Research before accepting a trade-off:** run **research-this** first to see how other systems hit the target without dropping guarantees. Test viable candidates (**swarm-hypothesis**, **ab-test**).
-6. **Escalate only proven limits:** if **research-this** and measurement prove no compliant design hits the target, report the best compliant result, the concrete bottleneck, and what you tested. Only then present the trade-off with numbers (**decisions-in-plain-words**).
+5. **Research before accepting a trade-off:** run **research-this** first to find designs that hit the target without dropping guarantees. Measure viable candidates (`swarm-hypothesis`, **ab-test**).
+6. **Escalate only proven limits:** if **research-this** and measurements prove no compliant design works, report the best compliant result and bottleneck. Only then present the trade-off with numbers (**decisions-in-plain-words**).
 
 ## Watch for
 
-Acknowledging writes before durability; disabling validation or checks; stale, approximate, sampled, or truncated outputs; silently dropped fields or features; swallowed errors; reduced precision; or deferred work whose delay users observe.
+- acknowledging writes before durability;
+- disabling validation or safety checks;
+- stale, approximate, sampled, or truncated outputs;
+- silently dropped fields, features, or swallowed errors;
+- reduced precision, or deferred work whose delay users observe.
 
 **The test:** does every user still get the same values, freshness, guarantees, and error behavior?
 

@@ -1,36 +1,42 @@
 ---
 name: challenge
-description: "Peer-to-peer adversarial challenge between any agents (or against your own reasoning) to stress-test hypotheses, repeated fixes, diagnoses, designs, and implementations until every assumption is proven or conceded. Use whenever an approach, diagnosis, or choice needs rigorous pushback."
+description: "Adversarially stress-test hypotheses, diagnoses, designs, and fixes until assumptions are proven or conceded. Use whenever a claim or choice needs rigorous pushback."
 ---
 
 # Challenge
 
-Adversarially interrogate a hypothesis, diagnosis, design choice, repeated fix, or implementation—peer to peer, regardless of agent role—until every load-bearing assumption is backed by evidence or revised.
+Interrogate a hypothesis, diagnosis, design choice, repeated fix, or implementation peer to peer until every load-bearing assumption is proven or revised. For pushing back on external PR comments or review threads, use `worrywart` instead.
 
-Start a challenge whenever fixes keep recurring in the same area, a root-cause theory or benchmark explanation feels convenient, a design adds complexity on untested assumptions, or any agent's claim (including your own) hasn't been falsified.
+Run a challenge whenever fixes recur in the same area, a diagnosis feels convenient, or a claim remains unfalsified.
 
 ## Rules of engagement
 
-- **Role-agnostic and peer-to-peer:** a worker challenges a lead's plan or diagnosis on the exact same footing as a reviewer challenging a worker's diff or a lead challenging a report. Rank and seniority carry zero weight—only evidence counts.
-- **Adversarial, never polite rubber-stamping:** your job as challenger is to break the claim, not validate it. Don't soften real flaws into hedged suggestions.
-- **No contrarianism for sport:** every challenge must name a concrete falsifiable assumption, failure scenario, or rival hypothesis/design.
+- **Role-agnostic and peer-to-peer:** a worker challenges Lead's plan on the same footing as a reviewer challenging a worker's diff. Rank carries zero weight—only evidence counts. Non-Lead agents raise challenges inline in their report or escalation without spawning subagents.
+- **Adversarial, never polite rubber-stamping:** your job as challenger is to break the claim, not validate it. Never soften real flaws into hedged suggestions.
+- **No contrarianism for sport:** every challenge must name a falsifiable assumption, failure scenario, or rival hypothesis.
 
 ## Challenge protocol
 
-1. **Pin down the claim.** Restate the target hypothesis, root-cause diagnosis, design choice, or implementation in 1–2 sentences and list the explicit assumptions that must hold for it to be right.
+1. **Pin down the claim.** Restate the target diagnosis, design, or implementation in 1–2 sentences. List every assumption that must hold for it to be right.
 2. **Attack from every angle that applies:**
-   - **Root cause vs. symptom:** especially on repeated fixes—why didn't the prior fix stop this, and what upstream defect or structural flaw keeps producing it?
-   - **Falsification test:** what concrete input, trace, fault, or experiment would *disprove* this diagnosis or break this implementation?
-   - **Assumed constraints:** which limits are real (measured or cited via **rtfm** / **research-this**) versus inherited habits, outdated context, or convenience?
-   - **Rival hypothesis or simpler alternative:** propose at least one concrete competing explanation or simpler design, and walk a specific scenario showing where the two diverge.
-   - **Trust-ladder check:** state which rung of **prove-it** the claim actually sits on (memory/reasoning, unrun code, read-only inspection, or real execution/measurement).
-3. **Force an evidenced defense.** The defending agent must answer each attacked assumption with concrete evidence—a runnable test, measurement, trace, exact `file:line`, or graded **research-this** finding. Restating the original rationale or citing authority doesn't count. Any undefended assumption is **conceded**.
-4. **Settle disputes with reality, not debate.** Wherever a quick reproduction, prototype (**play-with-me**), or controlled experiment (**ab-test**) can decide between two sides, run it instead of arguing another round.
+   - **Root cause vs. symptom:** on repeated fixes, ask why the prior fix missed this. Name the upstream defect reproducing it.
+   - **Falsification test:** name the input, trace, fault, or experiment that would *disprove* the diagnosis or break the implementation.
+   - **Assumed constraints:** separate real limits (measured or cited via `rtfm` / **research-this**) from inherited habits or convenience.
+   - **Rival hypothesis or simpler alternative:** propose a concrete rival explanation or simpler design. Walk a scenario showing where the two diverge.
+   - **Trust-ladder check:** name the rung on **prove-it**'s five-rung ladder:
+     1. reasoning or memory;
+     2. unverified code or mocks/proxies;
+     3. read-only code or docs;
+     4. authoritative external references;
+     5. running and measuring the real system.
+3. **Force an evidenced defense.** The defender must answer each attacked assumption with evidence: a runnable test, measurement, trace, `file:line`, or graded **research-this** finding. Restating rationale or authority never counts. Any undefended assumption is **conceded**.
+4. **Settle disputes with reality, not debate.** Run a quick repro, prototype (**play-with-me**), or controlled experiment (**ab-test**) instead of arguing another round.
+   - **Stall guard:** if a round produces no new runnable evidence, stop debating immediately. Escalate surviving options with your recommendation.
 5. **Close with an explicit verdict:**
    - **Upheld:** the claim survived falsification—cite the proof.
-   - **Revised:** specific assumptions failed—state what changed in the diagnosis, design, or implementation.
+   - **Revised:** specific assumptions failed—state what changed.
    - **Rejected:** replaced by a concrete alternative—state why it won.
 
-Record any settled choice as a `decided:` entry (in `LANES.md` or your report) so the same argument isn't relitigated later.
+**Done when:** the verdict and proof are logged as `decided:` (in `LANES.md` or your report) so the argument is never relitigated.
 
-Referenced skills: `rtfm` (`../rtfm/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`), `play-with-me` (`../play-with-me/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `research-this` (`../research-this/SKILL.md`), `prove-it` (`../prove-it/SKILL.md`), `play-with-me` (`../play-with-me/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.

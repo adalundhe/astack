@@ -1,38 +1,38 @@
 ---
 name: observable-by-default
-description: "Make services, scheduled jobs, workers, queues, edge workloads, and infra operable at 3 AM with bounded-cardinality telemetry, trace correlation, symptom/SLO alerts, dead-letter visibility, and verified runbooks."
+description: "Ship services, jobs, queues, and infra with bounded telemetry, trace IDs, SLO alerts, and verified runbooks. Use when building or operating services, jobs, queues, or cutovers."
 disable-model-invocation: true
 ---
 
 # Observable by default
 
-Nothing important should fail silently. Ship every service, scheduled job, queue, edge workload, and cutover with bounded-cardinality signals, symptom alerts, and a verified runbook so on-call can recover fast.
+Nothing important should fail silently. Ship services, jobs, queues, edge workloads, and cutovers with bounded signals, symptom alerts, and a verified runbook. On-call needs fast recovery without guessing.
 
-Use whatever telemetry, logging, tracing, and alerting stack the repo already runs (**analyze-environment**).
+Use the telemetry, logging, tracing, and alerting stack the repo already runs (**analyze-environment**).
 
 ## Start with
 
 1. **Instrument the right signals:**
-   - **Services & edge:** request rate, error rate by typed class, latency histograms, and pool/queue/CPU/memory saturation.
-   - **Scheduled jobs & async workers:** last-success heartbeat, duration, items processed/failed, retries, and dead-letter queue (DLQ) depth.
-2. **Propagate correlation context:** pass trace and request IDs (`traceparent`, edge ray IDs, job IDs) across HTTP/RPC headers, queues, logs, and errors. Strip secrets and unneeded PII (**no-leaked-secrets**).
-3. **Keep metric cardinality bounded:** never put unbounded identifiers (`user_id`, `request_id`, high-scale `tenant_id`, raw URLs, pod UUIDs, stack traces) in metric labels, because cardinality explosions break metrics backends. Put those fields in structured logs or traces instead.
-4. **Alert on symptoms, not noisy causes:** page on SLO burn, error rate, stuck queues, or missed heartbeats—never transient CPU blips. Every paging alert must state user impact and link to a verified runbook.
-5. **Ship a verified runbook (**technical-writing**, **prove-it**):** include exact read-only health checks, stuck-work inspection, safe replay/drain steps, and rollback commands verified against the real system.
+   - **Services & edge:** request rate, typed error rate, latency histograms, and pool/queue/CPU/memory saturation.
+   - **Scheduled jobs & workers:** last-success heartbeat, duration, items processed/failed, retries, and dead-letter queue (DLQ) depth.
+2. **Propagate correlation context:** pass trace and job IDs (`traceparent`, ray IDs) across headers, queues, and logs. Shared IDs matter because cross-hop failures look unrelated without them. Strip secrets and unneeded PII (**no-leaked-secrets**).
+3. **Keep metric cardinality bounded**. Never put unbounded IDs (`user_id`, `request_id`, raw URLs) in metric labels, because explosions break metrics backends. Put those fields in structured logs or traces instead.
+4. **Alert on symptoms, not noisy causes:** page on SLO burn, error rate, stuck queues, or missed heartbeats. Skip transient CPU blips, because alert fatigue hides real outages. Every paging alert must state user impact and link to a verified runbook.
+5. **Ship a verified runbook (**technical-writing**, **prove-it**):** include read-only health checks, stuck-work inspection, replay/drain steps, and rollback commands. Verify every command against the real system, because untested runbooks fail under pressure.
 
 ## Watch for
 
-- scheduled jobs, workers, or webhooks that log errors with no metric, alert, or DLQ visibility;
+- scheduled jobs, workers, or webhooks logging errors with no metric, alert, or DLQ visibility;
 - metric labels containing unbounded IDs, emails, full URLs, or raw error strings;
 - alerts firing on internal noise or linking to stale runbooks;
-- async consumers or edge hops dropping trace/correlation IDs;
-- migrations, cutovers, or new services shipped with no verification or rollback runbook.
+- async consumers or edge hops dropping trace or correlation IDs;
+- migrations, cutovers, or new services shipped without a verification or rollback runbook.
 
-**The test:** if this fails at 3 AM, how fast does on-call know, can telemetry isolate the cause without guessing, and does the runbook actually recover it?
+**The test:** if this fails at 3 AM, how fast does on-call know? Can telemetry isolate the cause, and does the runbook recover it?
 
 ## When it doesn't fit
 
 - pure in-process libraries (expose typed errors and hooks for callers to instrument instead);
-- throwaway prototypes (**play-with-me**).
+- throwaway prototypes (`play-with-me`).
 
 **Showing it:** trigger a job failure, queue stall, or high-cardinality input and show silence, exploding series, or a broken runbook command.

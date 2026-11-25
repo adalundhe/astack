@@ -1,6 +1,6 @@
 ---
 name: no-shared-writes
-description: "Keep concurrent threads, processes, services, and agents from mutating the same state: isolate per writer, merge on read, and serialize structurally only for true invariants. Use when writing concurrent/parallel code or adding locks."
+description: "Keep concurrent writers off shared state: isolate per writer, merge on read, serialize real invariants. Use when writing concurrent/parallel code or adding locks."
 disable-model-invocation: true
 ---
 
@@ -10,10 +10,10 @@ Avoid shared mutable state across concurrent writers instead of reaching for loc
 
 ## Start with
 
-1. **Give each writer isolated state:** its own file, key, partition, branch, directory, or queue, merging at read time. Two writers editing different fields of the same file still share a write target.
-2. **Serialize structurally only for a real invariant** on one shared target: a single owning writer, sequential phases, compare-and-swap, or an append-only log.
-3. **Default to lock-free designs.** Only introduce a mutex or lock when benchmarks show it wins (**benchmarking**).
-4. **Never rely on prose for concurrency control.** Comments or agent prompts saying "only one writer at a time" prevent nothing.
+1. **Give each writer isolated state:** its own file, key, partition, branch, directory, or queue. Merge outputs at read time, because two writers editing different fields of one file still clash.
+2. **Serialize structurally only for a real invariant.** Use a single owner, sequential phases, compare-and-swap, or an append-only log.
+3. **Default to lock-free designs,** because locks add contention and deadlock risk. Introduce a mutex only when benchmarks prove it wins (**benchmarking**).
+4. **Never rely on prose for concurrency control**. Comments or agent prompts saying "only one writer at a time" prevent nothing.
 5. **Test under peak contention:** run maximum concurrent writers and check for races, deadlocks, and livelocks (**full-spectrum-testing**).
 
 ## Watch for
@@ -30,11 +30,10 @@ Avoid shared mutable state across concurrent writers instead of reaching for loc
 
 - one shared target enforcing a real invariant, serialized structurally per `Start with`;
 - concurrent readers of immutable data;
-- writes serialized with documented platform guarantees (database transactions, atomic append, atomic rename);
-- an alternative backed by measurements (**ab-test**), with the trade-off documented.
+- writes serialized with documented platform guarantees (database transactions, atomic append, atomic rename).
 
-**Showing it:** force a bad interleaving or flood the target with concurrent writers and demonstrate lost or corrupted writes.
+**Showing it:** force a bad interleaving or flood the target with concurrent writers and show lost or corrupted writes.
 
-Referenced skills: `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`), `full-spectrum-testing` (`${CLAUDE_SKILL_DIR}/../full-spectrum-testing/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`), `full-spectrum-testing` (`${CLAUDE_SKILL_DIR}/../full-spectrum-testing/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's separate-before-serializing-shared-state principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

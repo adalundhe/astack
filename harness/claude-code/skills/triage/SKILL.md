@@ -1,24 +1,24 @@
 ---
 name: triage
-description: "Structured live-infrastructure and multi-layer systems debugging across any cloud, edge/CDN, orchestrator, serverless, or host platform: confirm target context, preserve volatile evidence before restarts, correlate recent deploys/IaC/audit logs, isolate across layers with safe read-only probes, separate reversible mitigation from root cause, and hand confirmed code/IaC bugs to bugbash."
+description: "Isolate live infrastructure incidents across cloud, edge, cluster, and host layers without losing evidence. Use for live outages or production triage."
 disable-model-invocation: true
 ---
 
 # Triage
 
-Isolate live infrastructure and distributed-systems failures across cloud, edge, cluster, and host layers without destroying evidence or worsening the outage. Stabilize safely first, then prove root cause and hand off permanent fixes.
+Isolate live infrastructure and distributed-systems failures without destroying evidence or worsening the outage. Stabilize safely first, prove root cause, and hand permanent fixes downstream.
 
-Hand confirmed code or IaC bugs to **bugbash** once isolated. Discover whichever provider CLIs, APIs, and observability systems apply via **analyze-environment**—never assume a fixed vendor list.
+Hand confirmed code or IaC bugs to **bugbash** once isolated. Discover active provider CLIs, APIs, and telemetry via **analyze-environment**—never assume a fixed vendor list.
 
 ## 1. Lock context and preserve volatile evidence first
 
-1. **Verify target environment (**analyze-environment**):** confirm exact account, project/zone, region, cluster/namespace, and IaC workspace in `TOOLS.md` before running any command. Never mutate production without explicit human approval (**decisions-in-plain-words**).
-2. **Capture volatile state before restarting or draining anything,** because restarts erase crash evidence: grab current and previous logs, platform events, stack/thread dumps, open FDs/sockets, conntrack/DNS/metrics snapshots, and error traces. Save artifacts as `<file>_DEBUG_<shorthash>.<type>` with zero secrets (**no-leaked-secrets**).
-3. **Pin down symptom and blast radius:** what is failing, for which tenants/regions/edge PoPs/services, since what exact UTC time, and at what error rate or latency?
+1. **Verify target environment (**analyze-environment**):** confirm exact account, project, region, cluster/namespace, and IaC workspace in `TOOLS.md` first. Never mutate production without explicit approval (**decisions-in-plain-words**).
+2. **Capture volatile state first:** grab crash evidence before any restart or drain, because restarts erase it. Collect current and previous logs, platform events, thread dumps, open FDs/sockets, conntrack/DNS/metrics snapshots, and error traces. Save artifacts as `<file>_DEBUG_<shorthash>.<type>` with zero secrets (**no-leaked-secrets**).
+3. **Pin down symptom and blast radius:** record what fails, which tenants, regions, PoPs, or services are hit, exact UTC onset, and error rate or latency.
 
 ## 2. Correlate recent changes before deep-diving
 
-Inspect every change near onset with safe read-only probes:
+Inspect recent changes near onset with safe read-only probes:
 
 - app, container, serverless, or edge deploys, GitOps syncs, and feature-flag flips;
 - IaC applies, IAM/security merges, DNS/CDN/WAF/routing edits, and secret or TLS rotations;
@@ -26,21 +26,28 @@ Inspect every change near onset with safe read-only probes:
 
 ## 3. Isolate systematically across layers (read-only probes)
 
-Dispatch read-only `astack:researcher` or `astack:reviewer` probes in parallel across suspect layers (under **lead**'s clocks) to bisect where requests break:
+Lead may dispatch parallel read-only `astack:researcher` or `astack:reviewer` probes across suspect layers under `lead` clocks; Workers and Researchers probe sequentially:
 
-- **Edge, CDN, WAF, DNS, TLS, & network (**net-trace**):** WAF/bot/rate-limit/SSL mode, LB/ingress health, DNS/DNSSEC, cert chain/SNI/mTLS, firewall/network policies, flow logs, packet captures, NAT/conntrack limits.
-- **Compute & orchestrator:** OOMs, evictions, cold starts, subrequest/CPU/disk/inode/IOPS limits, CNI networking, stuck sync hooks.
-- **Process & runtime:** thread, goroutine, or connection-pool exhaustion, FD limits, GC pauses, deadlocks, retry storms (**fail-safely**).
-- **Data, identity, & control planes:** DB locks, slow queries, WAL/vacuum bloat, queue/DLQ lag, cache stampedes, IAM/RBAC/token denials (**least-privilege**), provider quota cliffs.
+- **Edge, CDN, WAF, DNS, TLS, & network (**net-trace**):** WAF/bot/rate-limit/SSL mode, LB health, DNS/DNSSEC, cert chain/SNI/mTLS, firewall rules, flow logs, packet captures, NAT/conntrack limits.
+- **Compute & orchestrator:** OOMs, evictions, cold starts, CPU/disk/inode/IOPS limits, CNI networking, stuck sync hooks.
+- **Process & runtime:** thread, goroutine, or pool exhaustion, FD limits, GC pauses, deadlocks, and retry storms (`fail-safely`).
+- **Data, identity, & control planes:** DB locks, slow queries, WAL/vacuum bloat, queue/DLQ lag, cache stampedes, IAM/RBAC denials (`least-privilege`), quota cliffs.
 
-Cite the exact command and observed output for every claim (ran vs. read)—never guess the failing layer.
+Cite the exact command and observed output for every claim (`ran` vs. `read`). Never guess the failing layer.
 
 ## 4. Separate safe mitigation from permanent fix
 
-1. **Propose reversible mitigation first (**decisions-in-plain-words**):** if service is degraded, present the safest reversible action (rollback, traffic drain, failover, WAF bypass, scale up, flag off) with its blast radius, check, and rollback path, honoring `autonomy`.
+1. **Propose reversible mitigation first (**decisions-in-plain-words**):** if service is degraded, recommend the safest reversible step (rollback, traffic drain, failover, WAF bypass, scale up, or flag off). Include blast radius, health check, and rollback path while honoring `autonomy`.
 2. **Hand off root causes cleanly:**
-   - Code, migration, or IaC defect -> **bugbash** with the triage dossier (**safe-to-deploy**, **safe-iac**, **least-privilege**, **fail-safely**).
-   - Missing telemetry or runbook gap -> **observable-by-default** and **technical-writing**.
-   - Record the timeline, disproved hypotheses (`decided:`), and structural guards via **lookback** + **make-it-stick**, then remove temp captures (**cleanup**).
+   - Code, migration, or IaC defect -> **bugbash** with the triage dossier (`safe-to-deploy`, `safe-iac`).
+   - Missing telemetry or runbook gap -> `observable-by-default` and `technical-writing`.
+   - Record the timeline, disproved hypotheses (`decided:`), and guards via **lookback** + `make-it-stick`, then remove temp captures (**cleanup**).
 
-Referenced skills: `bugbash` (`${CLAUDE_SKILL_DIR}/../bugbash/SKILL.md`), `analyze-environment` (`${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`), `no-leaked-secrets` (`${CLAUDE_SKILL_DIR}/../no-leaked-secrets/SKILL.md`), `lead` (`${CLAUDE_SKILL_DIR}/../lead/SKILL.md`), `net-trace` (`${CLAUDE_SKILL_DIR}/../net-trace/SKILL.md`), `fail-safely` (`${CLAUDE_SKILL_DIR}/../fail-safely/SKILL.md`), `least-privilege` (`${CLAUDE_SKILL_DIR}/../least-privilege/SKILL.md`), `safe-to-deploy` (`${CLAUDE_SKILL_DIR}/../safe-to-deploy/SKILL.md`), `safe-iac` (`${CLAUDE_SKILL_DIR}/../safe-iac/SKILL.md`), `observable-by-default` (`${CLAUDE_SKILL_DIR}/../observable-by-default/SKILL.md`), `technical-writing` (`${CLAUDE_SKILL_DIR}/../technical-writing/SKILL.md`), `lookback` (`${CLAUDE_SKILL_DIR}/../lookback/SKILL.md`), `make-it-stick` (`${CLAUDE_SKILL_DIR}/../make-it-stick/SKILL.md`), `cleanup` (`${CLAUDE_SKILL_DIR}/../cleanup/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+## Triage Dossier (Reply)
+
+- **Impact & timeline:** affected scope, exact UTC onset, and current status.
+- **Preserved evidence:** exact `<file>_DEBUG_<shorthash>.*` paths and key command outputs.
+- **Isolated layer & root cause:** proven failing layer vs. ruled-out layers with `ran` evidence.
+- **Mitigation & handoff:** safest reversible step (if degraded) and permanent fix handoff (`bugbash` or runbook/telemetry owner).
+
+Referenced skills: `bugbash` (`${CLAUDE_SKILL_DIR}/../bugbash/SKILL.md`), `analyze-environment` (`${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`), `no-leaked-secrets` (`${CLAUDE_SKILL_DIR}/../no-leaked-secrets/SKILL.md`), `net-trace` (`${CLAUDE_SKILL_DIR}/../net-trace/SKILL.md`), `lookback` (`${CLAUDE_SKILL_DIR}/../lookback/SKILL.md`), `cleanup` (`${CLAUDE_SKILL_DIR}/../cleanup/SKILL.md`). Read any cited skill file before acting when its trigger applies.

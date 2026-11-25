@@ -15,7 +15,7 @@ Astack skills: <path to astack skills/ directory, for reading hidden skills by p
      the scenario behaves, write one line and move on.
 
 1. TIME LIMITS, HARD:
-   - Workers: <worker_minutes> minutes (wind down at <worker_minutes minus wind_down_minutes>m: merge what is green, push the rest, report and end; the lead starts your successor from your report).
+   - Workers: <worker_minutes> minutes (wind down at <worker_minutes minus wind_down_minutes>m: commit and push green work to your lane branch for lead review, report and end; the lead starts your successor from your report).
    - Reviewers: <reviewer_minutes> minutes (wind down at <reviewer_minutes minus wind_down_minutes>m: finalize verified findings, list unfinished areas under `COULD NOT TEST`, report and end).
    - Researchers: <researcher_minutes> minutes (wind down at <researcher_minutes minus wind_down_minutes>m: finalize verified citations, list unfinished lookups under `COULD NOT ACCESS`, report and end).
 

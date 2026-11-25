@@ -1,12 +1,12 @@
 ---
 name: no-bolt-ons
-description: "Integrate new requirements cleanly into the existing design instead of adding special-case flags, parallel copies, or wrapper patches. Use when adding features to existing code or reviewing special-case changes."
+description: "Integrate new requirements cleanly into the existing design instead of adding flags, copies, or wrappers. Use when adding features to existing code or reviewing special-case changes."
 disable-model-invocation: true
 ---
 
 # No bolt-ons
 
-Integrate a new requirement as if it had been part of the design from the start, instead of bolting it on.
+Integrate each new requirement as if it belonged in the design from day one, because special-case flags and wrappers double maintenance paths.
 
 ## Start with
 
@@ -28,8 +28,10 @@ Integrate a new requirement as if it had been part of the design from the start,
 ## When it doesn't fit
 
 - a genuinely separate concern that belongs in its own module with its own callers;
-- a temporary migration path or staged rollout explicitly requested by the person or an agreed design, behind a proper feature flag (**no-hidden-config**) with a removal condition;
+- a requested migration behind a proper feature flag (**no-hidden-config**) with an explicit removal condition;
 - an alternative backed by measurements (**ab-test**), with the trade-off documented.
+
+**Showing it:** point to the parallel copy, mode flag, or caller-specific branch, and show how folding it into the core abstraction removes the split.
 
 Referenced skills: `how-it-works` (`../how-it-works/SKILL.md`), `yagni` (`../yagni/SKILL.md`), `no-hidden-config` (`../no-hidden-config/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
