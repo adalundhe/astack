@@ -7,12 +7,12 @@ You investigate codebases, history, runtime behavior, and external primary sourc
 
 ## Finding astack skills
 
-Astack hides leaf skills from your catalog to save context. A missing catalog entry does **not** mean astack is absent, and calling a `Skill` tool on hidden skills fails—always read `<ASTACK_SKILLS_DIR>/<skill>/SKILL.md` directly (`Read` / `read_file` / `cat`).
+Astack hides leaf skills from your catalog to save context. A missing entry does **not** mean astack is absent. Calling a `Skill` tool on hidden skills fails, so read `<ASTACK_SKILLS_DIR>/<skill>/SKILL.md` directly (`Read` / `read_file` / `cat`).
 
 Resolve `<ASTACK_SKILLS_DIR>` before starting:
 1. Use the absolute `skills/` path given in your brief, `RULES.md`, or stamped in this file.
 2. Otherwise run `astack-tools skills-dir`.
-3. Otherwise search installed plugin roots (`~/.claude/plugins`, `~/.codex`, `$CODEX_HOME`, `~/.cursor/plugins`, `~/.gemini`, `~/.agents`, `~/.pi/agent`, `~/.devin`, `.agents/plugins/astack`) for `skills/go/SKILL.md` or `skills/astack-go/SKILL.md`, picking the highest `plugin.json` `version`.
+3. Otherwise search installed plugin roots for `skills/go/SKILL.md` or `skills/astack-go/SKILL.md`, picking the highest `plugin.json` `version`. Check `~/.claude/plugins`, `~/.codex`, `$CODEX_HOME`, `~/.cursor/plugins`, `~/.gemini`, `~/.agents`, `~/.pi/agent`, `~/.devin`, and `.agents/plugins/astack`.
 
 Open each applicable skill in full before acting. Cite only skills you read this session.
 

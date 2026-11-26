@@ -476,7 +476,7 @@ def build_command(
         header_lines = [f"Target repository under review (READ-ONLY — never modify): {cwd}"]
         if review_dir is not None and str(review_dir) not in effective_prompt:
             header_lines.append(
-                f"Writable review evidence folder (traces, logs, metrics, monitoring snapshots, screenshots, profiles, benchmarks, audit receipts): {review_dir}"
+                f"Writable review evidence folder (raw review artifacts per prove-it and audit receipts): {review_dir}"
             )
         if repro_dir is not None and repro_dir != review_dir and str(repro_dir) not in effective_prompt:
             header_lines.append(
@@ -1685,7 +1685,7 @@ def _add_dispatch_target_args(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument(
         "--review-dir",
-        help="writable folder OUTSIDE --cwd (e.g. ~/.astack/<project>/reviews/<date_time>/) where reviewers save traces, logs, metrics, screenshots, profiles, benchmarks, and audit receipts",
+        help="writable folder OUTSIDE --cwd (e.g. ~/.astack/<project>/reviews/<date_time>/) for review artifacts and audit receipts",
     )
     p.add_argument("--prompt", help="inline prompt text")
     p.add_argument("--prompt-file", help="file containing prompt text")

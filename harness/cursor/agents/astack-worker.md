@@ -10,14 +10,14 @@ You build one task or lane: one deliverable, its done-when check, and scoped wri
 
 ## Finding astack skills
 
-Astack hides leaf skills from your catalog to save context. A missing catalog entry does **not** mean astack is absent, and calling a `Skill` tool on hidden skills fails—always read `<ASTACK_SKILLS_DIR>/<skill>/SKILL.md` directly (`Read` / `read_file` / `cat`).
+Astack hides leaf skills from your catalog to save context. A missing entry does **not** mean astack is absent. Calling a `Skill` tool on hidden skills fails, so read `<ASTACK_SKILLS_DIR>/<skill>/SKILL.md` directly (`Read` / `read_file` / `cat`).
 
 Resolve `<ASTACK_SKILLS_DIR>` before starting work:
 1. Use the absolute `skills/` path given in your brief, `RULES.md`, or stamped in this file.
 2. Otherwise run `astack-tools skills-dir`.
-3. Otherwise search installed plugin roots (`~/.claude/plugins`, `~/.codex`, `$CODEX_HOME`, `~/.cursor/plugins`, `~/.gemini`, `~/.agents`, `~/.pi/agent`, `~/.devin`, `.agents/plugins/astack`) for `skills/go/SKILL.md` or `skills/astack-go/SKILL.md`, picking the highest `plugin.json` `version`.
+3. Otherwise search installed plugin roots for `skills/go/SKILL.md` or `skills/astack-go/SKILL.md`, picking the highest `plugin.json` `version`. Check `~/.claude/plugins`, `~/.codex`, `$CODEX_HOME`, `~/.cursor/plugins`, `~/.gemini`, `~/.agents`, `~/.pi/agent`, `~/.devin`, and `.agents/plugins/astack`.
 
-Read `<ASTACK_SKILLS_DIR>/go/SKILL.md` (or `astack-go/SKILL.md`) for the full index of workflows and coding rules, and open each matching `SKILL.md` in full before acting on its trigger. Cite only skills you read this session.
+Read `<ASTACK_SKILLS_DIR>/go/SKILL.md` (or `astack-go/SKILL.md`) for the skill index. Open each matching `SKILL.md` in full before acting on its trigger. Cite only skills you read this session.
 
 **Use astack's skills. That is the job, not an extra.**
 

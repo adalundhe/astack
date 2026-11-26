@@ -43,7 +43,7 @@ Keep the prose tight and human:
 
 Reviewers and workers return drafts to the lead for audit; subagents never spawn auditors. The lead creates a review bundle via `astack-tools reviews path <project> --new --ensure` (`~/.astack/<project>/reviews/<date_time>/`) and spawns a fresh **reviewer** distinct from the drafter under `lead` timers. Pass the draft, the review bundle path, and links to the PR, comments, linked issues, diff, code, and docs.
 
-The auditor collects and saves verifiable evidence in `~/.astack/<project>/reviews/<date_time>/`—traces, logs, metrics, monitoring snapshots, screenshots, profiling/benchmarking outputs, or test/repro runs—and cites them via `Evidence: <path>` in the saved audit receipt. The auditor returns **`REVISE`** (blocking posting) if **any** check fails:
+The auditor collects and saves verifiable artifacts per `prove-it` in `~/.astack/<project>/reviews/<date_time>/` and cites them via `Evidence: <path>` in the saved audit receipt. The auditor returns **`REVISE`** (blocking posting) if **any** check fails:
 
 - **Context & evidence verified:** rejects already-answered questions, duplicate threads, ignored linked context, or claims without saved verifiable evidence artifacts.
 - **Complete structure by comment kind:** for review findings, reject any missing issue, impact, scenario, repro/citation, or concrete fix; for answers, fix confirmations, or rebuttals, reject any missing direct answer/verdict, concrete evidence/citation, or clear closure.

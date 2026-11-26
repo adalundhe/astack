@@ -71,7 +71,7 @@ flowchart LR
   Tools --> Store["~/.astack/"]
 ```
 
-From there, the Lead delegates to three dedicated roles. **Workers** edit code in isolated [Slates](https://github.com/hyper-light/slates) copy-on-write volumes or git worktrees on real timers. **Reviewers** stay strictly read-only—even across different models and CLIs—and save raw proof (logs, traces, metrics, screenshots, profiles, benchmarks, repros) instead of handing back "LGTM." **Researchers** check docs and live environments before anyone guesses. Your session stays in Go mode across follow-up prompts and compactions until you say `"exit go mode"`.
+From there, the Lead delegates to three dedicated roles. **Workers** edit code in isolated [Slates](https://github.com/hyper-light/slates) copy-on-write volumes or git worktrees on real timers. **Reviewers** stay strictly read-only—even across different models and CLIs—and save raw proof on disk instead of handing back "LGTM." **Researchers** check docs and live environments before anyone guesses. Your session stays in Go mode across follow-up prompts and compactions until you say `"exit go mode"`.
 
 ### Try it
 

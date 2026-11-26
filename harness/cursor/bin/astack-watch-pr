@@ -523,10 +523,10 @@ def audit_reply_text(
     Mechanically verifies on disk:
     1. non-empty reply body with zero leaked internals or bare leading commit SHAs;
     2. audit receipt exists and ends with a final CLEAR verdict;
-    3. at least one real, non-empty reviewer evidence artifact exists on disk (traces, logs,
-       metrics, monitoring data, screenshots, profiles, benchmarks, repros, or valid dispatch
-       receipts) via Evidence:/Artifacts:/Review bundle: citations or --evidence-dir
-       (e.g. ~/.astack/<project>/reviews/<date_time>/), rejecting missing, empty, or failed items.
+    3. at least one real, non-empty reviewer evidence artifact exists on disk (per `prove-it`,
+       or a valid passing dispatch receipt) via Evidence:/Artifacts:/Review bundle: citations or
+       --evidence-dir (e.g. ~/.astack/<project>/reviews/<date_time>/), rejecting missing, empty,
+       or failed items.
     Role separation between drafter and reviewer remains a /leave-feedback Lead dispatch requirement.
     """
     violations: List[str] = []
@@ -622,9 +622,10 @@ def audit_reply_text(
         if not verified_artifacts and not any("evidence" in v or "dispatch receipt" in v for v in violations):
             violations.append(
                 f"audit receipt {audit_receipt_path} cites no verifiable evidence artifacts: "
-                "store traces, logs, metrics, monitoring data, screenshots, profiles, or benchmarks "
-                "under ~/.astack/<project>/reviews/<date_time>/ (and standalone repros under "
-                "~/.astack/<project>/repros/<repro>/) and cite them via Evidence: <path> or --evidence-dir"
+                "store review artifacts (e.g. logs, traces, metrics, screenshots, profiles, "
+                "benchmarks, or repro outputs) under ~/.astack/<project>/reviews/<date_time>/ "
+                "(and standalone repros under ~/.astack/<project>/repros/<repro>/) and cite them via "
+                "Evidence: <path> or --evidence-dir"
             )
     for label, pattern in FORBIDDEN_REPLY_PATTERNS:
         if pattern.search(body):
@@ -2062,7 +2063,7 @@ def build_remediation_brief(
             "   - **Mandatory independent second-agent pre-post audit:** **you (the lead)** spin up a fresh independent reviewer agent "
             "(`astack:reviewer` or `astack-dispatch run --role reviewer`) with a fresh review bundle under "
             "`~/.astack/<project>/reviews/<date_time>/` (`astack-tools reviews path <project> --new --ensure`) to audit every draft reply against the PR, "
-            "existing threads, linked docs/issues, collected evidence (traces, logs, metrics, screenshots, profiles, benchmarks, repros), and the 7-item `leave-feedback` gate. Revise until it returns `CLEAR` "
+            "existing threads, linked docs/issues, collected `prove-it` evidence, and the 7-item `leave-feedback` gate. Revise until it returns `CLEAR` "
             "and save the audit output (citing `Evidence: <path>`) to `<review_bundle>/audit-receipt.txt`.",
             f"   - Post each audited reply via `{forge_cli} reply {snapshot.url or snapshot.target.number} "
             "--body-file <reply.md> --audit-receipt <review_bundle>/audit-receipt.txt --evidence-dir <review_bundle>` (adding `--thread`/`--discussion`/`--parent-id` "
