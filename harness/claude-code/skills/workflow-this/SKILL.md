@@ -16,7 +16,7 @@ Turn a reviewed `/astack:dagify` task graph into an automated, crash-resumable w
    - **`python-stack` (run via `astack-tools python` / `astack-tools werkflow`, saved under `~/.astack/<project_name>/automations/<automation_name>/`):**
      - **taskex** for general automations, background task management, schedules, keep/discard retention, watchers, and checkpointed tasks (can also use `werkflow-modules`; pair with `checkpoint`, `suspend`, `resume`);
      - **orchestral** for shorter, scriptish shell or stdlib-Python DAG waves where step code owns state-passing and conditional logic;
-     - **werkflow** for composed `werkflow-modules`, robust implicit state-passing, `WorkflowGroup` pipelines, multi-repo migrations, large-scale refactors, or small-scale CI engines.
+     - **werkflow** for composed `werkflow-modules`, implicit state-passing, `WorkflowGroup` pipelines, multi-repo migrations, large-scale refactors, or small-scale CI engines.
 3. **Model task states explicitly.** Use `waiting`, `ready`, `running`, `in_review`, `done`, `failed`, and `blocked_on_person` in one transition table, because scattered booleans hide illegal states. A task becomes `ready` only when all dependencies are `done` and reviewed. Diagram the machine (`show-the-states`).
 4. **Return typed outcomes.** Emit `done` (with evidence), `failed` (with reason), `inconclusive`, or `blocked` (with the human step), because silent failures corrupt downstream waves. Never hide retries.
 5. **Persist per-task state durably.** Store each task's state separately and keep steps idempotent, because crash recovery replays interrupted steps. In Python, use `SQLiteCheckpointStore` with `taskex` or `orchestral`.

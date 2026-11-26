@@ -1229,6 +1229,26 @@ def cmd_logging_path(args) -> int:
     return 0
 
 
+def _logging_sort_key(path: Path) -> tuple[str, int, int, str]:
+    """Sort logging files newest-first by embedded UTC timestamp (falling back to UTC mtime), not capture-name prefix."""
+    stem = path.stem
+    m = re.search(r"_(\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2})(?:_(\d+))?$", stem)
+    try:
+        mtime_ns = path.stat().st_mtime_ns
+    except OSError:
+        mtime_ns = 0
+    if m:
+        ts_str = m.group(1)
+        seq = int(m.group(2)) if m.group(2) else 1
+        return (ts_str, seq, mtime_ns, path.name)
+    utc_fallback = (
+        datetime.fromtimestamp(mtime_ns / 1e9, timezone.utc).strftime("%Y_%m_%d_%H_%M_%S")
+        if mtime_ns
+        else "0000_00_00_00_00_00"
+    )
+    return (utc_fallback, 0, mtime_ns, path.name)
+
+
 def cmd_logging_list(args) -> int:
     root = astack_home_dir()
     project_filter = None
@@ -1241,7 +1261,7 @@ def cmd_logging_list(args) -> int:
     kinds = (args.kind,) if args.kind else _LOGGING_KINDS
     limit = args.limit if args.limit and args.limit > 0 else None
 
-    entries: list[dict[str, object]] = []
+    raw_entries: list[tuple[tuple[str, int, int, str], dict[str, object]]] = []
     try:
         root_is_dir = root.is_dir()
     except OSError:
@@ -1272,11 +1292,7 @@ def cmd_logging_list(args) -> int:
                 try:
                     if not kdir.is_dir() or not kdir.resolve().is_relative_to(resolved_root):
                         continue
-                    files = sorted(
-                        (f for f in kdir.iterdir() if f.is_file() and not f.name.startswith(".")),
-                        key=lambda p: p.name,
-                        reverse=True,
-                    )
+                    files = [f for f in kdir.iterdir() if f.is_file() and not f.name.startswith(".")]
                 except OSError:
                     continue
                 for f in files:
@@ -1286,15 +1302,19 @@ def cmd_logging_list(args) -> int:
                         size = f.stat().st_size
                     except OSError:
                         continue
-                    entries.append({
-                        "project": proj,
-                        "kind": kind,
-                        "file": f.name,
-                        "size_bytes": size,
-                        "path": str(f),
-                    })
+                    raw_entries.append((
+                        _logging_sort_key(f),
+                        {
+                            "project": proj,
+                            "kind": kind,
+                            "file": f.name,
+                            "size_bytes": size,
+                            "path": str(f),
+                        },
+                    ))
 
-    entries.sort(key=lambda e: (str(e["file"]), str(e["project"]), str(e["kind"])), reverse=True)
+    raw_entries.sort(key=lambda item: (item[0], str(item[1]["project"]), str(item[1]["kind"])), reverse=True)
+    entries = [item[1] for item in raw_entries]
     if limit is not None:
         entries = entries[:limit]
     if args.as_json:

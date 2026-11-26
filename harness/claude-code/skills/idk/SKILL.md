@@ -26,18 +26,18 @@ Dispatch read-only `astack:researcher` subagents (`roles.researcher`, per **lead
 
 ## 3. Synthesize for first-read understanding
 
-Turn the research into a crisp, approachable guide (**talk-to-me**, **show-the-states**, **wat**):
+Turn the research into a direct guide (**talk-to-me**, **show-the-states**, **wat**):
 
 - **Bottom line & tool picks:** state what matters first, which tools fit, and why.
-- **Visuals & diagrams:** add Mermaid state charts, architecture flows, or sequence diagrams (**show-the-states**). Make the moving parts obvious at a glance.
+- **Visuals & diagrams:** add Mermaid state charts, architecture flows, or sequence diagrams (**show-the-states**) showing components, states, and data flow.
 - **Grounded analogies:** give short analogies tied to their codebase. State where each analogy breaks down (**talk-to-me**).
 - **Verified references:** link authoritative primary sources and cite the saved `$HOME/.astack/<project_name>/research/` path.
 
 ## 4. Build an interactive demo with a walkthrough
 
-Turn understanding into hands-on intuition using **play-with-me** whenever practical:
+Let the user try the concept hands-on using **play-with-me** whenever practical:
 
-- Build a runnable interactive demo the user can poke at. Dispatch an isolated `astack:worker` for non-trivial demos, and keep throwaway files outside production code.
+- Build a runnable interactive demo the user can run and modify. Dispatch an isolated `astack:worker` for non-trivial demos, and keep throwaway files outside production code.
 - **Connect to local dev when relevant:** if **analyze-environment** confirmed a relevant local dev stack, wire the **play-with-me** demo against it safely. Keep demos non-destructive and never touch prod or real user data.
 - Verify the demo yourself first (**prove-it**).
 - Give a concise walkthrough: one command to start, 2–4 things to try, what to observe, and how each maps to their goal.

@@ -1855,6 +1855,38 @@ class GoModeHookTest(Scratch):
         self.assertEqual(log_traces.returncode, 0, log_traces.stderr)
         self.assertEqual(len(json.loads(log_traces.stdout)["logging"]), 1)
 
+        # --limit sorts newest-first by embedded UTC timestamp, NOT capture-name alphabetical prefix
+        logs_dir = astack_home / "payments" / "logging" / "logs"
+        for existing in list(logs_dir.iterdir()):
+            existing.unlink()
+        (logs_dir / "worker_2026_11_20_10_00_00.log").write_text("oldest\n", encoding="utf-8")
+        (logs_dir / "checkout_2026_11_24_10_00_00.log").write_text("middle\n", encoding="utf-8")
+        (logs_dir / "api_2026_11_25_10_00_00.log").write_text("newest\n", encoding="utf-8")
+
+        log_newest = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "logging", "list", "--project", "payments", "--kind", "logs", "--limit", "1", "--json"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(log_newest.returncode, 0, log_newest.stderr)
+        self.assertEqual(
+            [e["file"] for e in json.loads(log_newest.stdout)["logging"]],
+            ["api_2026_11_25_10_00_00.log"],
+        )
+
+        log_ordered = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "logging", "list", "--project", "payments", "--kind", "logs", "--json"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(log_ordered.returncode, 0, log_ordered.stderr)
+        self.assertEqual(
+            [e["file"] for e in json.loads(log_ordered.stdout)["logging"]],
+            [
+                "api_2026_11_25_10_00_00.log",
+                "checkout_2026_11_24_10_00_00.log",
+                "worker_2026_11_20_10_00_00.log",
+            ],
+        )
+
         for bad_new in (
             ("research", "path", "payments", "../escape"),
             ("research", "path", "payments", "ok", "--file", "nul.md"),

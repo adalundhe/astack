@@ -177,7 +177,58 @@ def _pid_alive(pid):
         return False
 
 
-def active_dispatches():
+def _resolve_session_id() -> str:
+    for var in (
+        "ASTACK_SESSION_ID",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_SESSION_ID",
+        "CODEX_THREAD_ID",
+        "CODEX_SESSION_ID",
+        "ANTIGRAVITY_CONVERSATION_ID",
+    ):
+        val = (os.environ.get(var) or "").strip()
+        if val:
+            return val
+    return ""
+
+
+def _git_repo_root(path):
+    """Return canonical git repo root (shared across linked worktrees), or None if not in a git repo."""
+    try:
+        target = Path(path).expanduser().resolve()
+    except OSError:
+        return None
+    probe_dir = target if target.is_dir() else target.parent
+    try:
+        res = subprocess.run(
+            ["git", "-C", str(probe_dir), "rev-parse", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            common = Path(res.stdout.strip())
+            if not common.is_absolute():
+                common = (probe_dir / common).resolve()
+            else:
+                common = common.resolve()
+            return str(common.parent if common.name == ".git" else common)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def _resolve_scope_root(path):
+    git_root = _git_repo_root(path)
+    if git_root:
+        return git_root
+    try:
+        return str(Path(path).expanduser().resolve())
+    except OSError:
+        return str(Path(path).expanduser())
+
+
+def active_dispatches(*, repo_root="", session_id="", explicit_repo=False, all_dispatches=False):
     sdir = _dispatch_state_dir()
     try:
         if not sdir.is_dir():
@@ -195,8 +246,28 @@ def active_dispatches():
             continue
         if not isinstance(rec, dict) or rec.get("state") != "running":
             continue
-        if _pid_alive(rec.get("pid")) or _pid_alive(rec.get("supervisor_pid")):
-            live.append(rec)
+        if not (_pid_alive(rec.get("pid")) or _pid_alive(rec.get("supervisor_pid"))):
+            continue
+        if not all_dispatches:
+            rec_session = str(rec.get("session_id") or "")
+            if session_id and rec_session:
+                if rec_session != session_id:
+                    continue
+                if explicit_repo and repo_root:
+                    rec_repo = str(rec.get("repo_root") or "")
+                    if not rec_repo and rec.get("cwd"):
+                        rec_repo = _resolve_scope_root(rec["cwd"])
+                    if rec_repo != repo_root:
+                        continue
+            elif repo_root:
+                rec_repo = str(rec.get("repo_root") or "")
+                if not rec_repo and rec.get("cwd"):
+                    rec_repo = _resolve_scope_root(rec["cwd"])
+                if rec_repo != repo_root:
+                    continue
+            elif session_id and rec_session != session_id:
+                continue
+        live.append(rec)
     return live
 
 
@@ -204,13 +275,23 @@ def main():
     parser = argparse.ArgumentParser(description="Show an astack program's running workers, reviewers, and researchers.")
     parser.add_argument("path", nargs="?")
     parser.add_argument("--repo")
+    parser.add_argument("--session", default="", help="filter cross-harness dispatches to this host/program session ID")
     parser.add_argument("--line", action="store_true", help="print one summary line")
+    parser.add_argument("--all-dispatches", action="store_true", help="include live cross-harness dispatches from all programs and repos")
     args = parser.parse_args()
 
     log = find_log(args.path)
     now = datetime.now(timezone.utc)
-    xharness = active_dispatches()
+    session_id = (args.session or "").strip() or _resolve_session_id()
+    explicit_repo = bool(args.repo)
     if not log or not log.is_file():
+        standalone_repo = _resolve_scope_root(args.repo) if args.repo else (_git_repo_root(Path.cwd()) or "")
+        xharness = active_dispatches(
+            repo_root=standalone_repo,
+            session_id=session_id,
+            explicit_repo=explicit_repo,
+            all_dispatches=args.all_dispatches,
+        )
         if not xharness:
             print("astack: no lane log found" if args.line else "No astack lane log found.")
             return 1
@@ -227,6 +308,14 @@ def main():
         return 0
     agents, lanes, asks, repository, unstamped = read_log(log)
     repo = args.repo or repository or "."
+    explicit_target = args.repo or repository
+    scoped_repo = _resolve_scope_root(explicit_target) if explicit_target else (_git_repo_root(log.parent) or "")
+    xharness = active_dispatches(
+        repo_root=scoped_repo,
+        session_id=session_id,
+        explicit_repo=explicit_repo,
+        all_dispatches=args.all_dispatches,
+    )
     running = {name: a for name, a in agents.items() if not a["ended"]}
     running_workers = {n: a for n, a in running.items() if a["role"] == "worker"}
     running_reviewers = {n: a for n, a in running.items() if a["role"] == "reviewer"}

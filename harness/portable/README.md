@@ -193,7 +193,7 @@ Every bundled tool is stdlib-only Python and runs on macOS, Linux, and Windows.
 
 - `simplify-me`: cuts unnecessary complexity without losing correctness, edge cases, or speed.
 - `rightsize-contracts`: catalogues user/API/CLI/UI/config contracts under `~/.astack/<project>/docs/contracts/`, orders use-case tiers via `stepped-complexity`, and recommends surface reductions.
-- `next-step`: analyzes contract tiers via `stepped-complexity` paired with `delight-users` to recommend minimal-surface, high-value next-step features.
+- `next-step`: analyzes contract tiers via `stepped-complexity` paired with `delight-users` to recommend minimal-surface next-step features.
 - `modularize`: splits monoliths via a smallest-behavior proof of concept, `dagify` migration, and `simplify-me`/`yagni` trim.
 - `rearchitect`: finds high-churn structural friction, ranks restructurings with diagrams, and plans the top pick via `dagify`.
 - `deeper`: tightens a task brief to primary sources, domain tools, and external proof without adding scope.

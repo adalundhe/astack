@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Turn a prompt into a saved, reusable Werkflow workflow—or inspect, author, run, update, and manage existing ones with `werkflow` (`https://github.com/adalundhe/werkflow`) and `werkflow-modules` (`https://github.com/adalundhe/werkflow-modules`, Python >= 3.11).
 
-**When to choose Werkflow:** reach for Werkflow when composing `werkflow-modules` integrations, robust implicit state-passing, or multi-class `WorkflowGroup` pipelines pays off. Strong fits include mass-generating Jira epics and tickets for migrations, collecting enterprise-wide Docker image stats, mass-migrating `requirements.txt` repos to Poetry, and building DORA metrics or small-scale CI/CD engines. You can also pair `taskex` (`TaskRunner`) inside Werkflow for background task management.
+**When to choose Werkflow:** reach for Werkflow when you want composed `werkflow-modules` integrations, implicit state-passing, or multi-class `WorkflowGroup` pipelines. Common uses include mass-generating Jira epics and tickets for migrations, collecting enterprise-wide Docker image stats, mass-migrating `requirements.txt` repos to Poetry, and building DORA metrics or small-scale CI/CD engines. You can also pair `taskex` (`TaskRunner`) inside Werkflow for background task management.
 
 ## Storage, setup, and lifecycle (cross-OS)
 
@@ -26,8 +26,8 @@ Turn a prompt into a saved, reusable Werkflow workflow—or inspect, author, run
      ```
      - `--ci` disables spinners and interactive graphics.
      - `--no-prompt` resolves prompt values from `.werkflow.json` (`project_options`) or uppercase env vars (`RESULT_KEY.upper()`).
-     - `--graceful-abort` catches step exceptions cleanly and calls `workflow.close()`.
-  4. **Update / retire:** inspect existing files and `.werkflow.json` keys first, keep reruns idempotent (**safe-to-rerun**), prune stale `logs/` cleanly (**cleanup**), and confirm before deleting a saved workflow.
+     - `--graceful-abort` catches step exceptions and calls `workflow.close()`.
+  4. **Update / retire:** inspect existing files and `.werkflow.json` keys first, keep reruns idempotent (**safe-to-rerun**), prune stale `logs/` (**cleanup**), and confirm before deleting a saved workflow.
 
 ## Folder layout
 
@@ -113,4 +113,4 @@ class RepoCheckWorkflow(Workflow):
 - Test with `--ci --no-prompt --graceful-abort` on a safe local or dry-run target before hitting real infrastructure (**prove-it**, **safe-to-rerun**).
 - Prefer **orchestral** for shorter, scriptish shell or stdlib-Python DAG waves where you own state-passing and branching. Prefer **taskex** for general automations, background task management, schedules, watchers, and keep/discard retention (which can also use `werkflow-modules`).
 
-**Done when:** the workflow is saved under `$HOME/.astack/<project_name>/automations/<automation_name>/` (or Windows equivalent), passes `--ci --no-prompt --graceful-abort` on a safe target, closes all modules in `close()`, reruns cleanly, and your reply gives the exact run command.
+**Done when:** the workflow is saved under `$HOME/.astack/<project_name>/automations/<automation_name>/` (or Windows equivalent), passes `--ci --no-prompt --graceful-abort` on a safe target, closes all modules in `close()`, reruns idempotently, and your reply gives the exact run command.

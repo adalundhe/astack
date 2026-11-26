@@ -393,7 +393,12 @@ class DispatchTest(unittest.TestCase):
         # 3. astack-status surfaces live cross-harness agents alongside LANES.md AND standalone (without LANES.md)
         lanes = self.dir / "LANES.md"
         lanes.write_text("<!-- astack lane log -->\n# prog\n\n## Log\n\n")
-        env_st = {**os.environ, "ASTACK_DISPATCH_STATE_DIR": str(state_dir), "XDG_CACHE_HOME": str(self.dir / "empty-cache")}
+        env_st = {
+            **os.environ,
+            "ASTACK_DISPATCH_STATE_DIR": str(state_dir),
+            "ASTACK_SESSION_ID": "sess-mixed",
+            "XDG_CACHE_HOME": str(self.dir / "empty-cache"),
+        }
         as_res = subprocess.run(
             [sys.executable, "-B", str(BIN / "astack-status"), str(lanes)],
             capture_output=True, text=True, env=env_st,
@@ -850,6 +855,146 @@ class MultiHarnessEvalRunnerTest(unittest.TestCase):
             joined = "\n".join((out_dir / f).read_text() for f in md_files)
             for token in must_contain:
                 self.assertIn(token, joined, f"{h} missing {token!r}")
+
+    def test_wait_and_status_scope_per_repo_and_support_cross_repo_sessions(self):
+        state_dir = self.dir / "scoped-state"
+        repo_a = self.dir / "repo-a"
+        repo_b = self.dir / "repo-b"
+        repo_c = self.dir / "repo-c"
+        for repo in (repo_a, repo_b, repo_c):
+            repo.mkdir()
+            subprocess.run(["git", "-C", str(repo), "init", "-q", "-b", "main"], check=True)
+            (repo / "README.md").write_text(f"# {repo.name}\n")
+            subprocess.run(
+                ["git", "-C", str(repo), "add", "README.md"], check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@e", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "init"],
+                check=True,
+            )
+        wt_a = self.dir / "wt-a"
+        subprocess.run(["git", "-C", str(repo_a), "worktree", "add", "-q", "-b", "lane/a", str(wt_a)], check=True)
+
+        # Fake codex CLI that sleeps based on prompt text ("SLOW" vs "FAST")
+        fake_bin = self.dir / "fake-bin"
+        fake_bin.mkdir()
+        fake_codex = fake_bin / "codex"
+        fake_codex.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys, time\n"
+            "out_path = None\n"
+            "for i, a in enumerate(sys.argv):\n"
+            "    if a == '-o' and i + 1 < len(sys.argv):\n"
+            "        out_path = sys.argv[i + 1]\n"
+            "prompt = sys.stdin.read()\n"
+            "time.sleep(20.0 if 'SLOW' in prompt else 0.3)\n"
+            "if out_path:\n"
+            "    open(out_path, 'w').write('ok\\n')\n"
+        )
+        fake_codex.chmod(0o755)
+
+        def clean_env(**extra):
+            env = {k: v for k, v in os.environ.items() if k not in (
+                "ASTACK_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CLAUDE_SESSION_ID",
+                "CODEX_THREAD_ID", "CODEX_SESSION_ID", "ANTIGRAVITY_CONVERSATION_ID",
+            )}
+            env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
+            env["ASTACK_DISPATCH_STATE_DIR"] = str(state_dir)
+            env["XDG_CACHE_HOME"] = str(self.dir / "empty-cache")
+            env.update(extra)
+            return env
+
+        def run_d(args, *, cwd, env):
+            return subprocess.run(
+                [sys.executable, "-B", str(BIN / "astack-dispatch"), *args],
+                cwd=cwd, capture_output=True, text=True, env=env,
+            )
+
+        slow_id = None
+        try:
+            # 1. Program B spawns a slow untagged worker in repo_b; Program A spawns a fast worker in wt_a (worktree of repo_a)
+            sp_b = run_d(
+                ["spawn", "--harness", "codex", "--provider", "openai", "--model", "gpt-5.4",
+                 "--role", "worker", "--cwd", str(repo_b), "--prompt", "SLOW",
+                 "--state-dir", str(state_dir), "--json"],
+                cwd=repo_b, env=clean_env(),
+            )
+            self.assertEqual(sp_b.returncode, 0, sp_b.stderr)
+            slow_id = json.loads(sp_b.stdout)["run_id"]
+
+            sp_a = run_d(
+                ["spawn", "--harness", "codex", "--provider", "openai", "--model", "gpt-5.4",
+                 "--role", "worker", "--cwd", str(wt_a), "--prompt", "FAST",
+                 "--state-dir", str(state_dir), "--json"],
+                cwd=repo_a, env=clean_env(),
+            )
+            self.assertEqual(sp_a.returncode, 0, sp_a.stderr)
+            fast_a_id = json.loads(sp_a.stdout)["run_id"]
+
+            # Program A's wait --all finishes without blocking on Program B's slow worker
+            w_a = run_d(
+                ["wait", "--all", "--timeout", "4", "--poll-interval", "0.05", "--state-dir", str(state_dir), "--json"],
+                cwd=repo_a, env=clean_env(),
+            )
+            self.assertEqual(w_a.returncode, 0, w_a.stdout + w_a.stderr)
+            wa_data = json.loads(w_a.stdout)
+            self.assertTrue(wa_data["completed"])
+            self.assertEqual([r["run_id"] for r in wa_data["runs"]], [fast_a_id])
+
+            # Program C (which dispatched nothing) does NOT see Program B's worker in astack-status
+            lanes_c = self.dir / "prog-c" / "LANES.md"
+            lanes_c.parent.mkdir()
+            lanes_c.write_text(f"<!-- astack lane log -->\n# prog-c\n\nRepository: {repo_c}\n\n## Log\n\n")
+            st_c = subprocess.run(
+                [sys.executable, "-B", str(BIN / "astack-status"), str(lanes_c), "--line"],
+                cwd=repo_c, capture_output=True, text=True, env=clean_env(),
+            )
+            self.assertEqual(st_c.returncode, 0, st_c.stderr)
+            self.assertEqual(st_c.stdout.strip(), "astack prog-c: 0 running")
+
+            # 2. Cross-repo session via CLAUDE_CODE_SESSION_ID spans repo_a AND repo_b while still ignoring foreign slow_id
+            x_env = clean_env(CLAUDE_CODE_SESSION_ID="claude-xrepo-99")
+            sp_xa = run_d(
+                ["spawn", "--harness", "codex", "--provider", "openai", "--model", "gpt-5.4",
+                 "--role", "worker", "--cwd", str(repo_a), "--prompt", "FAST",
+                 "--state-dir", str(state_dir), "--json"],
+                cwd=repo_a, env=x_env,
+            )
+            sp_xb = run_d(
+                ["spawn", "--harness", "codex", "--provider", "openai", "--model", "gpt-5.4",
+                 "--role", "worker", "--cwd", str(repo_b), "--prompt", "FAST",
+                 "--state-dir", str(state_dir), "--json"],
+                cwd=repo_a, env=x_env,
+            )
+            self.assertEqual(sp_xa.returncode, 0, sp_xa.stderr)
+            self.assertEqual(sp_xb.returncode, 0, sp_xb.stderr)
+            xa = json.loads(sp_xa.stdout)
+            xb = json.loads(sp_xb.stdout)
+            self.assertEqual(xa["session_id"], "claude-xrepo-99")
+            self.assertEqual(xb["session_id"], "claude-xrepo-99")
+
+            # astack-status for cross-repo session sees both cross-repo workers (and NOT foreign slow_id)
+            lanes_a = self.dir / "prog-a" / "LANES.md"
+            lanes_a.parent.mkdir()
+            lanes_a.write_text(f"<!-- astack lane log -->\n# prog-a\n\nRepository: {repo_a}\n\n## Log\n\n")
+            st_x = subprocess.run(
+                [sys.executable, "-B", str(BIN / "astack-status"), str(lanes_a), "--line"],
+                cwd=repo_a, capture_output=True, text=True, env=x_env,
+            )
+            self.assertEqual(st_x.returncode, 0, st_x.stderr)
+            self.assertIn("2 running (2xh)", st_x.stdout)
+
+            # wait --all under CLAUDE_CODE_SESSION_ID joins BOTH repo_a and repo_b runs, ignoring slow_id
+            w_x = run_d(
+                ["wait", "--all", "--timeout", "4", "--poll-interval", "0.05", "--state-dir", str(state_dir), "--json"],
+                cwd=repo_a, env=x_env,
+            )
+            self.assertEqual(w_x.returncode, 0, w_x.stdout + w_x.stderr)
+            wx_ids = {r["run_id"] for r in json.loads(w_x.stdout)["runs"]}
+            self.assertEqual(wx_ids, {xa["run_id"], xb["run_id"]})
+        finally:
+            if slow_id:
+                run_d(["kill", "--run-id", slow_id, "--state-dir", str(state_dir)], cwd=repo_b, env=clean_env())
 
 
 if __name__ == "__main__":

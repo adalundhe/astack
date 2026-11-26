@@ -27,7 +27,7 @@ Turn a prompt or task graph into a saved Orchestral DAG workflow—or inspect, r
 Keep each `<automation_name>/` folder self-contained:
 
 - `automation.json`: metadata (`runner`: `"orchestral"`, `entrypoint`: `"workflow.py"`, `workflow_id`, `description`, `updated` UTC).
-- `workflow.py`: exposes clean CLI flags (`--dry-run`, `--show-waves`, `--resume`, `--clear-checkpoints`, `--fail-fast`) and stores checkpoints at `Path(__file__).resolve().parent / "state" / "workflow.db"`.
+- `workflow.py`: exposes CLI flags (`--dry-run`, `--show-waves`, `--resume`, `--clear-checkpoints`, `--fail-fast`) and stores checkpoints at `Path(__file__).resolve().parent / "state" / "workflow.db"`.
 - `config.example.json` (if parameterized) without secrets; read credentials from env vars or secret managers (**no-leaked-secrets**).
 - `state/`: SQLite checkpoint database (never write secrets into checkpoint payloads).
 
@@ -112,6 +112,6 @@ raise SystemExit(asyncio.run(main()))
 - Check both `orch.status` and per-step `RunStatus`, exiting non-zero on failure.
 - Prefer **taskex** for general automations, background task management, schedules, and keep/discard retention, or **werkflow** for composed `werkflow-modules`, implicit state-passing, and multi-workflow pipelines.
 
-**Done when:** the workflow is saved under `$HOME/.astack/<project_name>/automations/<automation_name>/` (or Windows equivalent), `orch.execution_order()` validates, `orch.status == WorkflowStatus.COMPLETED`, every step finishes `RunStatus.COMPLETE`, checkpoints replay cleanly, and your reply gives exact run and resume commands.
+**Done when:** the workflow is saved under `$HOME/.astack/<project_name>/automations/<automation_name>/` (or Windows equivalent), `orch.execution_order()` validates, `orch.status == WorkflowStatus.COMPLETED`, every step finishes `RunStatus.COMPLETE`, checkpoints replay without duplicates, and your reply gives exact run and resume commands.
 
 Referenced skills: `setup` (`${CLAUDE_SKILL_DIR}/../setup/SKILL.md`), `rtfm` (`${CLAUDE_SKILL_DIR}/../rtfm/SKILL.md`), `lookup` (`${CLAUDE_SKILL_DIR}/../lookup/SKILL.md`), `analyze-environment` (`${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`), `checkpoint` (`${CLAUDE_SKILL_DIR}/../checkpoint/SKILL.md`), `suspend` (`${CLAUDE_SKILL_DIR}/../suspend/SKILL.md`), `resume` (`${CLAUDE_SKILL_DIR}/../resume/SKILL.md`), `no-leaked-secrets` (`${CLAUDE_SKILL_DIR}/../no-leaked-secrets/SKILL.md`), `dagify` (`${CLAUDE_SKILL_DIR}/../dagify/SKILL.md`), `no-shared-writes` (`${CLAUDE_SKILL_DIR}/../no-shared-writes/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`), `safe-to-rerun` (`${CLAUDE_SKILL_DIR}/../safe-to-rerun/SKILL.md`), `taskex` (`${CLAUDE_SKILL_DIR}/../taskex/SKILL.md`), `werkflow` (`${CLAUDE_SKILL_DIR}/../werkflow/SKILL.md`). Read any cited skill file before acting when its trigger applies.

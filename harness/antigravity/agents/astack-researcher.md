@@ -41,7 +41,7 @@ If `astack-tools` isn't on `PATH`, you have no shell tool, or a `get` truncates,
    - `analyze-environment`: discover CLIs, APIs, MCPs, env-var names, safe probes, non-root install commands, and human auth steps for `TOOLS.md`.
    - `how-it-works`: codebase walks with `file:line` citations.
    - `research-this` and `rtfm`: primary-source verification with quote checks and A–F grading (return external research drafts and target `~/.astack/<project>/research/` paths for the lead to persist).
-   - `next-step` paired with `delight-users` and `stepped-complexity`: examine interfaces and contracts (`~/.astack/<project>/docs/contracts/`) to recommend high-value, minimal-surface next-step feature opportunities.
+   - `next-step` paired with `delight-users` and `stepped-complexity`: examine interfaces and contracts (`~/.astack/<project>/docs/contracts/`) to recommend minimal-surface next-step feature opportunities.
    - `blast-radius`: indirect callers, schemas, invariants, and failure modes.
    - `rearchitect`: high-churn structural friction before restructuring.
 3. Follow `rtfm`: inspect code, git history, PR threads, linked issues/ADRs, and official docs before marking anything unknown.

@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Turn a prompt into a saved TaskEx script, watcher, or schedule—or inspect, run, pause, resume, update, and manage existing ones with `taskex` (`https://github.com/adalundhe/taskex`, Python >= 3.11).
 
-**When to choose TaskEx:** reach for TaskEx almost anywhere you need general automation. It handles tracked async/sync tasks, background task management, safe subprocesses, watchers, recurring schedules, keep/discard retention policies, and resumable jobs. TaskEx works cleanly both standalone and alongside `werkflow` or any `werkflow-modules` package.
+**When to choose TaskEx:** reach for TaskEx almost anywhere you need general automation. It handles tracked async/sync tasks, background task management, safe subprocesses, watchers, recurring schedules, keep/discard retention policies, and resumable jobs. TaskEx runs standalone or alongside `werkflow` and any `werkflow-modules` package.
 
 ## Storage, setup, and lifecycle (cross-OS)
 
@@ -66,7 +66,7 @@ raise SystemExit(asyncio.run(main()))
 - **Env gotcha.** `env=...` replaces the child environment instead of merging. Pass `{**os.environ, ...}` to preserve `PATH`.
 - **Inspecting results.** `await runner.wait(token)` and `wait_all(tokens)` return typed snapshots (`status`, `result`, `error`, `trace`, `elapsed`, `paused_duration`, `checkpoint`). Read live streams via `get_task_update(token)`, `run.get_stdout()`, and `run.get_stderr()`.
 - **Schedules & keep/discard retention.** Pass `schedule="30s"`, `trigger="ON_START"`, `repeat="ALWAYS"` (or `int`), plus `keep`, `max_age`, and `keep_policy`. Control schedules via `pause_schedule`, `resume_schedule`, `cancel_schedule`, or `stop_schedules`.
-- **Clean lifecycle.** Use `async with TaskRunner(...) as runner:` (or `shutdown()` / `stop()` / `abort()`), handling `SIGINT`/`SIGTERM` cleanly so no orphan subprocesses remain. On POSIX, timeouts send `SIGTERM` then `SIGKILL` to the process group.
+- **Lifecycle & shutdown.** Use `async with TaskRunner(...) as runner:` (or `shutdown()` / `stop()` / `abort()`), trapping `SIGINT`/`SIGTERM` so no orphan subprocesses remain. On POSIX, timeouts send `SIGTERM` then `SIGKILL` to the process group.
 
 ## Checkpointing, pause, and crash recovery
 

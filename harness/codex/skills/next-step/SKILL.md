@@ -1,13 +1,13 @@
 ---
 name: next-step
-description: "Analyze contracts on the stepped-complexity ladder to find minimal, high-value next-step features. Use when researchers or leads recommend new capabilities."
+description: "Analyze contracts on the stepped-complexity ladder to find minimal-surface next-step features. Use when researchers or leads recommend new capabilities."
 ---
 
 # Next step
 
-Examine an implementation and its contracts as a whole through **stepped-complexity**, paired with **delight-users**, to find the highest-value "next step" capabilities on the ladder.
+Examine an implementation and its contracts through **stepped-complexity**, paired with **delight-users**, to find the next capabilities on the ladder.
 
-Unlike **rightsize-contracts** (which trims bloat), `next-step` focuses on **expansion**: spotting missing rungs and natural next-tier capabilities that unlock major user value with minimal new surface.
+Unlike **rightsize-contracts** (which trims bloat), `next-step` focuses on **expansion**: finding missing rungs where a small contract addition unlocks the next tier of use cases.
 
 **Primary researcher use:** researchers use this skill alongside **delight-users** when recommending features or interface opportunities.
 
@@ -23,13 +23,13 @@ Check existing contract catalogs under `$HOME/.astack/<project_name>/docs/contra
 Map implemented use cases from tests, docs, examples, logs and telemetry (`astack-tools logging list`), user prompts or issues, and source code. Order them on the **stepped-complexity** ladder.
 
 Audit every rung from the consumer's side (**delight-users**):
-- Where do users hit an abrupt cliff between a simple built-in flow and manual glue work?
-- Which repeated multi-step chores could become one natural step up?
+- Where do users hit an abrupt cliff between a built-in flow and manual glue work?
+- Which repeated multi-step chores could become one step up?
 - Which states, feedback signals, error recoveries, or handoffs are missing or awkward?
 
 ## 3. Identify minimal-surface next-step opportunities
 
-Look for missing rungs or natural extensions where a small, crisp addition to existing contracts unlocks the next tier of capability without complicating simpler tiers:
+Look for missing rungs where a small addition to existing contracts unlocks the next use-case tier without complicating simpler tiers:
 
 - **Compose before inventing:** prefer extending existing primitives or deriving context from existing integrations over bolting on a parallel subsystem (**no-bolt-ons**).
 - **Check prior art with receipts:** when comparing approaches or external ecosystems, run **research-this** (A–F graded) and persist findings under `$HOME/.astack/<project_name>/research/` (`astack-tools research path`).
@@ -37,11 +37,11 @@ Look for missing rungs or natural extensions where a small, crisp addition to ex
 
 ## 4. Rank and present next-step recommendations
 
-Order recommendations by consumer value unlocked relative to new contract surface added. For each proposal, state:
+Order recommendations by user impact relative to new contract surface added. For each proposal, state:
 
 - **Current rung -> Next rung:** what works today vs. the capability unlocked.
 - **Minimal contract delta:** exact new API, CLI, UI, or config surface required, and what stays untouched.
-- **Consumer delight impact:** concrete friction removed or loop tightened (**delight-users**).
+- **Consumer impact:** specific friction or repeated steps removed (**delight-users**).
 - **Evidence & trade-offs:** `file:line`, telemetry, user signals, or graded **research-this** citations, plus key risks.
 
 Hand approved candidates to **plan-it** for decision shaping or **play-with-me** for a quick interactive prototype.

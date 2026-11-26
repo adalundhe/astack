@@ -14,7 +14,7 @@ Prioritize the consumer's experience over implementation convenience, because ro
 2. **Deliver the full request cleanly:** ship it polished and complete without unrequested extras.
 3. **Sweat the details:** show visible feedback for every action, and write errors that state what failed and what to do next. Cover empty, loading, and failure states explicitly, pick sensible defaults, and keep copy and layout clean.
 4. **Prototype early:** build a quick throwaway demo or harness before full implementation and share it proactively (**play-with-me**).
-5. **Tighten the core loop:** make the most frequent user action the fastest and clearest path. Keep complexity stepped cleanly across tiers (**stepped-complexity**, **next-step**).
+5. **Tighten the core loop:** make the most frequent user action the fastest and clearest path. Step complexity across tiers without cliff jumps (**stepped-complexity**, **next-step**).
 
 ## Watch for
 
