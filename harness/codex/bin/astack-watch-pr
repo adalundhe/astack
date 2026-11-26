@@ -9,7 +9,7 @@ markers, and idempotent lead remediation dispatch (`--role lead`, delegating edi
 Usage:
   astack-watch-pr <pr-url-or-number> [watch options]
   astack-watch-pr watch <pr-url-or-number> [watch options]
-  astack-watch-pr reply <pr-url-or-number> --body-file PATH --audit-receipt PATH [reply options]
+  astack-watch-pr reply <pr-url-or-number> --body-file PATH --audit-receipt PATH [--evidence-dir DIR] [reply options]
   astack-watch-pr patch-id-check --before OLD_BASE..OLD_HEAD --after NEW_BASE..NEW_HEAD [--json]
   astack-watch-pr diff-guard --base REF [--head HEAD] [--baseline-lines N | --state-file PATH] [--json]
   astack-watch-pr authorship-check --before OLD_BASE..OLD_HEAD --after NEW_BASE..NEW_HEAD [--json]
@@ -434,11 +434,100 @@ def fence_untrusted(label: str, text: str, max_len: int = 4000) -> str:
     return f"<<<UNTRUSTED_{safe_tag}>>>\n{cleaned}\n<<<END_UNTRUSTED_{safe_tag}>>>"
 
 
-def audit_reply_text(body: str, audit_receipt_path: Optional[Path]) -> List[str]:
-    """Check reply text for leaked internals and verify the audit receipt records a final CLEAR verdict.
+_EVIDENCE_HEADER_RE = re.compile(
+    r"^\s*(?:[-*]\s+)?(?:evidence(?:\s+bundle|\s+dir|\s+paths?)?|artifacts?|review\s+(?:bundle|dir))\s*:\s*(.*)$",
+    re.IGNORECASE,
+)
 
-    Note: reviewer independence is a /leave-feedback workflow requirement, not something verifiable
-    from a local receipt file alone.
+
+def _extract_receipt_evidence_paths(receipt_text: str) -> List[str]:
+    """Extract cited evidence file/directory paths from structured receipt headers or bullet blocks."""
+    raw_items: List[str] = []
+    lines = receipt_text.splitlines()
+    in_block = False
+    for line in lines:
+        m = _EVIDENCE_HEADER_RE.match(line)
+        if m:
+            rest = m.group(1).strip()
+            if rest:
+                in_block = False
+                for part in re.split(r"[,;]", rest):
+                    tok = part.strip().strip("`\"'")
+                    if tok and tok.lower() not in ("none", "n/a", "-"):
+                        raw_items.append(tok)
+            else:
+                in_block = True
+            continue
+        if in_block:
+            bm = re.match(r"^\s*[-*]\s+(.+)$", line)
+            if bm:
+                tok = bm.group(1).strip().strip("`\"'")
+                # Allow "<path> (<note>)" or "<path> — <note>" while keeping paths with spaces intact when quoted/backticked
+                bt = re.search(r"`([^`]+)`", bm.group(1))
+                if bt:
+                    tok = bt.group(1).strip()
+                else:
+                    tok = re.split(r"\s+(?:—|--|\()", tok, maxsplit=1)[0].strip().strip("`\"'")
+                if tok and tok.lower() not in ("none", "n/a", "-"):
+                    raw_items.append(tok)
+                continue
+            if line.strip():
+                in_block = False
+    return raw_items
+
+
+def _collect_nonempty_evidence_files(
+    directory: Path,
+    exclude_paths: Sequence[Path],
+) -> List[Path]:
+    excluded = {p.resolve() for p in exclude_paths if p.exists()}
+    found: List[Path] = []
+    for item in sorted(directory.rglob("*")):
+        if not item.is_file():
+            continue
+        rel_parts = item.relative_to(directory).parts
+        if any(part.startswith(".") for part in rel_parts):
+            continue
+        if item.resolve() in excluded:
+            continue
+        try:
+            if item.stat().st_size > 0:
+                found.append(item)
+        except OSError:
+            continue
+    return found
+
+
+def _validate_dispatch_receipt_json(path: Path) -> Optional[str]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return f"dispatch receipt {path} is not valid JSON: {exc}"
+    if not isinstance(data, dict):
+        return f"dispatch receipt {path} must be a JSON object"
+    if data.get("exit_code") != 0:
+        return f"dispatch receipt {path} recorded non-zero exit_code={data.get('exit_code')!r}"
+    if not str(data.get("model") or "").strip() or not str(data.get("harness") or "").strip():
+        return f"dispatch receipt {path} is missing model or harness metadata"
+    return None
+
+
+def audit_reply_text(
+    body: str,
+    audit_receipt_path: Optional[Path],
+    evidence_dir: Optional[Path] = None,
+    body_path: Optional[Path] = None,
+) -> List[str]:
+    """Check reply text for leaked internals and verify the audit receipt and collected evidence artifacts.
+
+    Mechanically verifies on disk:
+    1. non-empty reply body with zero leaked internals or bare leading commit SHAs;
+    2. audit receipt exists and ends with a final CLEAR verdict;
+    3. at least one real, non-empty reviewer evidence artifact exists on disk (traces, logs,
+       metrics, monitoring data, screenshots, profiles, benchmarks, repros, or valid dispatch
+       receipts) via Evidence:/Artifacts:/Review bundle: citations or --evidence-dir
+       (e.g. ~/.astack/<project>/reviews/<date_time>/), rejecting missing, empty, or failed items.
+    Role separation between drafter and reviewer remains a /leave-feedback Lead dispatch requirement.
     """
     violations: List[str] = []
     if not body or not body.strip():
@@ -468,6 +557,74 @@ def audit_reply_text(body: str, audit_receipt_path: Optional[Path]) -> List[str]
             violations.append(
                 f"audit receipt {audit_receipt_path} does not show a final CLEAR verdict "
                 "(revise and re-audit until the reviewer returns CLEAR)"
+            )
+
+        exclude_files = [audit_receipt_path]
+        if body_path is not None:
+            exclude_files.append(body_path)
+        verified_artifacts: List[Path] = []
+        cited_raw = _extract_receipt_evidence_paths(receipt_text)
+        for raw_ref in cited_raw:
+            cand = Path(raw_ref).expanduser()
+            if not cand.is_absolute():
+                cand = audit_receipt_path.parent / cand
+            if not cand.exists():
+                violations.append(f"cited evidence artifact not found: {raw_ref}")
+                continue
+            if cand.is_dir():
+                dir_files = _collect_nonempty_evidence_files(cand, exclude_files)
+                if not dir_files:
+                    violations.append(f"cited evidence directory contains no non-empty artifacts: {raw_ref}")
+                else:
+                    for df in dir_files:
+                        if df.name.endswith(".receipt.json"):
+                            err = _validate_dispatch_receipt_json(df)
+                            if err:
+                                violations.append(err)
+                                continue
+                        verified_artifacts.append(df)
+            else:
+                if cand.resolve() in {p.resolve() for p in exclude_files if p.exists()}:
+                    violations.append(f"cited evidence path cannot be the audit receipt or reply body itself: {raw_ref}")
+                    continue
+                try:
+                    size = cand.stat().st_size
+                except OSError as exc:
+                    violations.append(f"cannot stat cited evidence artifact {raw_ref}: {exc}")
+                    continue
+                if size <= 0:
+                    violations.append(f"cited evidence artifact is empty (0 bytes): {raw_ref}")
+                    continue
+                if cand.name.endswith(".receipt.json"):
+                    err = _validate_dispatch_receipt_json(cand)
+                    if err:
+                        violations.append(err)
+                        continue
+                verified_artifacts.append(cand)
+
+        if evidence_dir is not None:
+            edir = evidence_dir.expanduser()
+            if not edir.is_dir():
+                violations.append(f"--evidence-dir not found or not a directory: {evidence_dir}")
+            else:
+                dir_files = _collect_nonempty_evidence_files(edir, exclude_files)
+                if not dir_files:
+                    violations.append(f"--evidence-dir contains no non-empty artifacts: {evidence_dir}")
+                else:
+                    for df in dir_files:
+                        if df.name.endswith(".receipt.json"):
+                            err = _validate_dispatch_receipt_json(df)
+                            if err:
+                                violations.append(err)
+                                continue
+                        verified_artifacts.append(df)
+
+        if not verified_artifacts and not any("evidence" in v or "dispatch receipt" in v for v in violations):
+            violations.append(
+                f"audit receipt {audit_receipt_path} cites no verifiable evidence artifacts: "
+                "store traces, logs, metrics, monitoring data, screenshots, profiles, benchmarks, "
+                "or repro outputs under ~/.astack/<project>/reviews/<date_time>/ and cite them via "
+                "Evidence: <path> or --evidence-dir"
             )
     for label, pattern in FORBIDDEN_REPLY_PATTERNS:
         if pattern.search(body):
@@ -1903,11 +2060,12 @@ def build_remediation_brief(
             "no cryptic bare SHAs; no rambling; ZERO leaked internal thinking, filenames (`LANES.md`, `RULES.md`, "
             "`coverage-map.md`), ledger labels (`POOL EXHAUSTED`), P0–P5 codes, model rosters, or capture-recapture jargon.",
             "   - **Mandatory independent second-agent pre-post audit:** **you (the lead)** spin up a fresh independent reviewer agent "
-            "(`astack:reviewer` or `astack-dispatch run --role reviewer`) to audit every draft reply against the PR, "
-            "existing threads, linked docs/issues, and the 7-item `leave-feedback` gate. Revise until it returns `CLEAR` "
-            "and save the audit output to `<audit_receipt.txt>`.",
+            "(`astack:reviewer` or `astack-dispatch run --role reviewer`) with a fresh review bundle under "
+            "`~/.astack/<project>/reviews/<date_time>/` (`astack-tools reviews path <project> --new --ensure`) to audit every draft reply against the PR, "
+            "existing threads, linked docs/issues, collected evidence (traces, logs, metrics, screenshots, profiles, benchmarks, repros), and the 7-item `leave-feedback` gate. Revise until it returns `CLEAR` "
+            "and save the audit output (citing `Evidence: <path>`) to `<review_bundle>/audit-receipt.txt`.",
             f"   - Post each audited reply via `{forge_cli} reply {snapshot.url or snapshot.target.number} "
-            "--body-file <reply.md> --audit-receipt <audit_receipt.txt>` (adding `--thread`/`--discussion`/`--parent-id` "
+            "--body-file <reply.md> --audit-receipt <review_bundle>/audit-receipt.txt --evidence-dir <review_bundle>` (adding `--thread`/`--discussion`/`--parent-id` "
             "as appropriate). Only resolve a thread AFTER replying—never silently.",
             "",
             "## Unresolved Items To Address",
@@ -2016,9 +2174,9 @@ def build_remediation_brief(
             f"1. Read `{sdir}/leave-feedback/SKILL.md` and `{sdir}/watch-pr/SKILL.md`.",
             "2. Draft a brief reminder naming what the PR is waiting on (e.g. human approval or review) without leaking "
             "internal process terms.",
-            "3. **You (the lead)** spin up a fresh independent `astack:reviewer` (or `astack-dispatch run --role reviewer`) to run the `/leave-feedback` audit until `CLEAR`.",
+            "3. **You (the lead)** spin up a fresh independent `astack:reviewer` (or `astack-dispatch run --role reviewer`) to run the `/leave-feedback` audit until `CLEAR`, storing PR status evidence and the receipt under `~/.astack/<project>/reviews/<date_time>/`.",
             f"4. Post via `{forge_cli} reply {snapshot.url or snapshot.target.number} --body-file <ping.md> "
-            "--audit-receipt <audit_receipt.txt>`.",
+            "--audit-receipt <review_bundle>/audit-receipt.txt --evidence-dir <review_bundle>`.",
             "",
         ])
 
@@ -3221,7 +3379,13 @@ def add_reply_arguments(parser: argparse.ArgumentParser, default_forge: Optional
         "--audit-receipt",
         type=Path,
         required=True,
-        help="Independent second-agent /leave-feedback audit receipt confirming CLEAR before posting",
+        help="Independent second-agent /leave-feedback audit receipt confirming CLEAR and citing verifiable evidence before posting",
+    )
+    parser.add_argument(
+        "--evidence-dir",
+        type=Path,
+        default=None,
+        help="Directory holding collected reviewer evidence artifacts (e.g. ~/.astack/<project>/reviews/<date_time>/)",
     )
     parser.add_argument("--thread", "--discussion", dest="thread_id", help="Review thread/discussion ID to reply to or resolve")
     parser.add_argument("--comment-id", "--parent-id", dest="comment_id", help="Parent review comment ID for inline thread reply")
@@ -3271,7 +3435,12 @@ def execute_reply(adapter: ForgeAdapter, args: argparse.Namespace) -> int:
     if not args.body_file.is_file():
         raise BadInputError(f"reply body file not found: {args.body_file}")
     body = args.body_file.read_text(encoding="utf-8")
-    violations = audit_reply_text(body, args.audit_receipt)
+    violations = audit_reply_text(
+        body,
+        args.audit_receipt,
+        evidence_dir=getattr(args, "evidence_dir", None),
+        body_path=args.body_file,
+    )
     if violations:
         for v in violations:
             print(f"leave-feedback audit BLOCKED posting: {v}", file=sys.stderr)

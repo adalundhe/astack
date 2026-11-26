@@ -40,13 +40,13 @@ Keep the prose tight and human:
 - Strip all internal bookkeeping: no self-talk, agent/lane IDs, internal filenames (`LANES.md`, `RULES.md`, `coverage-map.md`), or bracketed rule tags.
 - Also omit `P0`–`P5` labels, reviewer counts, model names, pool-exhaustion labels, and statistical jargon.
 
-## 3. Require a second-agent pre-post audit (Lead only)
+## 3. Require a second-agent pre-post audit with verifiable evidence (Lead only)
 
-Reviewers and workers return drafts to the lead for audit; subagents never spawn auditors. The lead spawns a fresh **reviewer** distinct from the drafter under `lead` timers. Pass the draft plus links to the PR, comments, linked issues, diff, code, and docs.
+Reviewers and workers return drafts to the lead for audit; subagents never spawn auditors. The lead creates a review bundle via `astack-tools reviews path <project> --new --ensure` (`~/.astack/<project>/reviews/<date_time>/`) and spawns a fresh **reviewer** distinct from the drafter under `lead` timers. Pass the draft, the review bundle path, and links to the PR, comments, linked issues, diff, code, and docs.
 
-The auditor returns **`REVISE`** (blocking posting) if **any** check fails:
+The auditor collects and saves verifiable evidence in `~/.astack/<project>/reviews/<date_time>/`—traces, logs, metrics, monitoring snapshots, screenshots, profiling/benchmarking outputs, or test/repro runs—and cites them via `Evidence: <path>` in the saved audit receipt. The auditor returns **`REVISE`** (blocking posting) if **any** check fails:
 
-- **Context verified:** rejects already-answered questions, duplicate threads, or ignored linked context.
+- **Context & evidence verified:** rejects already-answered questions, duplicate threads, ignored linked context, or claims without saved verifiable evidence artifacts.
 - **Complete structure by comment kind:** for review findings, reject any missing issue, impact, scenario, repro/citation, or concrete fix; for answers, fix confirmations, or rebuttals, reject any missing direct answer/verdict, concrete evidence/citation, or clear closure.
 - **No bare internal references:** rejects uncontextualized SHAs, internal filenames, lane IDs, or unexplained symbols.
 - **Prose quality:** rejects awkward, stilted, repetitive, or rambling walls of text.
@@ -58,6 +58,6 @@ Revise flagged lines and re-audit until the auditor returns **`CLEAR`**.
 
 ## 4. Post cleanly and return only the finalized comment
 
-Once `CLEAR`, post the exact audited body via `astack-watch-pr reply --body-file <file> --audit-receipt <receipt>` (or the PR command outside `watch-pr`). Return only the finalized comment plus a one-line confirmation if needed. Never prepend a changelog quoting stripped terms (`coverage-map.md`, `POOL EXHAUSTED`, `jackknife`, `P0`–`P5`) or narrate audit rounds.
+Once `CLEAR`, post the exact audited body via `astack-watch-pr reply --body-file <file> --audit-receipt <review_bundle>/audit-receipt.txt --evidence-dir <review_bundle>` (or the PR command outside `watch-pr`). `astack-watch-pr reply` mechanically verifies that the receipt ends in `CLEAR` and that cited evidence files exist and are non-empty. Return only the finalized comment plus a one-line confirmation if needed. Never prepend a changelog quoting stripped terms (`coverage-map.md`, `POOL EXHAUSTED`, `jackknife`, `P0`–`P5`) or narrate audit rounds.
 
-**Done when:** the independent auditor returned `CLEAR`, the exact audited comment was posted, and the reply contains zero internal bookkeeping.
+**Done when:** the independent auditor saved verifiable evidence under `~/.astack/<project>/reviews/<date_time>/`, returned `CLEAR`, posted the exact audited comment, and leaked zero internal bookkeeping.

@@ -8,7 +8,7 @@ description: "Stop mid-session when the person repeats a rule, audit why it slip
 Stop immediately when the person has to repeat themselves. Don't apologize, patch the symptom, and forget two turns later—fix **why** it slipped right now.
 
 1. **Full stop, zero fluff:** skip apologies and defensive explanations, because excuses waste turns without fixing the miss. State the missed rule in one plain sentence.
-2. **Audit why it slipped, not just what slipped:** run **lookup** first to check whether a saved `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md` or `LANES.md` entry already warned about this trap. Trace the real cause:
+2. **Audit why it slipped, not just what slipped:** run **lookup** first to check whether a saved `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md`, review bundle (`~/.astack/<project_name>/reviews/<date_time>/`), or `LANES.md` entry already warned about this trap. Trace the real cause:
    - skipped or unloaded skill (`astack-tools skills list --role <role>` / `skills get <name>`) or skipped **lookup**;
    - dropped role (Lead solo-coding, solo-debugging, or drifting out of Go mode);
    - ignored directive (`LANES.md`, `RULES.md`, or repo docs via `rtfm`);

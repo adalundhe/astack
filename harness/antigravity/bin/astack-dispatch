@@ -474,7 +474,7 @@ def build_command(
     if repro_dir is not None and role == "reviewer":
         repro_header = (
             f"Target repository under review (READ-ONLY — never modify): {cwd}\n"
-            f"Writable reproduction output folder: {repro_dir}\n\n"
+            f"Writable review evidence folder (save repros, traces, logs, metrics, monitoring snapshots, screenshots, profiles, benchmarks, and audit receipts here): {repro_dir}\n\n"
         )
         if str(repro_dir) not in effective_prompt:
             effective_prompt = repro_header + effective_prompt
@@ -1585,7 +1585,7 @@ def cmd_batch(args) -> int:
                 role=str(spec.get("role") or "reviewer"),
                 vector=str(spec.get("vector") or ""),
                 cwd_raw=spec.get("cwd"),
-                repro_dir_raw=spec.get("repro_dir"),
+                repro_dir_raw=spec.get("repro_dir") or spec.get("review_dir"),
                 prompt_text=spec.get("prompt"),
                 prompt_file=spec.get("prompt_file"),
                 system_prompt_file=spec.get("system_prompt_file"),
@@ -1650,7 +1650,12 @@ def _add_dispatch_target_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--role", choices=("lead", "worker", "reviewer", "researcher"), default="reviewer")
     p.add_argument("--vector", default="", help="assigned review vector (recorded in receipt)")
     p.add_argument("--cwd", help="working directory / isolated worktree path")
-    p.add_argument("--repro-dir", help="writable folder OUTSIDE --cwd where reviewers save standalone reproductions (keeps --cwd read-only on Codex)")
+    p.add_argument(
+        "--repro-dir",
+        "--review-dir",
+        dest="repro_dir",
+        help="writable folder OUTSIDE --cwd (e.g. ~/.astack/<project>/reviews/<date_time>/) where reviewers save repros, traces, logs, metrics, screenshots, profiles, and benchmarks (keeps --cwd read-only on Codex)",
+    )
     p.add_argument("--prompt", help="inline prompt text")
     p.add_argument("--prompt-file", help="file containing prompt text")
     p.add_argument("--system-prompt-file", help="agent instructions file (e.g. agents/astack-reviewer.md)")

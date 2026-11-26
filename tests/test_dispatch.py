@@ -157,14 +157,15 @@ class DispatchTest(unittest.TestCase):
                 # Reviewers need to execute/save reproductions (only researchers use read-only `--mode ask`)
                 self.assertNotIn("--mode", preview["argv"])
 
-        # Codex reviewer with external --repro-dir (outside repo) uses `-C <repro_dir> --sandbox workspace-write`
-        # AND explicitly excludes /tmp, $TMPDIR, and extra writable_roots so repos under /tmp or $TMPDIR stay read-only!
+        # Codex reviewer with external --review-dir (alias for --repro-dir, e.g. ~/.astack/<project>/reviews/<date_time>/)
+        # uses `-C <review_dir> --sandbox workspace-write` AND explicitly excludes /tmp, $TMPDIR, and extra writable_roots
+        # so repos under /tmp or $TMPDIR stay read-only while evidence bundles persist cleanly!
         repro_out = self.dir / "repros"
         repro_out.mkdir()
         res_cx_repro = self.run_dispatch(
             "run", "--harness", "codex", "--role", "reviewer",
             "--provider", "openai", "--model", "gpt-5.4",
-            "--cwd", str(self.work), "--repro-dir", str(repro_out),
+            "--cwd", str(self.work), "--review-dir", str(repro_out),
             "--prompt", "Review auth.py", "--dry-run", "--json",
         )
         self.assertEqual(res_cx_repro.returncode, 0, res_cx_repro.stderr)
@@ -175,6 +176,7 @@ class DispatchTest(unittest.TestCase):
         self.assertIn("sandbox_workspace_write.exclude_slash_tmp=true", prev_cx["argv"])
         self.assertIn("sandbox_workspace_write.exclude_tmpdir_env_var=true", prev_cx["argv"])
         self.assertIn("sandbox_workspace_write.writable_roots=[]", prev_cx["argv"])
+        self.assertEqual(Path(prev_cx["repro_dir"]).resolve(), repro_out.resolve())
 
         # Overlapping --repro-dir in EITHER direction (inside --cwd OR ancestor of --cwd) MUST be rejected (exit 2)!
         bad_repro = self.work / "repros"
@@ -732,8 +734,53 @@ class MultiHarnessEvalRunnerTest(unittest.TestCase):
         self.assertTrue(res["launch_failed"])
         self.assertEqual(res["exit_code"], 2)
         self.assertEqual(res["score"], 0.0)
+        self.assertEqual(res["outcome_score"], 0.0)
+        self.assertEqual(res["process_score"], 0.0)
+        self.assertEqual(res["usage"]["total_tokens"], 0)
         self.assertEqual(res["graders"][0]["name"], "harness-run")
         self.assertFalse(res["graders"][0]["passed"])
+
+    def test_eval_outcome_process_score_split_and_token_usage_extraction(self):
+        # Outcome vs. process separation prevents plugin-only process graders from inflating ablation comparisons
+        graders = [
+            {"name": "harness-run", "type": "runtime", "passed": True},
+            {"name": "bugbash-read", "type": "tool_used", "passed": True},
+            {"name": "reviewers-spawned", "type": "tool_used", "passed": True},
+            {"name": "worker-spawned", "type": "tool_used", "passed": True},
+            {"name": "no-internal-leak", "type": "regex", "passed": True},
+            {"name": "workspace-verify", "type": "command", "passed": True},
+            {"name": "judged", "type": "llm", "passed": False},
+        ]
+        combined, outcome, process = self.ev._summarize_scores(graders)
+        self.assertEqual(combined, 0.86)
+        self.assertEqual(outcome, 0.5)
+        self.assertEqual(process, 1.0)
+
+        # When outcome graders are skipped (passed=None), outcome_score stays None instead of faking 0.0
+        skipped_outcome = [
+            {"name": "harness-run", "type": "runtime", "passed": True},
+            {"name": "judged", "type": "llm", "passed": None},
+        ]
+        c_sk, o_sk, p_sk = self.ev._summarize_scores(skipped_outcome)
+        self.assertEqual(c_sk, 1.0)
+        self.assertIsNone(o_sk)
+        self.assertEqual(p_sk, 1.0)
+
+        # Codex multi-turn usage sums across turn.completed events (cached_input_tokens is subset of input_tokens)
+        codex_stream = "\n".join([
+            json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1000, "cached_input_tokens": 600, "output_tokens": 200}}),
+            json.dumps({"type": "turn.completed", "usage": {"input_tokens": 1500, "cached_input_tokens": 900, "output_tokens": 300}}),
+        ])
+        cx_usage = self.ev._extract_token_usage(codex_stream)
+        self.assertEqual(cx_usage, {"input_tokens": 2500, "cached_input_tokens": 1500, "output_tokens": 500, "total_tokens": 3000})
+
+        # Claude aggregate result.usage wins over per-message assistant usage (no double counting)
+        claude_stream = "\n".join([
+            json.dumps({"type": "assistant", "message": {"usage": {"input_tokens": 100, "cache_read_input_tokens": 500, "output_tokens": 50}}}),
+            json.dumps({"type": "result", "usage": {"input_tokens": 120, "cache_read_input_tokens": 800, "cache_creation_input_tokens": 200, "output_tokens": 80}}),
+        ])
+        cl_usage = self.ev._extract_token_usage(claude_stream)
+        self.assertEqual(cl_usage, {"input_tokens": 120, "cached_input_tokens": 1000, "output_tokens": 80, "total_tokens": 1200})
 
     def test_install_agents_installs_all_four_full_agents_for_every_harness(self):
         settings = self.dir / "settings.json"

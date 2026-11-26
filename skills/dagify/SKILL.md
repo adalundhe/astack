@@ -12,11 +12,11 @@ Break multi-task work into small units that one agent each can build and verify,
 
 ## 0. Clear open spec decisions
 
-Before slicing a spec or PRD, identify unresolved product, interface, or architecture branches. Resolve genuine human choices one focused exchange at a time with your recommendation, or record unambiguous defaults as `decided:` in `LANES.md`. Never slice around an open branch, because one upstream change invalidates every downstream task.
+Before slicing a spec or PRD, identify unresolved product, interface, or architecture branches. When the request arrives unshaped with major open decisions, run **plan-it** first to grill and settle the design before slicing tasks. For smaller remaining choices, resolve genuine human calls one focused exchange at a time with your recommendation, or record unambiguous defaults as `decided:` in `LANES.md`. Never slice around an open branch, because one upstream change invalidates every downstream task.
 
 ## 1. Align and pick a workflow shape
 
-1. **Check prior lessons and align:** run **lookup** on `~/.astack` first to catch past traps. State what users will see when done and what is out of scope (`run-it-back`). Read affected code (`how-it-works`), and diagram states when behavior depends on history (`show-the-states`).
+1. **Check prior lessons and ADs, then align:** run **lookup** on `~/.astack` lessons and architecture decisions (`astack-tools arch list --project <project>`) first. State what users will see when done and what is out of scope (`run-it-back`). Read affected code (`how-it-works`), and diagram states when behavior depends on history (`show-the-states`).
 2. **Pick a shape.** Every shape ends in a review that passes before dependent tasks start:
    - **Bug:** shrunk failing repro (`bugbash`) -> root-cause diagnosis (`find-it`) -> fix (`fix-it`) -> review.
    - **Feature:** data shape and acceptance criteria -> thin vertical "tracer bullet" slices (end-to-end across layers to prove integration early, not horizontal stubs) -> end-to-end tests -> review.

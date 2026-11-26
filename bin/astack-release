@@ -20,9 +20,12 @@ Usage:
 
 Stdlib-only (Python >=3.9). Stores state atomically in JSON (write-to-temp + fsync + os.replace),
 validates DAG acyclicity and output dependencies, integrates with astack-watch-pr for live PR state,
-enforces settings.json autonomy gates across start/verify/complete (requiring recorded approve --by
-entries for gated steps), enforces immutable recorded outputs, resolves upstream outputs for
-downstream repos, and renders a Mermaid release-train diagram + reverse-topological rollback runbook.
+enforces settings.json autonomy gates across start/verify/complete (workflow guardrail, not
+cryptographic enforcement: approve --by records an audit trail in release.json, but any caller with
+shell access to the state file can invoke it), enforces immutable recorded outputs (rejecting
+floating refs like main/latest/HEAD on ref/sha/tag/commit/digest keys), resolves upstream outputs
+for downstream repos, and renders a Mermaid release-train diagram + reverse-topological rollback
+runbook.
 """
 from __future__ import annotations
 
@@ -475,9 +478,30 @@ def _is_external_release_env(env: str) -> bool:
     return any(tok in _EXTERNAL_RELEASE_TOKENS for tok in _env_tokens(env))
 
 
+_FLOATING_REF_VALUES = frozenset({"main", "master", "develop", "dev", "trunk", "latest", "head", "edge", "nightly", "canary"})
+_REF_KEY_RE = re.compile(r"(?:^|_)(?:ref|sha|commit|tag|digest)$", re.IGNORECASE)
+
+
+def _check_no_floating_ref(step_id: str, key: str, value: str) -> None:
+    if not _REF_KEY_RE.search(key):
+        return
+    val_l = value.strip().lower()
+    if (
+        val_l in _FLOATING_REF_VALUES
+        or val_l.startswith("refs/heads/")
+        or val_l.startswith("origin/")
+        or val_l.endswith(":latest")
+    ):
+        raise ReleaseError(
+            f"refusing floating ref {value!r} for {step_id}.{key}; "
+            "pin an immutable commit SHA, release tag, or digest instead"
+        )
+
+
 def _record_immutable_outputs(step: ReleaseStep, new_outputs: Dict[str, str]) -> None:
     for k, v in new_outputs.items():
         check_no_secrets(f"{step.id}.outputs.{k}", v)
+        _check_no_floating_ref(step.id, k, v)
         if k in step.outputs and step.outputs[k] != v:
             raise ReleaseError(
                 f"cannot overwrite immutable output {step.id}.{k} "
@@ -1444,7 +1468,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_start.add_argument("--markdown")
     p_start.add_argument("--json", action="store_true")
 
-    p_approve = sub.add_parser("approve", help="record explicit human approval for a gated step (unblocks verify/complete)")
+    p_approve = sub.add_parser(
+        "approve",
+        help="record an audit-trail approval for a gated step (workflow guardrail, not cryptographic enforcement)",
+    )
     p_approve.add_argument("file")
     p_approve.add_argument("--id", required=True)
     p_approve.add_argument("--by", required=True, help="approving human name or handle")

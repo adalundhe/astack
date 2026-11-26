@@ -21,7 +21,7 @@ Follow **lead** for isolated workspaces (**slates** or git worktrees), role time
 1. Review what the person named. Otherwise review all branch changes since base, including uncommitted edits.
 2. Read `reviewer_pool` and `reviewer_minutes` from `~/.config/astack/settings.json`. Never dispatch outside `reviewer_pool`, because it controls which vendors see code. If unset, use the active session model as a 1-model pool quietly—never flag a single-model reviewer pool or `settings.json` state as an `"Open Item"`.
 3. For cross-harness entries, run `astack-dispatch check-pool`. Log unreachable models in `unreachable_models` for `astack-review-ledger` instead of substituting.
-4. Read project guides, git history, PR description, **all PR comments and review threads**, and **every linked issue, PR, discussion, ADR, or spec**. Pass those links and settled decisions in every brief so reviewers skip answered questions.
+4. Read project guides, `~/.astack/<project>/architecture/AD_*.md` (`astack-tools arch list --project <project>`), prior review bundles (`astack-tools reviews list --project <project>`), git history, PR description, **all PR comments and review threads**, and **every linked issue, PR, discussion, repo ADR, or spec**. Pass those links and settled decisions in every brief so reviewers skip answered questions.
 
 ## 2. Cut vectors and classify risk
 
@@ -36,13 +36,13 @@ Cut the change into review **vectors** with no arbitrary cap:
 
 1. **Initial models:** start each **`risky`** vector with **at least two** approved models (Step 5 needs two). Start each **`low`** vector with **one**. Include a non-worker model when `reviewer_pool` allows.
 2. **Keep reviewers blind to each other** on the same vector until the batch finishes, because shared findings cause anchoring.
-3. **Spawn dedicated reviewers:** Dispatch each reviewer with your host's native subagent tool using `agents/astack-reviewer.md` (or `astack-dispatch` cross-harness; never substitute an unconfigured generic agent), passing the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`), isolated workspace, vector, intent, linked context, repro folder, UTC timestamps, and assigned `reviewer_pool` entry. Use `astack-dispatch` (see `--help`) for cross-harness models. Join all active runs via `astack-dispatch wait --all --json` before Step 4.
-4. **Reviewer instructions:** require **rtfm**, **adversarial-review**, and every matching coding rule. Require standalone failing repro scripts (non-zero on buggy code, 0 when fixed) saved outside `repo/`. For bug fixes, pass the dossier, shrunk repro, rejected theories (`decided:`), and **failed fix approaches/attempts**, requiring `prove-it` PR verification.
+3. **Spawn dedicated reviewers:** Allocate a fresh review evidence folder per reviewer via `astack-tools reviews path <project> --new --ensure` (`~/.astack/<project>/reviews/<date_time>/`). Dispatch each reviewer with your host's native subagent tool using `agents/astack-reviewer.md` (or `astack-dispatch` cross-harness; never substitute an unconfigured generic agent). Pass the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`), isolated workspace, vector, intent, linked context, review evidence folder, UTC timestamps, and assigned `reviewer_pool` entry. Use `astack-dispatch` with `--review-dir` (see `--help`) for cross-harness models. Join all active runs via `astack-dispatch wait --all --json` before Step 4.
+4. **Reviewer instructions:** require **rtfm**, **adversarial-review**, and every matching coding rule. Require reviewers to collect verifiable evidence—traces, logs, metrics, monitoring data, screenshots, profiles, benchmarks, and standalone failing repro scripts (non-zero on buggy code, `0` when fixed)—and store it in `~/.astack/<project>/reviews/<date_time>/`. For bug fixes, pass the dossier, shrunk repro, rejected theories (`decided:`), and **failed fix approaches/attempts**, requiring `prove-it` PR verification.
 5. **Run the gate tripwire:** run `astack-check-gates <base>..<head>` for deleted tests, skips, lint mutes, or loosened tolerances. Audit test diffs semantically too.
 
 ## 4. Verify findings and check fix-equivalence
 
-1. Rerun each finding's repro once its reviewer finishes, and verify cited contradictions directly. Keep only proven bugs or contradictions. Drop unverified claims and answered questions, and record blocking, minor, and dropped counts.
+1. Inspect each reviewer's saved bundle in `~/.astack/<project>/reviews/<date_time>/`, rerun every finding's repro, and verify cited contradictions directly. Keep only proven bugs or contradictions backed by real evidence. Drop unverified claims and answered questions, and record blocking, minor, and dropped counts.
 2. **Count only proven blocking bugs** in stopping math. Report suggestions and nits separately so nits never trigger extra rounds.
 3. **Decide "same bug" by fix-equivalence, never wording.** Have a worker apply a minimal fix in a scratch workspace and rerun **both** repros. Merge them only when one fix makes both pass, logging `fix_verified: true` in `equivalence_checks`.
 4. **File cross-vector bugs accurately.** File bugs proven outside an assigned vector under their root-cause vector.
@@ -67,7 +67,7 @@ Never claim "95% certainty that no bugs remain", because statistics extrapolate 
 
 ## 7. Clean up and close with **lookback**
 
-Run `cleanup` on scratch workspaces and temp files while keeping durable repros and reports. Then run **lookback** into `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md` (with `make-it-stick` for recurring guards), skipping a new file only when nothing new surfaced.
+Run `cleanup` on scratch workspaces and repo-local temp files while keeping durable review bundles under `~/.astack/<project>/reviews/<date_time>/`. Then run **lookback** (examining those review bundles) into `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md`, paired with `make-it-stick` for recurring guards. Skip a new lesson only when nothing new surfaced.
 
 Referenced skills: `lead` (`../astack-lead/SKILL.md`), `slates` (`../slates/SKILL.md`), `rtfm` (`../rtfm/SKILL.md`), `blast-radius` (`../blast-radius/SKILL.md`), `adversarial-review` (`../adversarial-review/SKILL.md`), `leave-feedback` (`../leave-feedback/SKILL.md`), `lookback` (`../lookback/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 

@@ -34,11 +34,11 @@ Work top-down from DNS and edge to packets, because cheap control-plane signals 
 6. **Packets, sockets, & kernel state:** when policy and flow logs don't settle it, take bounded, filtered captures from the failing workload:
    - `ss -tinp`, `ip route get <dst>`, `mtr -rwzbc 20 <dst>`, `tracepath <dst>` (asymmetric routes, loss, PMTU);
    - `conntrack -S` and socket/ephemeral port counts (NAT/`conntrack` exhaustion);
-   - `tcpdump -nn -i <iface> -c <N> -s 54` (IPv4+TCP base headers) or `-s 74` (IPv6+TCP base headers) and `tshark` for SYN/RST, retransmits, zero-window, or TLS alerts. Larger snaplens like `-s 96` capture ~30–42 bytes of application payload (including cleartext HTTP request lines and tokens); never use them on unencrypted traffic.
+   - `tcpdump -nn -i <iface> -c <N> -s 54` (Ethernet+IPv4+TCP) or `-s 74` (Ethernet+IPv6+TCP) for SYN/RST, retransmits, or zero-window. Use `-s 42` / `-s 62` for Ethernet+UDP. Subtract 14 bytes on L3/tun interfaces so no payload leaks. TLS alerts live inside TCP payload after byte 54/74. Inspect them with `openssl s_client` instead of raising snaplen on cleartext (`-s 96` leaks ~30–42 bytes of payload and tokens).
 
 ## 3. Keep captures safe and hand off cleanly
 
-- Save captures as `<file>_DEBUG_<shorthash>.<type>` with header-bounded snaplens (`-s 54` IPv4 / `-s 74` IPv6; never capture cleartext payloads or tokens, **no-leaked-secrets**). Delete every capture afterward (**cleanup**).
+- Save captures as `<file>_DEBUG_<shorthash>.<type>` with header-bounded snaplens matching link and transport headers (`-s 54`/`-s 74` Ethernet+TCP, `-s 42`/`-s 62` Ethernet+UDP, minus 14 on L3/tun). Never capture cleartext payloads or tokens (**no-leaked-secrets**). Delete every capture afterward (**cleanup**).
 - Cite exact commands, flow-log verdicts, or packet frames proving the failing hop (ran vs. read).
 - Route firewall/WAF/IAM fixes through `least-privilege`, `safe-iac`, and `safe-to-deploy`. Route timeout/drain fixes through `fail-safely`, and confirmed code/IaC bugs through **bugbash**.
 

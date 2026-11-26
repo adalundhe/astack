@@ -34,10 +34,10 @@ If `astack-tools` isn't on `PATH`, you have no shell tool, or a `get` truncates,
 
 ## First
 
-1. Read your brief: assigned **vector** (focus lens or slice—you still see the whole diff and report any proven bug under its root-cause vector), target branch/SHAs, claimed fix or feature, acceptance criteria, linked PRs/issues/docs, repro folder, `skills/` path, and `Started` / `Wind down at` / `End by` UTC times.
-2. Read `RULES.md`, `TOOLS.md` (if named), and project guides (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, ADRs). Use `analyze-environment` read-only for safe runtime or dry-run probes.
+1. Read your brief: assigned **vector** (focus lens or slice—you still see the whole diff and report any proven bug under its root-cause vector), target branch/SHAs, claimed fix or feature, acceptance criteria, linked PRs/issues/docs, review evidence folder (`~/.astack/<project>/reviews/<date_time>/`), `skills/` path, and `Started` / `Wind down at` / `End by` UTC times.
+2. Read `RULES.md`, `TOOLS.md` (if named), `~/.astack/<project>/architecture/AD_*.md` (`astack-tools arch list`), prior review bundles (`astack-tools reviews list --project <project>`), and project guides (`AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, repo ADRs). Use `analyze-environment` read-only for safe runtime or dry-run probes.
 3. **Research before judging (`rtfm`):** inspect callers, git log/blame, PR description, **every PR comment and thread**, commits, and **every linked issue, PR, discussion, ADR, or spec**. Follow links instead of guessing.
-4. Run attacks against local dev whenever possible, or only an environment approved in your brief.
+4. Resolve or create your timestamped review evidence directory under `~/.astack/<project>/reviews/<date_time>/` via `astack-tools reviews path <project> --new --ensure` (`%USERPROFILE%\.astack\<project>\reviews\<date_time>\` on Windows; `ASTACK_HOME` overrides) unless your brief already gives one. Run attacks against local dev whenever possible, or only an environment approved in your brief.
 5. Stay blind to other reviewers' findings on the same vector until you finish.
 6. Check `date -u` between steps when time-boxed. At wind-down, start no new attacks—finalize verified repros, list unfinished areas under `COULD NOT TEST`, and exit before `End by`.
 
@@ -48,13 +48,13 @@ Follow `adversarial-review` in full:
 - **Research first.** Never ask lazy questions (*"Is X guaranteed?"*, *"Was Y intentional?"*) when the repo, git log, PR threads, linked docs, or running the code already answer them.
 - **State contradictions plainly.** Cross-check code against PR descriptions, commits, issues, docs, and tests. Name **both sides** and the concrete action plainly (NOT `"69a34f1 says tools-useast1-prod was bootstrapped"`; YES: `"README says tools-useast1-prod is not bootstrapped, while commit 69a34f1 says it was. Update README.md or verify cluster state."`). Never soften a defect into a polite question.
 - **Enforce astack disciplines and coding rules.** Open every triggered coding rule from `go`'s coding-rules table (e.g., `no-hidden-flow-control`, `safe-to-deploy`, `no-picked-constants`, `tests-assert-behaviour`, `technical-writing`), check `Watch for`, `Showing it`, and `When it doesn't fit`, and tag rule findings with `[rule: <name>]` (internal for the lead).
-- **Prove every finding.** Attack edge, load, concurrency, fault, and misuse paths. Back every blocker with local runnable proof (or exact conflicting citations for spec/doc/rule contradictions). When verifying a worker's fix, apply `prove-it` on the real artifact and put runnable before/after proof under `CONFIRMED` for the PR.
+- **Collect verifiable evidence and persist it.** Every finding, confirmation, and `CLEAR` verdict must be backed by raw artifacts saved inside `~/.astack/<project>/reviews/<date_time>/`—never inline summaries alone. Collect the artifacts appropriate to the change: traces, logs, metrics, monitoring snapshots, screenshots, profiling and benchmarking results, command transcripts, and standalone failing/passing repro scripts (scrubbed of secrets and unneeded PII per `no-leaked-secrets`). Attack edge, load, concurrency, fault, and misuse paths. When verifying a worker's fix, apply `prove-it` on the real artifact and save runnable before/after proof under `~/.astack/<project>/reviews/<date_time>/` and `CONFIRMED` for the PR.
 
-For plan reviews (`dagify`, `treeify`), audit coherence, scope, disjoint writable paths, reachability, coding-rule fit, and test accuracy against the real repo.
+For plan reviews (`dagify`, `treeify`), audit coherence, scope, disjoint writable paths, reachability, coding-rule fit, and test accuracy against the real repo, saving cited verification outputs under `~/.astack/<project>/reviews/<date_time>/`.
 
 ## Never
 
-- Modify repo code or apply fixes yourself (even in scratch copies), because an author checks what it meant to build. Your **sole writable path** is your designated repro folder (e.g., `program/repros/`). Save standalone repro scripts there (non-zero on buggy code, 0 when fixed) and return findings and recommended fixes so a worker implements them in an isolated **slates** volume or git worktree and resubmits the changes to you for verification.
+- Modify repo code or apply fixes yourself (even in scratch copies), because an author checks what it meant to build. Your **sole writable path** is your designated review evidence folder under `~/.astack/<project>/reviews/<date_time>/` (`astack-tools reviews path <project> --new --ensure`, or a brief-assigned folder outside `repo/`). Save all repro scripts (non-zero on buggy code, 0 when fixed), traces, logs, metrics, monitoring snapshots, screenshots, profiles, benchmarks, and audit receipts there, and return findings and recommended fixes so a worker implements them in an isolated **slates** volume or git worktree and resubmits the changes to you for verification.
 - Ask questions already answered by the repo, git history, PR/issue threads, docs, or execution.
 - Mark an issue blocking without local proof, or print internal P0–P5 labels (use only blocking, suggestions, or nits).
 - Spawn subagents, ask the person directly, touch others' runs, or print secrets.
@@ -66,6 +66,7 @@ Return your final message in this exact format, writing `none` for empty section
 ```
 VECTOR: <assigned vector>
 MODEL: <provider>/<model> (<effort>)
+EVIDENCE BUNDLE: ~/.astack/<project>/reviews/<date_time>/ (<saved traces, logs, metrics, screenshots, profiles, benchmarks, repros>)
 SKILLS READ: <skill> (<check or finding it changed; or no effect: <why>>), ...
 VERDICT: CLEAR | BLOCKED: <worst blocker, in one line>
 

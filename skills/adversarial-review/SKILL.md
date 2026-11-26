@@ -8,11 +8,11 @@ disable-model-invocation: true
 
 Try to break the change the way its users would, in its real environment. Research surrounding context first, enforce coding rules, prove every blocker on rerun, and state defects plainly.
 
-Reviewers never edit code or apply candidate fixes themselves, because authors test what they meant to build. Save standalone failing repro scripts (non-zero on buggy code, `0` once fixed) outside `repo/`. Return findings and recommended fixes to Lead so a worker implements them in an isolated `slates` volume or git worktree.
+Reviewers never edit code or apply candidate fixes themselves, because authors test what they meant to build. Save standalone failing repro scripts (non-zero on buggy code, `0` once fixed) and collected evidence under `~/.astack/<project>/reviews/<date_time>/` (`astack-tools reviews path <project> --new --ensure`). Return findings and recommended fixes to Lead so a worker implements them in an isolated `slates` volume or git worktree.
 
-1. **Research first (`rtfm`).** Read surrounding callers, tests, configs, `RULES.md`, project guides, git history, PR description, all PR comments and review threads, and every linked issue, PR, discussion, ADR, or doc. Follow links instead of guessing.
+1. **Research first (`rtfm`).** Read surrounding callers, tests, configs, `RULES.md`, `~/.astack/<project>/architecture/AD_*.md` (`astack-tools arch list`), prior review bundles (`astack-tools reviews list`), project guides, git history, PR description, all PR comments and review threads, and every linked issue, PR, discussion, ADR, or doc. Follow links instead of guessing.
    - **Never ask drive-by questions** (*"Is X guaranteed?"*, *"Was Y intentional?"*) when code, git log, PR threads, docs, or running it already answer them. Surface an unresolved gap only when nothing settles it, stating what you checked and what decision is needed.
-2. **Run it for real (`prove-it`).** Use a local dev environment whenever possible, or an environment explicitly approved in your brief. Never test against production, because adversarial probes can corrupt live data or trigger outages.
+2. **Run it for real and collect verifiable evidence (`prove-it`).** Use a local dev environment whenever possible, or an environment explicitly approved in your brief. Never test against production, because adversarial probes can corrupt live data or trigger outages. Save every artifact appropriate to the change—traces, logs, metrics, monitoring snapshots, screenshots, profiling and benchmarking results, command transcripts, and repro scripts—inside `~/.astack/<project>/reviews/<date_time>/` (scrubbed per `no-leaked-secrets`). Cite those exact paths so every claim and `CLEAR` verdict is independently verifiable.
 3. **Judge in context (`blast-radius`).** Focus on your assigned vector while keeping the whole diff in view. Report any proven bug outside your vector too, naming its root-cause vector. Skip issues already handled by surrounding systems.
 4. **Cross-check for contradictions and state them plainly.** Compare code against the PR description, commits, linked issues, ADRs, docs, tests, and PR comments. Name **both sides** of every contradiction and the concrete fix. Never soften a proven defect into a polite question.
    - NOT: `"69a34f1 says tools-useast1-prod was bootstrapped."`
@@ -58,8 +58,8 @@ Reviewers never edit code or apply candidate fixes themselves, because authors t
     - **Suggestion:** secondary breakage, non-breaking defect in a primary feature, or meaningful design/clarity improvement.
     - **Nit:** rare, isolated non-breaking polish item.
 
-**Reply (internal-only to Lead):** put `VECTOR` and `MODEL` (internal-only for Lead) at the top, followed by blockers, suggestions, nits, and what held. For each finding, include:
+**Reply (internal-only to Lead):** put `VECTOR`, `MODEL`, and `EVIDENCE BUNDLE` (`~/.astack/<project>/reviews/<date_time>/`) at the top, followed by blockers, suggestions, nits, and what held. For each finding, include:
 - what is wrong (both sides of any contradiction);
 - user impact and when it hits;
-- exact repro or citation plus runnable evidence;
+- exact repro or citation plus saved evidence paths;
 - recommended fix, internal `[rule: <name>]` tag, and root-cause vector if outside yours.

@@ -472,6 +472,14 @@ class ReleaseTrainTest(unittest.TestCase):
         stg_step = next(s for s in state_data["steps"] if s["id"] == "d-stg")
         self.assertEqual(stg_step["outputs"]["digest"], "sha256:aaa")
 
+        # Reject floating refs on ref/sha/tag/commit/digest keys (while allowing immutable SHAs/tags)
+        for bad_kv in ("ref=main", "merge_sha=HEAD", "image_tag=latest", "commit=origin/main"):
+            bad_ref = run_cli("complete", str(self.state), "--id", "d-stg", "--output", bad_kv, "--settings", str(self.settings))
+            self.assertEqual(bad_ref.returncode, 2, f"{bad_kv} should be rejected")
+            self.assertIn("floating ref", bad_ref.stderr)
+        ok_pinned = run_cli("complete", str(self.state), "--id", "d-stg", "--output", "image_tag=v1.2.3", "--settings", str(self.settings))
+        self.assertEqual(ok_pinned.returncode, 0, ok_pinned.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

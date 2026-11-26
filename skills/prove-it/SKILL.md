@@ -39,7 +39,7 @@ Don't assume the person shares your context. Present findings in order:
 1. **Problem:** brief restatement of what you investigated.
 2. **Hypothesis or solution:** what you tested or built, concisely.
 3. **Method & conditions:** steps, exact reproduction environment, and measured frequency (source, window, sample count) when relevant.
-4. **Evidence:** raw data, outputs, profiles, traces, telemetry, or benchmarks.
+4. **Evidence:** raw data, outputs, profiles, traces, logs, metrics, monitoring snapshots, screenshots, or benchmarks. During reviews, save these artifacts under `~/.astack/<project>/reviews/<date_time>/` (`astack-tools reviews path <project> --new --ensure`) and cite exact paths.
 
 Include a deterministic command, script, minimal repro, or demo the person can run—for failures and successes alike.
 

@@ -6,6 +6,10 @@ Usage:
   astack-tools init-home [--dry-run] [--json]
   astack-tools lessons path PROJECT [LESSON] [--ensure]
   astack-tools lessons list [--project PROJECT] [--related PROJECT] [--keyword TERM] [--status active|tentative|superseded|all] [--json]
+  astack-tools arch path PROJECT [NUMBER | --next] [--ensure]
+  astack-tools arch list [--project PROJECT] [--json]
+  astack-tools reviews path PROJECT [DATE_TIME | --new] [--ensure]
+  astack-tools reviews list [--project PROJECT] [--limit N] [--json]
   astack-tools install [--profile core|standard|all] [--modules LIST] [--from-github] [--python SPEC] [--venv DIR] [--dry-run]
   astack-tools link-bin [--bin-dir DIR] [--copy] [--dry-run]
   astack-tools install-agents --harness HARNESS [--settings PATH] [--target DIR] [--dry-run]
@@ -24,6 +28,7 @@ Manages an isolated uv/Python venv (override with ASTACK_VENV or --venv) across 
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import glob
 import json
 import os
@@ -363,6 +368,251 @@ def cmd_arch_path(args) -> int:
     else:
         output_path = arch_dir
     print(output_path)
+    return 0
+
+
+def cmd_arch_list(args) -> int:
+    root = astack_home_dir()
+    project_filter = None
+    if args.project:
+        try:
+            project_filter = _validate_lesson_slug(args.project, "project_name")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
+    entries: list[dict[str, object]] = []
+    try:
+        root_is_dir = root.is_dir()
+    except OSError:
+        root_is_dir = False
+    if root_is_dir:
+        resolved_root = root.resolve()
+        try:
+            project_dirs = sorted(p for p in root.iterdir() if p.is_dir())
+        except OSError:
+            project_dirs = []
+        for proj_dir in project_dirs:
+            if not proj_dir.resolve().is_relative_to(resolved_root):
+                continue
+            proj = proj_dir.name
+            if project_filter and proj != project_filter:
+                continue
+            arch_dir = proj_dir / "architecture"
+            try:
+                if not arch_dir.is_dir() or not arch_dir.resolve().is_relative_to(resolved_root):
+                    continue
+                files = sorted(arch_dir.iterdir(), key=lambda p: p.name)
+            except OSError:
+                continue
+            for ad_file in files:
+                m = _AD_FILE_RE.match(ad_file.name)
+                if not m or not ad_file.is_file():
+                    continue
+                try:
+                    text = ad_file.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                fm = _parse_lesson_front_matter(text)
+                ad_num = int(m.group(1))
+                status_line = ""
+                sm = re.search(r"^##\s+Status[^\n]*\n+([^\n#]+)", text, re.M)
+                if sm:
+                    status_line = sm.group(1).strip()
+                entries.append({
+                    "project": proj,
+                    "ad_number": ad_num,
+                    "name": str(fm.get("name") or f"AD-{ad_num}"),
+                    "description": str(fm.get("description") or ""),
+                    "status": status_line,
+                    "path": str(ad_file),
+                })
+
+    entries.sort(key=lambda e: (str(e["project"]), int(e["ad_number"])))
+    if args.as_json:
+        print(json.dumps({"astack_home": str(root), "decisions": entries}, indent=2))
+        return 0
+    if not entries:
+        print(f"No architecture decisions found under {root}.")
+        return 0
+    for ent in entries:
+        st = f" [{ent['status']}]" if ent["status"] else ""
+        desc = f" — {ent['description']}" if ent["description"] else ""
+        print(f"{ent['project']}/AD_{ent['ad_number']} ({ent['name']}){st}{desc}  ({ent['path']})")
+    return 0
+
+
+_REVIEW_DT_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
+_REVIEW_VERDICT_RE = re.compile(r"(?:^|\n)\s*VERDICT\s*:\s*([^\n]+)", re.IGNORECASE)
+
+
+def _validate_review_date_time(value: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        raise ValueError("date_time must not be empty")
+    if len(raw) > MAX_LESSON_SLUG_LEN:
+        raise ValueError(f"date_time {raw!r} exceeds {MAX_LESSON_SLUG_LEN} characters")
+    if "/" in raw or "\\" in raw or ":" in raw or ".." in raw or not _REVIEW_DT_RE.fullmatch(raw):
+        raise ValueError(
+            f"invalid date_time {raw!r}: use Windows-safe UTC timestamp or slug "
+            "(ASCII letters, digits, '.', '_' or '-', e.g. 2026-11-25T16-20-00Z; no ':' or path separators)"
+        )
+    stem = raw.split(".", 1)[0].lower()
+    if stem in _WINDOWS_RESERVED_NAMES:
+        raise ValueError(f"invalid date_time {raw!r}: reserved device name on Windows")
+    return raw
+
+
+def cmd_reviews_path(args) -> int:
+    try:
+        project = _validate_lesson_slug(args.project, "project_name")
+        dt_slug = _validate_review_date_time(args.date_time) if args.date_time else None
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if dt_slug is not None and args.new:
+        print("error: pass either DATE_TIME or --new, not both", file=sys.stderr)
+        return 2
+    root = astack_home_dir()
+    project_dir = root / project
+    reviews_dir = project_dir / "reviews"
+    if root.exists():
+        resolved_root = root.resolve()
+        for existing in (project_dir, reviews_dir):
+            if existing.exists() and not existing.resolve().is_relative_to(resolved_root):
+                print(f"error: refusing path outside astack home ({resolved_root}): {existing.resolve()}", file=sys.stderr)
+                return 1
+    if args.new:
+        base_dt = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+        candidate = reviews_dir / base_dt
+        suffix = 2
+        while candidate.exists():
+            candidate = reviews_dir / f"{base_dt}-{suffix}"
+            suffix += 1
+        target_dir = candidate
+    elif dt_slug is not None:
+        target_dir = reviews_dir / dt_slug
+    else:
+        target_dir = reviews_dir
+    if root.exists() and target_dir.exists():
+        resolved_root = root.resolve()
+        if not target_dir.resolve().is_relative_to(resolved_root):
+            print(f"error: refusing path outside astack home ({resolved_root}): {target_dir.resolve()}", file=sys.stderr)
+            return 1
+    if args.ensure:
+        try:
+            _ensure_private_dir(root)
+            dirs_to_ensure = (project_dir, reviews_dir, target_dir) if target_dir != reviews_dir else (project_dir, reviews_dir)
+            for directory in dirs_to_ensure:
+                _ensure_private_dir(directory, root=root)
+        except OSError as exc:
+            print(f"error: failed to create review evidence directory {target_dir}: {exc}", file=sys.stderr)
+            return 1
+        writable, write_err = _probe_writable(target_dir)
+        if not writable:
+            print(f"error: {target_dir} is not writable ({write_err})", file=sys.stderr)
+            return 1
+    print(target_dir)
+    return 0
+
+
+def cmd_reviews_list(args) -> int:
+    root = astack_home_dir()
+    project_filter = None
+    if args.project:
+        try:
+            project_filter = _validate_lesson_slug(args.project, "project_name")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    limit = args.limit if args.limit and args.limit > 0 else None
+
+    entries: list[dict[str, object]] = []
+    try:
+        root_is_dir = root.is_dir()
+    except OSError:
+        root_is_dir = False
+    if root_is_dir:
+        resolved_root = root.resolve()
+        try:
+            project_dirs = sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith("."))
+        except OSError:
+            project_dirs = []
+        for proj_dir in project_dirs:
+            try:
+                if not proj_dir.resolve().is_relative_to(resolved_root):
+                    continue
+            except OSError:
+                continue
+            proj = proj_dir.name
+            if project_filter and proj != project_filter:
+                continue
+            reviews_dir = proj_dir / "reviews"
+            try:
+                if not reviews_dir.is_dir() or not reviews_dir.resolve().is_relative_to(resolved_root):
+                    continue
+                bundles = sorted(
+                    (d for d in reviews_dir.iterdir() if d.is_dir() and not d.name.startswith(".")),
+                    key=lambda p: p.name,
+                    reverse=True,
+                )
+            except OSError:
+                continue
+            for bundle_dir in bundles:
+                try:
+                    if not bundle_dir.resolve().is_relative_to(resolved_root):
+                        continue
+                    artifacts = sorted(
+                        str(f.relative_to(bundle_dir).as_posix())
+                        for f in bundle_dir.rglob("*")
+                        if f.is_file() and not any(part.startswith(".") for part in f.relative_to(bundle_dir).parts)
+                    )
+                except OSError:
+                    continue
+                verdict = ""
+                for candidate_name in ("REVIEW.md", "audit-receipt.txt", "audit-receipt.md"):
+                    cand = bundle_dir / candidate_name
+                    if cand.is_file():
+                        try:
+                            matches = _REVIEW_VERDICT_RE.findall(cand.read_text(encoding="utf-8", errors="replace"))
+                            if matches:
+                                verdict = matches[-1].strip()
+                                break
+                        except OSError:
+                            pass
+                if not verdict:
+                    for rel in artifacts:
+                        low = rel.lower()
+                        if "receipt" in low or "audit" in low or "review" in low:
+                            try:
+                                matches = _REVIEW_VERDICT_RE.findall((bundle_dir / rel).read_text(encoding="utf-8", errors="replace"))
+                                if matches:
+                                    verdict = matches[-1].strip()
+                                    break
+                            except OSError:
+                                pass
+                entries.append({
+                    "project": proj,
+                    "date_time": bundle_dir.name,
+                    "path": str(bundle_dir),
+                    "artifact_count": len(artifacts),
+                    "artifacts": artifacts,
+                    "verdict": verdict,
+                })
+
+    entries.sort(key=lambda e: (str(e["date_time"]), str(e["project"])), reverse=True)
+    if limit is not None:
+        entries = entries[:limit]
+    if args.as_json:
+        print(json.dumps({"astack_home": str(root), "reviews": entries}, indent=2))
+        return 0
+    if not entries:
+        scope = f" for project {project_filter}" if project_filter else ""
+        print(f"No review evidence bundles found{scope} under {root}.")
+        return 0
+    for ent in entries:
+        vpart = f" [{ent['verdict']}]" if ent["verdict"] else ""
+        print(f"{ent['project']}/{ent['date_time']}{vpart} ({ent['artifact_count']} artifact(s)): {ent['path']}")
     return 0
 
 
@@ -1608,13 +1858,28 @@ def main(argv=None) -> int:
     p_lessons_list.add_argument("--status", choices=("active", "tentative", "superseded", "all"), help="filter by frontmatter status")
     p_lessons_list.add_argument("--json", action="store_true", dest="as_json")
 
-    p_arch = sub.add_parser("arch", help="resolve per-project architecture decision paths under ~/.astack/<project>/architecture/AD_<N>.md")
+    p_arch = sub.add_parser("arch", help="resolve or list per-project architecture decision paths under ~/.astack/<project>/architecture/AD_<N>.md")
     arch_sub = p_arch.add_subparsers(dest="arch_command", required=True)
     p_arch_path = arch_sub.add_parser("path", help="print (and optionally create) a project architecture dir or AD_<N>.md path")
     p_arch_path.add_argument("project", metavar="PROJECT")
     p_arch_path.add_argument("number", metavar="NUMBER", type=int, nargs="?")
     p_arch_path.add_argument("--next", action="store_true", help="resolve the next unused AD_<N>.md filename")
     p_arch_path.add_argument("--ensure", action="store_true", help="create directories with user-private permissions and verify writability")
+    p_arch_list = arch_sub.add_parser("list", help="list saved architecture decisions under ~/.astack/*/architecture/AD_<N>.md")
+    p_arch_list.add_argument("--project", help="filter to one project slug")
+    p_arch_list.add_argument("--json", action="store_true", dest="as_json")
+
+    p_reviews = sub.add_parser("reviews", help="resolve or list reviewer evidence bundles under ~/.astack/<project>/reviews/<date_time>/")
+    reviews_sub = p_reviews.add_subparsers(dest="reviews_command", required=True)
+    p_reviews_path = reviews_sub.add_parser("path", help="print (and optionally create) a project reviews dir or timestamped bundle dir")
+    p_reviews_path.add_argument("project", metavar="PROJECT")
+    p_reviews_path.add_argument("date_time", metavar="DATE_TIME", nargs="?")
+    p_reviews_path.add_argument("--new", action="store_true", help="allocate a fresh UTC timestamped review evidence folder")
+    p_reviews_path.add_argument("--ensure", action="store_true", help="create directories with user-private permissions and verify writability")
+    p_reviews_list = reviews_sub.add_parser("list", help="list saved review evidence bundles under ~/.astack/*/reviews/<date_time>/")
+    p_reviews_list.add_argument("--project", help="filter to one project slug")
+    p_reviews_list.add_argument("--limit", type=int, help="maximum number of newest bundles to return")
+    p_reviews_list.add_argument("--json", action="store_true", dest="as_json")
 
     p_inst = sub.add_parser("install", help="provision Python >=3.11 via uv, create/update the venv, and install packages")
     p_inst.add_argument("--venv", type=Path, default=default_venv())
@@ -1675,7 +1940,9 @@ def main(argv=None) -> int:
     if args.command == "lessons":
         return cmd_lessons_path(args) if args.lessons_command == "path" else cmd_lessons_list(args)
     if args.command == "arch":
-        return cmd_arch_path(args)
+        return cmd_arch_path(args) if args.arch_command == "path" else cmd_arch_list(args)
+    if args.command == "reviews":
+        return cmd_reviews_path(args) if args.reviews_command == "path" else cmd_reviews_list(args)
     if args.command == "install":
         return cmd_install(args)
     if args.command == "link-bin":

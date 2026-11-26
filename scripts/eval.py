@@ -859,6 +859,82 @@ def run_llm_judge(
     return passed, f"judge({judge_harness}): {first[:140]}"
 
 
+OUTCOME_GRADER_TYPES = ("command", "llm")
+PROCESS_GRADER_TYPES = ("tool_used", "regex", "runtime")
+
+
+def _extract_token_usage(raw_stdout: str) -> dict[str, int]:
+    """Extract token usage totals from harness JSONL streams (Codex turn.completed, Claude result/assistant, generic).
+
+    Prefers aggregate `type == "result"` usage when present (Claude Code emits both per-message
+    and aggregate result usage); otherwise sums per-turn `usage` objects (Codex `turn.completed`, etc.).
+    """
+    result_usage: dict[str, int] | None = None
+    summed = {"input_tokens": 0, "cached_input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+
+    def _parse_usage_dict(u: dict[str, Any]) -> dict[str, int]:
+        inp = int(u.get("input_tokens") or u.get("prompt_tokens") or 0)
+        out = int(u.get("output_tokens") or u.get("completion_tokens") or 0)
+        # OpenAI/Codex reports cached_input_tokens as a subset of input_tokens;
+        # Anthropic/Claude reports cache_read/cache_creation separately from input_tokens.
+        if "cache_read_input_tokens" in u or "cache_creation_input_tokens" in u:
+            cache_read = int(u.get("cache_read_input_tokens") or 0)
+            cache_create = int(u.get("cache_creation_input_tokens") or 0)
+            cached = cache_read + cache_create
+            computed_total = inp + cached + out
+        else:
+            cached = int(u.get("cached_input_tokens") or 0)
+            computed_total = inp + out
+        explicit_total = int(u.get("total_tokens") or 0)
+        return {
+            "input_tokens": inp,
+            "cached_input_tokens": cached,
+            "output_tokens": out,
+            "total_tokens": max(explicit_total, computed_total),
+        }
+
+    for line in raw_stdout.splitlines():
+        line = line.strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        etype = obj.get("type") or obj.get("event")
+        if etype == "result" and isinstance(obj.get("usage"), dict):
+            result_usage = _parse_usage_dict(obj["usage"])
+            continue
+        usage_obj: dict[str, Any] | None = None
+        if isinstance(obj.get("usage"), dict):
+            usage_obj = obj["usage"]
+        elif isinstance(obj.get("message"), dict) and isinstance(obj["message"].get("usage"), dict):
+            usage_obj = obj["message"]["usage"]
+        if usage_obj is not None:
+            parsed = _parse_usage_dict(usage_obj)
+            for k in summed:
+                summed[k] += parsed[k]
+
+    return result_usage if result_usage is not None else summed
+
+
+def _summarize_scores(results: list[dict[str, Any]]) -> tuple[float, float | None, float | None]:
+    """Return `(combined_score, outcome_score, process_score)` across scored graders.
+
+    Outcome graders (`command`, `llm`) measure task results independently of plugin instrumentation;
+    process graders (`tool_used`, `regex`, `runtime`) check workflow compliance and hygiene.
+    """
+    scored = [r for r in results if r["passed"] is not None]
+    combined = round(sum(1 for r in scored if r["passed"]) / len(scored), 2) if scored else 0.0
+    out_scored = [r for r in scored if r.get("type") in OUTCOME_GRADER_TYPES]
+    proc_scored = [r for r in scored if r.get("type") in PROCESS_GRADER_TYPES]
+    outcome = round(sum(1 for r in out_scored if r["passed"]) / len(out_scored), 2) if out_scored else None
+    process = round(sum(1 for r in proc_scored if r["passed"]) / len(proc_scored), 2) if proc_scored else None
+    return combined, outcome, process
+
+
 def run_case(
     case_dir: Path,
     harness: str,
@@ -966,6 +1042,7 @@ def run_case(
         duration_s = round(time.monotonic() - started, 2)
 
         final_text, events = parse_harness_events(harness, stdout, workspace=ws, settings=active_settings)
+        usage = _extract_token_usage(stdout)
         errors = [e["message"] for e in events if e.get("kind") == "error"]
         launch_failed = (
             timed_out
@@ -991,6 +1068,9 @@ def run_case(
                 "launch_failed": True,
                 "duration_s": duration_s,
                 "score": 0.0,
+                "outcome_score": 0.0,
+                "process_score": 0.0,
+                "usage": usage,
                 "events_count": len(events),
                 "errors": errors or ([stderr.strip()[:240]] if stderr.strip() else []),
                 "graders": results,
@@ -1038,8 +1118,7 @@ def run_case(
             v_detail = (v_proc.stdout.strip() or v_proc.stderr.strip() or f"exit {v_proc.returncode}")[:200]
             results.append({"name": "workspace-verify", "type": "command", "passed": v_ok, "detail": v_detail})
 
-        scored = [r for r in results if r["passed"] is not None]
-        score = round(sum(1 for r in scored if r["passed"]) / len(scored), 2) if scored else 0.0
+        score, outcome_score, process_score = _summarize_scores(results)
         return {
             "case": case_dir.name,
             "harness": harness,
@@ -1048,6 +1127,9 @@ def run_case(
             "launch_failed": False,
             "duration_s": duration_s,
             "score": score,
+            "outcome_score": outcome_score,
+            "process_score": process_score,
+            "usage": usage,
             "events_count": len(events),
             "errors": errors,
             "graders": results,
@@ -1357,7 +1439,13 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"[DRY-RUN] {res['case']} ({res['harness']}/{arm}): {' '.join(res['argv'][:8])} ...")
                     else:
                         mark = "✓" if res.get("score", 0) == 1.0 else "✗"
-                        print(f"{mark} {res['case']} ({res['harness']}/{arm} {run_idx}/{args.runs})  score {res.get('score', 0):.2f}  ({res.get('duration_s', 0)}s)")
+                        out_part = f"  outcome {res['outcome_score']:.2f}" if res.get("outcome_score") is not None else ""
+                        tok_total = int((res.get("usage") or {}).get("total_tokens", 0))
+                        tok_part = f", {tok_total} tok" if tok_total > 0 else ""
+                        print(
+                            f"{mark} {res['case']} ({res['harness']}/{arm} {run_idx}/{args.runs})  "
+                            f"score {res.get('score', 0):.2f}{out_part}  ({res.get('duration_s', 0)}s{tok_part})"
+                        )
                         for g in res.get("graders", []):
                             gm = "✓" if g["passed"] is True else ("-" if g["passed"] is None else "✗")
                             print(f"    {gm} {g['name']} ({g['type']}): {g['detail']}")
@@ -1366,8 +1454,21 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.as_json:
         print(json.dumps(reports, indent=2))
-    elif not args.dry_run and args.ablation == "with-without" and args.runs < 2:
-        print("note: --runs 1 ran a single trial per arm; pass --runs 3+ for variance-checked ablation")
+    elif not args.dry_run and args.ablation == "with-without":
+        for case in cases:
+            w_vals = [r["outcome_score"] for r in reports if r["case"] == case.name and r.get("arm") == "with" and r.get("outcome_score") is not None]
+            wo_vals = [r["outcome_score"] for r in reports if r["case"] == case.name and r.get("arm") == "without" and r.get("outcome_score") is not None]
+            if w_vals and wo_vals:
+                w_avg = round(sum(w_vals) / len(w_vals), 2)
+                wo_avg = round(sum(wo_vals) / len(wo_vals), 2)
+                delta = round(w_avg - wo_avg, 2)
+                sign = "+" if delta > 0 else ""
+                print(
+                    f"ablation outcome-only ({case.name}): with={w_avg:.2f} vs without={wo_avg:.2f} "
+                    f"(delta={sign}{delta:.2f}; process graders excluded)"
+                )
+        if args.runs < 3:
+            print(f"note: --runs {args.runs} ran {args.runs} trial(s) per arm; pass --runs 3+ for variance-checked ablation")
     if args.dry_run:
         return 0
     with_reports = [r for r in reports if r.get("arm") == "with"]

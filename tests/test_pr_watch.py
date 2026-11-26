@@ -217,21 +217,61 @@ class GoodCitizenRateLimitAndPolicyTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory(prefix="astack-audit-") as td:
             root = Path(td)
-            revise_receipt = root / "revise.txt"
-            revise_receipt.write_text("Verdict: REVISE\nFix phrasing.\n")
-            not_clear_receipt = root / "not_clear.txt"
-            not_clear_receipt.write_text("This draft is NOT CLEAR yet.\n")
-            revise_last_receipt = root / "revise_last.txt"
-            revise_last_receipt.write_text("Verdict: CLEAR\nWait, found leak.\nVerdict: REVISE\n")
-            clear_last_receipt = root / "clear_last.txt"
-            clear_last_receipt.write_text("Verdict: REVISE\nFixed.\nVerdict: CLEAR\n")
-            clear_receipt = root / "clear.txt"
-            clear_receipt.write_text("Audit complete.\nVerdict: CLEAR\n")
+            bundle = root / "reviews" / "2026-11-25T16-00-00Z"
+            bundle.mkdir(parents=True)
+            repro_log = bundle / "repro.log"
+            repro_log.write_text("pytest tests/test_parser.py -> 1 passed in 0.04s\n")
+            bench_txt = bundle / "bench.txt"
+            bench_txt.write_text("p50=1.2ms p99=3.8ms (n=20)\n")
+            empty_log = bundle / "empty.log"
+            empty_log.write_text("")
+            good_dispatch = bundle / "reviewer.receipt.json"
+            good_dispatch.write_text(json.dumps({"harness": "codex", "model": "gpt-5.4", "exit_code": 0}))
+            bad_dispatch = bundle / "failed.receipt.json"
+            bad_dispatch.write_text(json.dumps({"harness": "codex", "model": "gpt-5.4", "exit_code": 1}))
+
+            revise_receipt = bundle / "revise.txt"
+            revise_receipt.write_text(f"Verdict: REVISE\nEvidence: {repro_log}\nFix phrasing.\n")
+            not_clear_receipt = bundle / "not_clear.txt"
+            not_clear_receipt.write_text(f"This draft is NOT CLEAR yet.\nEvidence: {repro_log}\n")
+            revise_last_receipt = bundle / "revise_last.txt"
+            revise_last_receipt.write_text(f"Verdict: CLEAR\nWait, found leak.\nVerdict: REVISE\nEvidence: {repro_log}\n")
+            no_evidence_receipt = bundle / "no_evidence.txt"
+            no_evidence_receipt.write_text("Audit complete.\nVerdict: CLEAR\n")
+            missing_evidence_receipt = bundle / "missing_evidence.txt"
+            missing_evidence_receipt.write_text(f"Verdict: CLEAR\nEvidence: {bundle / 'does-not-exist.log'}\n")
+            empty_evidence_receipt = bundle / "empty_evidence.txt"
+            empty_evidence_receipt.write_text(f"Verdict: CLEAR\nEvidence: {empty_log}\n")
+            failed_dispatch_receipt = bundle / "failed_dispatch.txt"
+            failed_dispatch_receipt.write_text(f"Verdict: CLEAR\nEvidence: {bad_dispatch}\n")
+            self_cited_receipt = bundle / "self_cited.txt"
+            self_cited_receipt.write_text(f"Verdict: CLEAR\nEvidence: {self_cited_receipt}\n")
+            clear_last_receipt = bundle / "clear_last.txt"
+            clear_last_receipt.write_text(
+                f"Verdict: REVISE\nFixed.\nVerdict: CLEAR\nEvidence: {repro_log}, {bench_txt}, {good_dispatch}\n"
+            )
+            clear_receipt = bundle / "clear.txt"
+            clear_receipt.write_text(f"Audit complete.\nVerdict: CLEAR\nEvidence: {repro_log}\n")
 
             self.assertTrue(core.audit_reply_text("Fixed the null check in parser.py.", None))
             self.assertTrue(core.audit_reply_text("Fixed the null check in parser.py.", revise_receipt))
             self.assertTrue(core.audit_reply_text("Fixed the null check in parser.py.", not_clear_receipt))
             self.assertTrue(core.audit_reply_text("Fixed the null check in parser.py.", revise_last_receipt))
+            # Verifiable evidence is mandatory: uncited, missing, empty, self-cited, or failed dispatch receipts all block!
+            self.assertTrue(core.audit_reply_text("Fixed the null check in parser.py.", no_evidence_receipt))
+            self.assertTrue(core.audit_reply_text("Fixed the null check in parser.py.", missing_evidence_receipt))
+            self.assertTrue(core.audit_reply_text("Fixed the null check in parser.py.", empty_evidence_receipt))
+            self.assertTrue(core.audit_reply_text("Fixed the null check in parser.py.", failed_dispatch_receipt))
+            self.assertTrue(core.audit_reply_text("Fixed the null check in parser.py.", self_cited_receipt))
+
+            # Explicit --evidence-dir with real non-empty artifacts satisfies verification too
+            clean_bundle = root / "reviews" / "2026-11-25T16-05-00Z"
+            clean_bundle.mkdir(parents=True)
+            (clean_bundle / "trace.json").write_text('{"trace_id": "abc123"}\n')
+            self.assertEqual(
+                core.audit_reply_text("Fixed the null check in parser.py.", no_evidence_receipt, evidence_dir=clean_bundle),
+                [],
+            )
             self.assertEqual(core.audit_reply_text("Fixed the null check in parser.py.", clear_last_receipt), [])
             for leaky in (
                 "Updated per LANES.md and RULES.md.",
@@ -743,13 +783,15 @@ class GitHubWatcherIntegrationTest(unittest.TestCase):
             stack_nums = [s["target"]["number"] for s in json.loads(stdout_st)["snapshots"]]
             self.assertEqual(stack_nums, [11, 12])
 
-            # 4. Audited reply subcommand: blocks leaky replies, posts & resolves on CLEAR!
+            # 4. Audited reply subcommand: blocks leaky replies, posts & resolves on CLEAR with verified evidence!
             bad_body = root / "bad_reply.md"
             bad_body.write_text("Fixed per LANES.md and POOL EXHAUSTED.")
             good_body = root / "good_reply.md"
             good_body.write_text("Added the missing nil check in `src/auth.py` and verified with a regression test.")
+            ev_log = root / "verify.log"
+            ev_log.write_text("pytest tests/test_auth.py -> 1 passed\n")
             clear_receipt = root / "clear.txt"
-            clear_receipt.write_text("Independent reviewer check complete. Verdict: CLEAR.\n")
+            clear_receipt.write_text(f"Independent reviewer check complete. Verdict: CLEAR.\nEvidence: {ev_log}\n")
 
             rc_blk, _, err_blk = run_cli_inproc(
                 "astack-watch-github", "reply", "https://github.com/acme/app/pull/12",
@@ -912,8 +954,10 @@ class GitLabWatcherIntegrationTest(unittest.TestCase):
 
             body_f = root / "reply.md"
             body_f.write_text("Added RFC 7231 HTTP-date parsing in `parse_retry_after` with unit tests.")
+            gl_ev = root / "gl_repro.log"
+            gl_ev.write_text("test_retry_after -> OK\n")
             receipt_f = root / "clear.txt"
-            receipt_f.write_text("Verdict: CLEAR\n")
+            receipt_f.write_text(f"Verdict: CLEAR\nEvidence: {gl_ev}\n")
             rc_rep, _, err_rep = run_cli_inproc(
                 "astack-watch-gitlab", "reply", mr_url, "--api-url", api_url,
                 "--body-file", str(body_f), "--audit-receipt", str(receipt_f),
@@ -1040,8 +1084,10 @@ class BitbucketWatcherIntegrationTest(unittest.TestCase):
 
             body_f = root / "reply.md"
             body_f.write_text("Closed the socket in a `finally` block and added the retry test.")
+            bb_ev = root / "bb_repro.log"
+            bb_ev.write_text("test_socket_cleanup -> OK\n")
             receipt_f = root / "clear.txt"
-            receipt_f.write_text("Verdict: CLEAR\n")
+            receipt_f.write_text(f"Verdict: CLEAR\nEvidence: {bb_ev}\n")
             rc_rep, _, err_rep = run_cli_inproc(
                 "astack-watch-bitbucket", "reply", pr_url, "--api-url", api_url,
                 "--body-file", str(body_f), "--audit-receipt", str(receipt_f),

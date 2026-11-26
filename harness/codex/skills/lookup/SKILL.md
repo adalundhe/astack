@@ -1,6 +1,6 @@
 ---
 name: lookup
-description: "Consult saved ~/.astack LESSON.md files, past decisions, and cross-project history before acting. Use when starting unfamiliar work, planning, debugging recurring areas, or discovering related repos."
+description: "Consult ~/.astack lessons, architecture decisions, and review evidence bundles before acting. Use when starting unfamiliar work, planning, debugging recurring areas, or discovering related repos."
 ---
 
 # Lookup
@@ -14,9 +14,11 @@ Run `lookup` before unfamiliar work, planning (`dagify`, `treeify`, `cross-repo`
 ## 2. Search `~/.astack` first, then adjacent durable memory
 
 - **Canonical lessons store:** `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md` (`%USERPROFILE%\.astack\...` on Windows; `ASTACK_HOME` overrides). Filter frontmatter cheaply via `astack-tools lessons list` (`--project`, `--related`, `--keyword`, `--status active`, `--json`). Never assume lessons live in `<repo>/lessons/...`.
+- **Architecture decisions store:** `~/.astack/<project_name>/architecture/AD_<N>.md` (`astack-tools arch list --project <project_name>`). Read relevant ADs in full alongside any repo-local ADRs.
+- **Review evidence store:** `~/.astack/<project_name>/reviews/<date_time>/` (`astack-tools reviews list --project <project_name>`). Examine past review verdicts, repros, traces, logs, metrics, monitoring snapshots, screenshots, profiles, and benchmarks to catch recurring failure modes and prior baselines.
 - **Cross-repo or cross-project lookup & repo discovery:** look beyond the current repo when work touches shared services, packages, IaC, auth, or deploys. Scan `~/.astack/*/lessons/*/LESSON.md` (`related_projects`, `keywords`, `## References`) to **determine which other repos or projects might be relevant**. Verify candidate repos via **rtfm** or `cross-repo`.
-- **Adjacent durable memory:** read `LANES.md` (`astack-decisions`), `RULES.md`, `TOOLS.md` (`analyze-environment`), ADRs, runbooks, and repo guides (**rtfm**).
-- Read matching `LESSON.md` files in full rather than guessing from folder names. Never skim, because boundaries and rejected theories live inside the body.
+- **Adjacent durable memory:** read `LANES.md` (`astack-decisions`), `RULES.md`, `TOOLS.md` (`analyze-environment`), repo ADRs, runbooks, and repo guides (**rtfm**).
+- Read matching `LESSON.md` files and cited review artifacts in full rather than guessing from folder names. Never skim, because boundaries, raw evidence, and rejected theories live inside the files.
 
 ## 3. Verify memories against live reality
 

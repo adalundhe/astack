@@ -56,7 +56,7 @@ Treat external-harness CLIs (`codex`, `claude`, `agy`, `cursor`, `devin`, `pi`, 
 
 ## Set up the program
 
-1. Restate the goal in 1–2 sentences (what users get and how it is verified). Create `~/.cache/astack/<program>/` outside the repo and copy `RULES.md`, `LANES.md`, and `TOOLS.md` from templates so state survives context resets. When external CLIs or APIs apply, run **analyze-environment** early to fill `TOOLS.md`.
+1. Restate the goal in 1–2 sentences (what users get and how it is verified). Read saved lessons, architecture decisions, and review evidence (`astack-tools lessons list`, `astack-tools arch list --project <project>`, `astack-tools reviews list --project <project>`) via **lookup** so active `AD_<N>.md` constraints and prior review findings enter `RULES.md` and briefs. Create `~/.cache/astack/<program>/` outside the repo and copy `RULES.md`, `LANES.md`, and `TOOLS.md` from templates so state survives context resets. When external CLIs or APIs apply, run **analyze-environment** early to fill `TOOLS.md`.
 2. Plan multi-task work as a reviewed **dagify** graph or **treeify** component tree (or `cross-repo` for multi-repo work), ordered **work -> robust -> fast**. Have a reviewer audit the plan before any worker starts, and log `plan reviewed`. Don't wait for human approval on clear plans, because misreads are cheap to fix via directives.
 3. If the graph must repeat unattended without an agent steering it, turn it into an automated workflow (`workflow-this`).
 4. Fill in `RULES.md` with Rule 0 first: goal, checks, merge target, branch prefix, active `autonomy`, per-role timers, build environment, absolute `skills/` path, and project rules. Put the repo's absolute path in `LANES.md`'s header.
@@ -68,7 +68,7 @@ Treat external-harness CLIs (`codex`, `claude`, `agy`, `cursor`, `devin`, `pi`, 
 Dispatch only tasks whose dependencies are verified closed, keeping writable paths disjoint.
 
 1. Provision an isolated workspace per **Workspaces & role split**.
-2. Write the brief from `brief.md`. Put the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`) on line 1. Name the deliverable, done-when or vector, out-of-scope items, writable paths or repro folder, linked context, required skills, `RULES.md` / report paths, and UTC timestamps. Require `astack-tools skills list --role <role>` and `astack-tools skills get <skill>` before reading code.
+2. Write the brief from `brief.md`. Put the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`) on line 1. Name the deliverable, done-when or vector, out-of-scope items, writable paths (or a fresh `~/.astack/<project>/reviews/<date_time>/` evidence folder for reviewers via `astack-tools reviews path <project> --new --ensure`), linked context, required skills, `RULES.md` / report paths, and UTC timestamps. Require `astack-tools skills list --role <role>` and `astack-tools skills get <skill>` before reading code.
 3. Spawn it with `subagent_type: "astack:worker"` in the background, passing the brief and `roles.worker` (`model`, `effort`) from settings when set. Spawn `astack:reviewer` and `astack:researcher` in the background with their UTC timestamps too, or use `astack-dispatch` when cross-harness.
 4. Log the start in `LANES.md`.
 
@@ -90,7 +90,7 @@ Run full test suites and whole-system benchmarks on the target branch after merg
 
 When a DAG, component tree, **bugbash**, `redteam`, `sprint` ticket, or **review** ends:
 - Run **squish** before PR handoff if fragmented commits or PRs can be consolidated cleanly.
-- Run **lookback** into `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md`, paired with **make-it-stick** (dispatching worker + **review** for code guards).
+- Run **lookback** into `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md`, paired with **make-it-stick** (dispatching worker + **review** for code guards), and update any affected `~/.astack/<project_name>/architecture/AD_<N>.md` (`As built`) via `create-adc`.
 
 ## Successors
 

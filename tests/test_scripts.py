@@ -1516,15 +1516,26 @@ class GoModeHookTest(Scratch):
         self.assertEqual(p1, astack_home / "hyperscale" / "architecture" / "AD_1.md")
         self.assertTrue(p1.parent.is_dir())
 
-        # Writing AD_1.md and AD_3.md -> --next advances to AD_4.md
-        p1.write_text("# AD-1\n")
-        (p1.parent / "AD_3.md").write_text("# AD-3\n")
+        # Writing AD_1.md and AD_3.md -> --next advances to AD_4.md, and arch list reads frontmatter + status
+        p1.write_text("---\nad_number: 1\nname: Event Ledger\ndescription: Append-only ledger\n---\n\n# AD-1: Event Ledger\n\n## Status\n\nAccepted (2026-11-25).\n")
+        (p1.parent / "AD_3.md").write_text("---\nad_number: 3\nname: Lease Fencing\ndescription: Monotonic tokens\n---\n\n# AD-3: Lease Fencing\n\n## Status\n\nBuilt (2026-11-25).\n")
         r2 = subprocess.run(
             [sys.executable, "-B", str(BIN / "astack-tools"), "arch", "path", "hyperscale", "--next"],
             capture_output=True, text=True, env=env,
         )
         self.assertEqual(r2.returncode, 0, r2.stderr)
         self.assertEqual(Path(r2.stdout.strip()), p1.parent / "AD_4.md")
+
+        r_list = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "arch", "list", "--project", "hyperscale", "--json"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r_list.returncode, 0, r_list.stderr)
+        listed = json.loads(r_list.stdout)["decisions"]
+        self.assertEqual([d["ad_number"] for d in listed], [1, 3])
+        self.assertEqual(listed[0]["name"], "Event Ledger")
+        self.assertEqual(listed[0]["status"], "Accepted (2026-11-25).")
+        self.assertEqual(listed[1]["status"], "Built (2026-11-25).")
 
         # Explicit number & path-traversal rejection
         r_num = subprocess.run(
@@ -1539,6 +1550,93 @@ class GoModeHookTest(Scratch):
             capture_output=True, text=True, env=env,
         )
         self.assertEqual(r_bad.returncode, 2)
+
+    def test_reviews_path_and_list_manage_cross_os_timestamped_evidence_bundles(self):
+        astack_home = self.dir / "astack-reviews-home"
+        env = {**os.environ, "ASTACK_HOME": str(astack_home)}
+
+        # --new --ensure creates private <ASTACK_HOME>/<project>/reviews/<YYYY-MM-DDTHH-MM-SSZ>
+        r1 = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "reviews", "path", "payments", "--new", "--ensure"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        b1 = Path(r1.stdout.strip())
+        self.assertEqual(b1.parent, astack_home / "payments" / "reviews")
+        self.assertTrue(b1.is_dir())
+        if os.name != "nt":
+            self.assertEqual(b1.stat().st_mode & 0o777, 0o700)
+
+        # Second --new --ensure never collides with an existing bundle directory
+        r2 = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "reviews", "path", "payments", "--new", "--ensure"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        b2 = Path(r2.stdout.strip())
+        self.assertNotEqual(b1, b2)
+        self.assertTrue(b2.is_dir())
+
+        # Explicit Windows-safe timestamps sort newest-first in `reviews list`
+        r_old = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "reviews", "path", "payments", "2026-11-24T10-00-00Z", "--ensure"],
+            capture_output=True, text=True, env=env,
+        )
+        r_new = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "reviews", "path", "payments", "2026-11-25T16-30-00Z", "--ensure"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r_old.returncode, 0, r_old.stderr)
+        self.assertEqual(r_new.returncode, 0, r_new.stderr)
+        old_dir = Path(r_old.stdout.strip())
+        new_dir = Path(r_new.stdout.strip())
+
+        (old_dir / "trace.json").write_text('{"spans": []}\n', encoding="utf-8")
+        (old_dir / "REVIEW.md").write_text("VERDICT: BLOCKED: duplicate charge on retry\n", encoding="utf-8")
+        (new_dir / "logs").mkdir()
+        (new_dir / "logs" / "repro.log").write_text("PASS: idempotency key enforced\n", encoding="utf-8")
+        (new_dir / "bench.txt").write_text("p99=12.4ms\n", encoding="utf-8")
+        (new_dir / "ui.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        (new_dir / ".tmp").mkdir()
+        (new_dir / ".tmp" / "ignored.tmp").write_text("temp\n", encoding="utf-8")
+        (new_dir / "audit-receipt.txt").write_text("Verdict: CLEAR\nEvidence: logs/repro.log, bench.txt\n", encoding="utf-8")
+
+        r_list = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "reviews", "list", "--project", "payments", "--json"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r_list.returncode, 0, r_list.stderr)
+        bundles = json.loads(r_list.stdout)["reviews"]
+        by_dt = {b["date_time"]: b for b in bundles}
+        self.assertIn("2026-11-25T16-30-00Z", by_dt)
+        self.assertIn("2026-11-24T10-00-00Z", by_dt)
+        self.assertEqual(by_dt["2026-11-25T16-30-00Z"]["verdict"], "CLEAR")
+        self.assertEqual(by_dt["2026-11-24T10-00-00Z"]["verdict"], "BLOCKED: duplicate charge on retry")
+        self.assertEqual(
+            by_dt["2026-11-25T16-30-00Z"]["artifacts"],
+            ["audit-receipt.txt", "bench.txt", "logs/repro.log", "ui.png"],
+        )
+
+        # --limit bounds returned bundles newest-first
+        r_lim = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "reviews", "list", "--project", "payments", "--limit", "1", "--json"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(r_lim.returncode, 0, r_lim.stderr)
+        self.assertEqual(len(json.loads(r_lim.stdout)["reviews"]), 1)
+
+        # Reject colons (Windows-unsafe), traversal, and reserved names
+        for bad_args in (
+            ("reviews", "path", "payments", "2026-11-25T16:30:00Z"),
+            ("reviews", "path", "payments", "../escape"),
+            ("reviews", "path", "payments", "nul"),
+            ("reviews", "path", "../bad", "--new"),
+        ):
+            r_bad = subprocess.run(
+                [sys.executable, "-B", str(BIN / "astack-tools"), *bad_args],
+                capture_output=True, text=True, env=env,
+            )
+            self.assertEqual(r_bad.returncode, 2, f"expected exit 2 for {bad_args}")
 
 
 if __name__ == "__main__":

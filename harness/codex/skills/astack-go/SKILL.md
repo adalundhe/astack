@@ -12,7 +12,7 @@ Hidden skills stay out of the catalog to save context, so `Skill` tool calls on 
 ## Startup (and every new prompt or compaction)
 
 1. **Assume Lead and read settings.** Load `~/.config/astack/settings.json` for timers (`60/30/30/5/5` defaults), `roles`, `reviewer_pool` (session model if unset), `autonomy`, and `automation.mode`. Run `astack-tools skills list --role lead` once per session or compaction. Load `../astack-lead/SKILL.md` and triggered skills before acting, and report unreachable models instead of substituting.
-2. **Route immediately as Lead.** Read matching playbooks before touching code—never revert to solo ad-hoc coding. On any reported issue, error, crash, or regression, default to **bugbash** immediately (fall back directly to **find-it** -> **fix-it** only on a single-agent host or trivial typo). Verify merge claims via **lead** (`astack-check-gates`, `astack-verify-merge`, **review**).
+2. **Route immediately as Lead.** Read matching playbooks before touching code—never revert to solo ad-hoc coding. When the user brings an unshaped idea or wants to design or plan something before building, start with **plan-it** before slicing tasks. On any reported issue, error, crash, or regression, default to **bugbash** immediately (fall back directly to **find-it** -> **fix-it** only on a single-agent host or trivial typo). Verify merge claims via **lead** (`astack-check-gates`, `astack-verify-merge`, **review**).
 3. **Core habits.** Work -> robust -> fast on the real system. Check context, lessons, and tools first (**rtfm**, **lookup**, **analyze-environment**; read-only probes are always allowed). Under `unattended`, run `autonomy.allow` actions without asking (**decisions-in-plain-words**). State contradictions plainly (**wat**), and never list internal harness state in `"Open Items"`. Run **bap** immediately when reminded twice, and close completed DAGs, trees, and reviews with **lookback** into `~/.astack/<project>/lessons/<lesson>/LESSON.md`.
 
 ## Subagents
@@ -20,7 +20,7 @@ Hidden skills stay out of the catalog to save context, so `Skill` tool calls on 
 You own orchestration, skill routing, verification, and the final reply. Follow **lead** for isolated workspaces, role timers, watch-and-swap check-ins, and cross-harness "agents as tools" delegation (`astack-dispatch`).
 
 - **Workers (`astack-worker`):** Isolated **slates** volumes or git worktrees. Spawn with `spawn_agent`: `agent_type: "astack-worker"` (installed by `$astack-setup`; or `astack-dispatch spawn --role worker` cross-harness), `fork_turns: "none"`, a `task_name`, and a brief naming the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`), `Deliverable`, `Done when`, `Writable paths`, and checks. Never substitute a generic default agent.
-- **Reviewers (`astack-reviewer`):** Read-only audits and gates—never write fixes, because an author checks what it meant to build. Read **review**, then spawn with `spawn_agent`: the installed `reviewer_pool` `agent_type` (`"astack-reviewer-<slug>"`, or `"astack-reviewer"` if empty; or `astack-dispatch spawn --role reviewer` cross-harness; report unreachable models rather than substituting), `fork_turns: "none"`, a `task_name`, and a brief naming the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`), scope/diff, vector, stated intent, and repro folder. Never substitute a generic default agent.
+- **Reviewers (`astack-reviewer`):** Read-only audits and gates—never write fixes, because an author checks what it meant to build. Read **review**, allocate `~/.astack/<project>/reviews/<date_time>/` (`astack-tools reviews path <project> --new --ensure`), and spawn with `spawn_agent`: the installed `reviewer_pool` `agent_type` (`"astack-reviewer-<slug>"`, or `"astack-reviewer"` if empty; or `astack-dispatch spawn --role reviewer --review-dir ...` cross-harness; report unreachable models rather than substituting), `fork_turns: "none"`, a `task_name`, and a brief naming the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`), scope/diff, vector, stated intent, and review evidence folder. Never substitute a generic default agent.
 - **Researchers (`astack-researcher`):** Read-only discovery (**analyze-environment**), walks (**how-it-works**, **blast-radius**, **rearchitect**), and primary-source research (**research-this**, **rtfm**), using `roles.researcher`.
 - **Nested Lead (`astack-lead`, optional):** Only for independent sub-programs or headless PR remediation (`astack-watch-pr --dispatch`). Otherwise **you** act as Lead directly.
 
@@ -30,6 +30,7 @@ Read matching skill file(s) before starting:
 
 - **Setup:** `../astack-setup/SKILL.md`
 - **Plan & run:**
+  - Interrogate and shape an idea, plan, or architecture before coding: `../plan-it/SKILL.md`
   - Reviewed task DAG: `../dagify/SKILL.md`
   - Bottom-up component-tree waves: `../treeify/SKILL.md`
   - Multi-repo PR merge & deploy DAG (`astack-release`): `../cross-repo/SKILL.md`
@@ -46,7 +47,7 @@ Read matching skill file(s) before starting:
   - Restate goal/scope/done-when: `../run-it-back/SKILL.md`
   - Peer challenge on hypotheses/fixes/designs: `../challenge/SKILL.md`
   - Inspect repo/PR/history/docs first: `../rtfm/SKILL.md`
-  - Consult saved `~/.astack` `LESSON.md` memories, cross-repo discovery & best paths: `../lookup/SKILL.md`
+  - Consult saved `~/.astack` lessons, architecture decisions, and review evidence bundles: `../lookup/SKILL.md`
   - Discover CLIs, APIs, MCPs, contexts (`TOOLS.md`): `../analyze-environment/SKILL.md`
   - Codebase walkthrough (`file:line`): `../how-it-works/SKILL.md`
   - Mermaid state/failure diagrams: `../show-the-states/SKILL.md`
@@ -54,8 +55,7 @@ Read matching skill file(s) before starting:
   - Tighten a task brief: `../deeper/SKILL.md`
   - Throwaway prototype/mockup: `../play-with-me/SKILL.md`
   - Explain unfamiliar concepts: `../talk-to-me/SKILL.md`
-  - Architecture decision record (`AD-N`): `../create-adc/SKILL.md`
-  - Design-tree interview + `LESSON.md` & `AD_<N>.md` docs: `../grill-with-docs/SKILL.md`
+  - Architecture decision document (`AD_<N>.md`): `../create-adc/SKILL.md`
 - **Optimize & experiment:**
   - Statistical benchmarks: `../benchmarking/SKILL.md`
   - Fair competitor baselines: `../baseline/SKILL.md`
@@ -169,7 +169,6 @@ Every skill has an owner: **required** = load in full before starting; **when it
 | `$formal-validate` | – | when it applies | when it applies | – |
 | `$full-spectrum-testing` | – | when it applies | when it applies | – |
 | `$astack-go` | required | required | required | required |
-| `$grill-with-docs` | when it applies | – | – | when it applies |
 | `$how-it-works` | when it applies | when it applies | when it applies | when it applies |
 | `$astack-lead` | required | – | – | – |
 | `$least-privilege` | when it applies | when it applies | when it applies | when it applies |
@@ -191,6 +190,7 @@ Every skill has an owner: **required** = load in full before starting; **when it
 | `$no-shared-writes` | when it applies | when it applies | when it applies | – |
 | `$observable-by-default` | when it applies | when it applies | when it applies | when it applies |
 | `$orchestral` | when it applies | when it applies | – | – |
+| `$plan-it` | when it applies | – | – | when it applies |
 | `$play-with-me` | when it applies | when it applies | – | – |
 | `$prove-it` | when it applies | when it applies | required | when it applies |
 | `$rearchitect` | when it applies | – | – | when it applies |
