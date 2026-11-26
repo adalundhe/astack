@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Keep docs accurate on every change. Write so an engineer can use, debug, or modify the system on the first read.
 
-1. **Discover and audit impacted docs on every change:** inspect every doc set the repo maintains (guides, references, config docs, runbooks, ADRs, diagrams—never assume one layout). Update or delete anything rendered stale in the same change (**yagni**, **no-hidden-config**), or flag out-of-scope docs for the lead, because stale docs mislead worse than missing docs. If nothing needs updating, verify that explicitly.
+1. **Discover and audit impacted docs on every change:** inspect every doc set the repo maintains (guides, references, config docs, runbooks, ADRs, diagrams—never assume one layout). Update or delete anything rendered stale in the same change (**yagni**, **no-hidden-config**), or flag out-of-scope docs for the lead, because stale docs mislead worse than missing docs. If nothing needs updating, verify that explicitly. Keep private working project docs (not research, architecture, reviews, or repros) outside git under `$HOME/.astack/<project_name>/docs/` (`astack-tools docs path`).
 2. **Start with the reader's task:** state what the system is and what problem it solves in the first two sentences. Put setup and common tasks near the top. Push history and background to the bottom, or cut them.
 3. **Be concrete, never vague:**
    - Replace marketing copy and bare adjectives ("blazing fast", "seamless", "robust") with exact behavior, limits, defaults, and numbers.

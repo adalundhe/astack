@@ -12,12 +12,12 @@ Replace repeated commands, manual polling, and noisy logs with scripts and watch
 - **Script anything you run twice:** turn repeated commands into a parameterized script with clear exit codes. Check `automation.mode` in `~/.config/astack/settings.json` (set via `setup`):
   - **`"agentic-only"`** (or Python stack absent): use shell or repo-native scripts, watchers, and pure-agentic flows.
   - **`"python-stack"`:** verify via `astack-tools doctor`. Run scripts through `astack-tools python` or `astack-tools werkflow`.
-  - **taskex**: async or sync tasks, shell watchers, and recurring schedules.
-  - **orchestral**: DAG waves, cycle checks, and branch-aware skipping.
+  - **taskex**: general automations, background task management, shell watchers, recurring schedules, and keep/discard retention (can also use `werkflow-modules`).
+  - **orchestral**: shorter, scriptish shell or stdlib-Python DAG waves where your steps own state-passing and conditional logic.
   - **Pause and recovery:** pair either runner with **checkpoint**, **suspend**, and **resume**.
-  - **werkflow**: decorator `@step` DAGs with return-value injection and `werkflow-modules` integrations.
+  - **werkflow**: composed `werkflow-modules`, implicit `@step` state-passing, and multi-workflow pipelines (migrations, enterprise stats, large-scale refactors, DORA/CI engines).
 - **Automate environment chores:** script setup, cleanup, and health checks instead of repeating manual steps.
-- **Make helpers reusable:** save project scripts in `scripts/`, or capture recurring flows as a skill. Record shared tools in `<program>/TOOLS.md` (`analyze-environment`).
+- **Make helpers reusable:** save project-scoped automations under `~/.astack/<project_name>/automations/<automation_name>/` (`astack-tools automations path`), keep shared repo scripts in `scripts/`, or capture recurring flows as a skill. Record shared tools in `<program>/TOOLS.md` (`analyze-environment`).
 - **Keep bulk output out of context:** filter wide searches and noisy logs through a script—or a subagent if Lead. Return only failures and conclusions.
 - **Fail loudly:** exit non-zero on failure and print a one-line reason, because silent exits let broken scripts look successful.
 

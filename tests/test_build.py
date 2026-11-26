@@ -904,7 +904,7 @@ class BuildTest(unittest.TestCase):
 
         # Every coding-rule skill must have **Showing it:** matching agents/reviewer.md
         for rule_name in (
-            "comment-cop", "delight-users", "no-bolt-ons", "yagni",
+            "comment-cop", "delight-users", "stepped-complexity", "no-bolt-ons", "yagni",
             "data-structures-first", "no-implicit-states", "no-hidden-flow-control",
             "no-hidden-config", "minimize-state-stores", "check-your-boundaries",
             "no-shared-writes", "safe-to-rerun", "safe-to-deploy", "least-privilege",
@@ -955,6 +955,60 @@ class BuildTest(unittest.TestCase):
         _, sp_prompt = front_matter(ROOT / "evals/sprint-ingests-fenced-ticket/prompt.md")
         for leaked_hint in ("sprint", "astack-watch-tickets", "UNTRUSTED", "merge_ready"):
             self.assertNotIn(leaked_hint, sp_prompt, f"sprint-ingests-fenced-ticket prompt spoon-feeds {leaked_hint!r}")
+
+        # Prompt-to-automation lifecycle folded directly into werkflow, orchestral, and taskex (no duplicate -it skills)
+        for auto_skill in ("werkflow", "orchestral", "taskex"):
+            atext = (ROOT / "skills" / auto_skill / "SKILL.md").read_text()
+            self.assertIn("$HOME/.astack/<project_name>/automations/<automation_name>/", atext, f"{auto_skill} missing canonical path")
+            self.assertIn("%USERPROFILE%", atext, f"{auto_skill} missing Windows equivalent path")
+            self.assertIn("astack-tools automations path", atext, f"{auto_skill} missing automations path CLI")
+            self.assertIn("astack-tools automations list", atext, f"{auto_skill} missing automations list CLI")
+        wf_text = (ROOT / "skills/werkflow/SKILL.md").read_text()
+        self.assertIn("werkflow-modules", wf_text)
+        self.assertIn("werkflow_core.Module", wf_text)
+        for mod_pkg in (
+            "werkflow-shell", "werkflow-file", "werkflow-git", "werkflow-github", "werkflow-http",
+            "werkflow-docker", "werkflow-aws", "werkflow-jira", "werkflow-python", "werkflow-secrets",
+            "werkflow-encryption", "werkflow-system", "werkflow-metrikflow", "werkflow-appito",
+        ):
+            self.assertIn(mod_pkg, wf_text, f"werkflow missing {mod_pkg}")
+        self.assertIn("werkflow-modules", (ROOT / "skills/taskex/SKILL.md").read_text())
+        self.assertIn("automations/", (ROOT / "skills/cleanup/SKILL.md").read_text())
+        self.assertIn("astack-tools automations list", (ROOT / "skills/lookup/SKILL.md").read_text())
+
+        # Research, docs, logging storage + stepped-complexity, rightsize-contracts, next-step, idk, jack-in
+        self.assertIn("$HOME/.astack/<project_name>/research/", (ROOT / "skills/research-this/SKILL.md").read_text())
+        self.assertIn("astack-tools research path", (ROOT / "skills/research-this/SKILL.md").read_text())
+        self.assertIn("$HOME/.astack/<project_name>/docs/", (ROOT / "skills/how-it-works/SKILL.md").read_text())
+        self.assertIn("$HOME/.astack/<project_name>/logging/", (ROOT / "skills/observable-by-default/SKILL.md").read_text())
+        self.assertIn("$HOME/.astack/<project_name>/logging/", (ROOT / "skills/triage/SKILL.md").read_text())
+        rc_text = (ROOT / "skills/rightsize-contracts/SKILL.md").read_text()
+        self.assertIn("**stepped-complexity**", rc_text)
+        self.assertIn("$HOME/.astack/<project_name>/docs/contracts/", rc_text)
+        self.assertIn("astack-tools docs path", rc_text)
+        ns_text = (ROOT / "skills/next-step/SKILL.md").read_text()
+        self.assertIn("**stepped-complexity**", ns_text)
+        self.assertIn("**delight-users**", ns_text)
+        self.assertIn("$HOME/.astack/<project_name>/docs/contracts/", ns_text)
+        idk_text = (ROOT / "skills/idk/SKILL.md").read_text()
+        self.assertIn("astack:researcher", idk_text)
+        self.assertIn("**play-with-me**", idk_text)
+        self.assertIn("local dev", idk_text)
+        self.assertIn("$HOME/.astack/<project_name>/research/", idk_text)
+        # idk and jack-in are Lead-only
+        go_table = (ROOT / "skills/go/SKILL.md").read_text()
+        self.assertIn("| `/astack:idk` | when it applies | – | – | – |", go_table)
+        self.assertIn("| `/astack:jack-in` | when it applies | – | – | – |", go_table)
+        jack_text = (ROOT / "skills/jack-in/SKILL.md").read_text()
+        self.assertIn("**analyze-environment**", jack_text)
+        self.assertIn("Never assume a fixed list", jack_text)
+        self.assertIn("astack:researcher", jack_text)
+        self.assertIn("astack:worker", jack_text)
+        self.assertIn("astack:reviewer", jack_text)
+        self.assertIn("limited vectored review", jack_text)
+        self.assertIn("safety and correctness", jack_text.lower())
+        self.assertIn("rightsize-contracts", (ROOT / "agents/reviewer.md").read_text())
+        self.assertIn("next-step", (ROOT / "agents/researcher.md").read_text())
 
 
 if __name__ == "__main__":

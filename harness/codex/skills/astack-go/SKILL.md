@@ -1,6 +1,6 @@
 ---
 name: astack-go
-description: "Single entry point for astack; routes on demand by path to all 89 hidden workflows and coding rules. Use before any review, bug, refactor, build, plan, test, benchmark, research, or catch-up task."
+description: "Single entry point for astack; routes on demand by path to all 94 hidden workflows and coding rules. Use before any review, bug, refactor, build, plan, test, benchmark, research, or catch-up task."
 ---
 
 # Go mode
@@ -12,7 +12,7 @@ Hidden skills stay out of the catalog to save context, so `Skill` tool calls on 
 ## Startup (and every new prompt or compaction)
 
 1. **Assume Lead and read settings.** Load `~/.config/astack/settings.json` for timers (`60/30/30/5/5` defaults), `roles`, `reviewer_pool` (session model if unset), `autonomy`, and `automation.mode`. Run `astack-tools skills list --role lead` once per session or compaction. Load `../astack-lead/SKILL.md` and triggered skills before acting, and report unreachable models instead of substituting.
-2. **Route immediately as Lead.** Read matching playbooks before touching code—never revert to solo ad-hoc coding. When the user brings an unshaped idea or wants to design or plan something before building, start with **plan-it** before slicing tasks. On any reported issue, error, crash, or regression, default to **bugbash** immediately (fall back directly to **find-it** -> **fix-it** only on a single-agent host or trivial typo). Verify merge claims via **lead** (`astack-check-gates`, `astack-verify-merge`, **review**).
+2. **Route immediately as Lead.** Read matching playbooks before touching code—never revert to solo ad-hoc coding. When the user is unfamiliar with an area, technology, or tool choice, start with **idk**. When the user brings an unshaped idea or wants to design or plan something before building, start with **plan-it** before slicing tasks. On any reported issue, error, crash, or regression, default to **bugbash** immediately (fall back directly to **find-it** -> **fix-it** only on a single-agent host or trivial typo). Verify merge claims via **lead** (`astack-check-gates`, `astack-verify-merge`, **review**).
 3. **Core habits.** Work -> robust -> fast on the real system. Check context, lessons, and tools first (**rtfm**, **lookup**, **analyze-environment**; read-only probes are always allowed). Under `unattended`, run `autonomy.allow` actions without asking (**decisions-in-plain-words**). State contradictions plainly (**wat**), and never list internal harness state in `"Open Items"`. Run **bap** immediately when reminded twice, and close completed DAGs, trees, and reviews with **lookback** into `~/.astack/<project>/lessons/<lesson>/LESSON.md`.
 
 ## Subagents
@@ -49,12 +49,15 @@ Read matching skill file(s) before starting:
   - Inspect repo/PR/history/docs first: `../rtfm/SKILL.md`
   - Consult saved `~/.astack` lessons, architecture decisions, and review evidence bundles: `../lookup/SKILL.md`
   - Discover CLIs, APIs, MCPs, contexts (`TOOLS.md`): `../analyze-environment/SKILL.md`
+  - Discover and build verified connection tooling for a target environment: `../jack-in/SKILL.md`
   - Codebase walkthrough (`file:line`): `../how-it-works/SKILL.md`
   - Mermaid state/failure diagrams: `../show-the-states/SKILL.md`
   - Graded primary-source research (A–F): `../research-this/SKILL.md`
   - Tighten a task brief: `../deeper/SKILL.md`
   - Throwaway prototype/mockup: `../play-with-me/SKILL.md`
   - Explain unfamiliar concepts: `../talk-to-me/SKILL.md`
+  - Unfamiliar area, tool, or discipline (research + visuals + interactive demo): `../idk/SKILL.md`
+  - Next-step interface & feature opportunities (`stepped-complexity` + `delight-users`): `../next-step/SKILL.md`
   - Architecture decision document (`AD_<N>.md`): `../create-adc/SKILL.md`
 - **Optimize & experiment:**
   - Statistical benchmarks: `../benchmarking/SKILL.md`
@@ -77,6 +80,7 @@ Read matching skill file(s) before starting:
 - **Refactor, review, PRs:**
   - Indirect breakage beyond diff: `../blast-radius/SKILL.md`
   - Cut unnecessary complexity: `../simplify-me/SKILL.md`
+  - Audit & reduce user/API/CLI/config contract surface: `../rightsize-contracts/SKILL.md`
   - Monolith split via POC + `dagify`: `../modularize/SKILL.md`
   - High-churn structural redesign: `../rearchitect/SKILL.md`
   - Vectored adversarial review: `../astack-review/SKILL.md` and `../adversarial-review/SKILL.md`
@@ -92,9 +96,9 @@ Read matching skill file(s) before starting:
   - Immediate course-correction on repeated reminders: `../bap/SKILL.md`
   - Docs impact audit & verified docs: `../technical-writing/SKILL.md`
   - Script/watcher automation: `../automate-this/SKILL.md`
-  - Async tasks & SQLite checkpoints (`taskex`): `../taskex/SKILL.md`
-  - DAG wave pipelines (`orchestral`): `../orchestral/SKILL.md`
-  - Modular DAG workflows (`werkflow`): `../werkflow/SKILL.md`
+  - Create, run, or manage TaskEx scripts, watchers, and schedules (`taskex`): `../taskex/SKILL.md`
+  - Create, run, or manage concise Orchestral DAG workflows (`orchestral`): `../orchestral/SKILL.md`
+  - Create, run, or manage modular Werkflow workflows (`werkflow` + `werkflow-modules`): `../werkflow/SKILL.md`
   - Durable checkpoints: `../checkpoint/SKILL.md`
   - Pause runs cleanly: `../suspend/SKILL.md`
   - Resume/recover runs: `../resume/SKILL.md`
@@ -125,6 +129,7 @@ Read before any code work; open a rule's file when its trigger applies. Features
 | Replacing code, shims, legacy paths | `../yagni/SKILL.md` | migrate callers and delete legacy paths together—no shims or dead flags |
 | Comments | `../comment-cop/SKILL.md` | cut narrating comments; keep contracts, external constraints, legal, links |
 | User-facing UI/CLI/errors/defaults/APIs | `../delight-users/SKILL.md` | audit from the consumer's side for missing states, vague errors, bad defaults |
+| Interface/API/CLI/config tiers & scaling | `../stepped-complexity/SKILL.md` | require exact minimal new contract surface for each step up in use case |
 | Limits, timeouts, sizes, thresholds | `../no-picked-constants/SKILL.md` | derive from cited specs or adapt at runtime—no magic numbers |
 | Waits, polling, sleeps, timers | `../event-driven/SKILL.md` | wake on completion events instead of `sleep` loops or polling |
 | Speedups, memory cuts, shortcuts | `../never-trade-functionality/SKILL.md` | never trade accuracy, freshness, or features for speed without `research-this` |
@@ -161,7 +166,7 @@ Every skill has an owner: **required** = load in full before starting; **when it
 | `$decide-by-data` | when it applies | when it applies | – | when it applies |
 | `$decisions-in-plain-words` | required | required | when it applies | when it applies |
 | `$deeper` | required | – | – | when it applies |
-| `$delight-users` | when it applies | when it applies | when it applies | – |
+| `$delight-users` | when it applies | when it applies | when it applies | when it applies |
 | `$event-driven` | when it applies | when it applies | when it applies | – |
 | `$fail-safely` | when it applies | when it applies | when it applies | when it applies |
 | `$find-it` | when it applies | when it applies | when it applies | when it applies |
@@ -170,6 +175,8 @@ Every skill has an owner: **required** = load in full before starting; **when it
 | `$full-spectrum-testing` | – | when it applies | when it applies | – |
 | `$astack-go` | required | required | required | required |
 | `$how-it-works` | when it applies | when it applies | when it applies | when it applies |
+| `$idk` | when it applies | – | – | – |
+| `$jack-in` | when it applies | – | – | – |
 | `$astack-lead` | required | – | – | – |
 | `$least-privilege` | when it applies | when it applies | when it applies | when it applies |
 | `$leave-feedback` | when it applies | when it applies | when it applies | – |
@@ -181,6 +188,7 @@ Every skill has an owner: **required** = load in full before starting; **when it
 | `$modularize` | when it applies | when it applies | – | – |
 | `$net-trace` | when it applies | when it applies | when it applies | when it applies |
 | `$never-trade-functionality` | when it applies | when it applies | when it applies | – |
+| `$next-step` | when it applies | when it applies | – | when it applies |
 | `$no-bolt-ons` | when it applies | required | when it applies | – |
 | `$no-hidden-config` | when it applies | when it applies | when it applies | – |
 | `$no-hidden-flow-control` | when it applies | when it applies | when it applies | – |
@@ -198,6 +206,7 @@ Every skill has an owner: **required** = load in full before starting; **when it
 | `$research-this` | when it applies | when it applies | when it applies | required |
 | `$resume` | when it applies | when it applies | – | – |
 | `$astack-review` | when it applies | – | when it applies | – |
+| `$rightsize-contracts` | when it applies | when it applies | when it applies | when it applies |
 | `$rtfm` | required | required | required | required |
 | `$run-it-back` | required | required | when it applies | required |
 | `$safe-iac` | when it applies | when it applies | when it applies | when it applies |
@@ -210,6 +219,7 @@ Every skill has an owner: **required** = load in full before starting; **when it
 | `$sprint` | when it applies | – | – | – |
 | `$squish` | when it applies | – | – | – |
 | `$astack-status` | required | – | – | – |
+| `$stepped-complexity` | when it applies | when it applies | when it applies | when it applies |
 | `$suspend` | when it applies | when it applies | – | – |
 | `$swarm-hypothesis` | when it applies | when it applies | – | when it applies |
 | `$talk-to-me` | when it applies | when it applies | when it applies | when it applies |

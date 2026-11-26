@@ -7,7 +7,7 @@ description: "Ship services, jobs, queues, and infra with bounded telemetry, tra
 
 Nothing important should fail silently. Ship services, jobs, queues, edge workloads, and cutovers with bounded signals, symptom alerts, and a verified runbook. On-call needs fast recovery without guessing.
 
-Use the telemetry, logging, tracing, and alerting stack the repo already runs (**analyze-environment**).
+Use the telemetry, logging, tracing, and alerting stack the repo already runs (**analyze-environment**). Save collected logs, traces, and metrics snapshots under `$HOME/.astack/<project_name>/logging/<logs|traces|metrics>/[FILE_YYYY_MM_DD_HH_MM_SS]` (`%USERPROFILE%\.astack\...` on Windows) via `astack-tools logging path`.
 
 ## Start with
 

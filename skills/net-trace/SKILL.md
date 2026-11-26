@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Pinpoint the exact hop, policy, edge rule, route, or handshake where network traffic fails. Work read-only from DNS, edge/WAF, and flow logs down to packet captures without leaking payload secrets.
 
-Discover whichever cloud, edge, mesh, cluster, or host networking tools apply via `analyze-environment`; provider examples below are illustrative, never exhaustive.
+Discover whichever cloud, edge, mesh, cluster, or host networking tools apply via `analyze-environment` and **jack-in**; provider examples below are illustrative, never exhaustive.
 
 ## 1. Lock context and classify the wire symptom
 
@@ -38,7 +38,7 @@ Work top-down from DNS and edge to packets, because cheap control-plane signals 
 
 ## 3. Keep captures safe and hand off cleanly
 
-- Save captures as `<file>_DEBUG_<shorthash>.<type>` with header-bounded snaplens matching link and transport headers (`-s 54`/`-s 74` Ethernet+TCP, `-s 42`/`-s 62` Ethernet+UDP, minus 14 on L3/tun). Never capture cleartext payloads or tokens (**no-leaked-secrets**). Delete every capture afterward (**cleanup**).
+- Save retained header-only traces or flow-log captures under `$HOME/.astack/<project_name>/logging/traces/[FILE_YYYY_MM_DD_HH_MM_SS]` (`astack-tools logging path <project> traces <name> --ensure`). Keep scratch workspace captures named `<file>_DEBUG_<shorthash>.<type>` with header-bounded snaplens matching link and transport headers (`-s 54`/`-s 74` Ethernet+TCP, `-s 42`/`-s 62` Ethernet+UDP, minus 14 on L3/tun). Never capture cleartext payloads or tokens (**no-leaked-secrets**). Delete every scratch capture afterward (**cleanup**).
 - Cite exact commands, flow-log verdicts, or packet frames proving the failing hop (ran vs. read).
 - Route firewall/WAF/IAM fixes through `least-privilege`, `safe-iac`, and `safe-to-deploy`. Route timeout/drain fixes through `fail-safely`, and confirmed code/IaC bugs through **bugbash**.
 

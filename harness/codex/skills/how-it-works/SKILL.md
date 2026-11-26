@@ -14,6 +14,7 @@ If the question is ambiguous, state which interpretation you're answering and pr
 3. **Verify critical claims by running code:** run a test, trace, log, or scratch command (**prove-it**). Label each claim as **ran** or **read**.
 4. **Write for a new engineer:** cover user-visible purpose, main components, end-to-end flow, state, and gotchas. Cite `file:line`, define unfamiliar terms inline, add a diagram (**show-the-states**), and walk one concrete example.
 5. **For "where should this live":** show analogous code and dependency direction, then give one clear recommendation.
+6. **Persist durable notes outside the repo:** when saving project walkthroughs or reference docs (not research, architecture, reviews, or repros), write them under `$HOME/.astack/<project_name>/docs/` (`%USERPROFILE%\.astack\...` on Windows) via `astack-tools docs path`. Read-only roles return the draft and target path for the lead.
 
 **Done when:** every claim cites `file:line`, marks **ran** vs. **read**, and includes a diagram plus one concrete end-to-end example.
 

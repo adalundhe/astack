@@ -36,7 +36,7 @@ Tie every benchmark to concrete performance criteria, measured variance, and phy
    - **Prove the work ran:** checksum or consume outputs so dead-code elimination or silent errors cannot fake speed.
    - **Rule out untuned ceilings:** inspect pool sizes, caches, batch sizes, GC, and debug flags on every side.
    - **Name the limiter and next $\sigma$-step:** cite the bottleneck from profiles or counters, because an unexplained number is not a valid result.
-10. **Label clearly:** state metric, workload, and criterion on every benchmark.
+10. **Label and store clearly:** state metric, workload, and criterion on every benchmark. Persist raw benchmark metrics under `$HOME/.astack/<project_name>/logging/metrics/[FILE_YYYY_MM_DD_HH_MM_SS]` (`astack-tools logging path <project> metrics <name> --ensure`), or inside the review bundle when benchmarking for a review.
 
 **Done when:** the write-up records the question, metrics, environment, sampling plan, baseline median/$\sigma$/bar, results/CIs/limiters, anomalies, conclusion, and exact rerun commands. Only numbers measured this way (or set by the person) belong in acceptance criteria.
 

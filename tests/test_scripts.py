@@ -1667,6 +1667,193 @@ class GoModeHookTest(Scratch):
         )
         self.assertEqual(rp_bad.returncode, 2)
 
+        # Project-scoped automations: ~/.astack/<project>/automations/<automation>/
+        auto_wf = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "automations", "path", "payments", "release-check", "--ensure"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(auto_wf.returncode, 0, auto_wf.stderr)
+        wf_dir = Path(auto_wf.stdout.strip())
+        self.assertEqual(wf_dir, astack_home / "payments" / "automations" / "release-check")
+        self.assertTrue(wf_dir.is_dir())
+        if os.name != "nt":
+            self.assertEqual(wf_dir.stat().st_mode & 0o777, 0o700)
+        (wf_dir / "automation.json").write_text(
+            json.dumps({
+                "runner": "werkflow",
+                "entrypoint": "workflow.py",
+                "description": "Release verification pipeline",
+                "modules": ["shell", "github"],
+            }),
+            encoding="utf-8",
+        )
+        (wf_dir / "workflow.py").write_text("from werkflow import Workflow\n", encoding="utf-8")
+        (wf_dir / ".werkflow.json.example").write_text('{"project_options": {}}\n', encoding="utf-8")
+        (wf_dir / ".tmp").mkdir()
+        (wf_dir / ".tmp" / "scratch.txt").write_text("ignore\n", encoding="utf-8")
+        (wf_dir / "__pycache__").mkdir()
+        (wf_dir / "__pycache__" / "workflow.cpython-312.pyc").write_bytes(b"\x00")
+
+        # Runner inferred from imports when automation.json is absent
+        auto_orch = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "automations", "path", "payments", "nightly-dag", "--ensure"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(auto_orch.returncode, 0, auto_orch.stderr)
+        orch_dir = Path(auto_orch.stdout.strip())
+        (orch_dir / "workflow.py").write_text("from orchestral import Orchestral\n", encoding="utf-8")
+
+        auto_task = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "automations", "path", "payments", "health-watch", "--ensure"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(auto_task.returncode, 0, auto_task.stderr)
+        task_dir = Path(auto_task.stdout.strip())
+        # TaskEx scripts can import werkflow-modules directly and must still classify as taskex
+        (task_dir / "task.py").write_text(
+            "from werkflow_github import Github\nfrom taskex import TaskRunner\n",
+            encoding="utf-8",
+        )
+
+        a_list = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "automations", "list", "--project", "payments", "--json"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(a_list.returncode, 0, a_list.stderr)
+        autos = {a["automation"]: a for a in json.loads(a_list.stdout)["automations"]}
+        self.assertEqual(set(autos), {"release-check", "nightly-dag", "health-watch"})
+        self.assertEqual(autos["release-check"]["runner"], "werkflow")
+        self.assertEqual(autos["release-check"]["modules"], ["shell", "github"])
+        self.assertEqual(
+            autos["release-check"]["files"],
+            [".werkflow.json.example", "automation.json", "workflow.py"],
+        )
+        self.assertEqual(autos["nightly-dag"]["runner"], "orchestral")
+        self.assertEqual(autos["nightly-dag"]["entrypoint"], "workflow.py")
+        self.assertEqual(autos["health-watch"]["runner"], "taskex")
+        self.assertEqual(autos["health-watch"]["entrypoint"], "task.py")
+
+        a_filtered = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "automations", "list", "--project", "payments", "--runner", "werkflow", "--json"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(a_filtered.returncode, 0, a_filtered.stderr)
+        self.assertEqual([a["automation"] for a in json.loads(a_filtered.stdout)["automations"]], ["release-check"])
+
+        for bad_auto in (
+            ("automations", "path", "payments", "../escape"),
+            ("automations", "path", "payments", "con"),
+            ("automations", "path", "../bad", "ok"),
+        ):
+            a_bad = subprocess.run(
+                [sys.executable, "-B", str(BIN / "astack-tools"), *bad_auto],
+                capture_output=True, text=True, env=env,
+            )
+            self.assertEqual(a_bad.returncode, 2, f"expected exit 2 for {bad_auto}")
+
+        # Project-scoped external research: ~/.astack/<project>/research/[subpath]/[file]
+        res_p = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "research", "path", "payments", "rfc9110", "--file", "notes.md", "--ensure"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(res_p.returncode, 0, res_p.stderr)
+        res_file = Path(res_p.stdout.strip())
+        self.assertEqual(res_file, astack_home / "payments" / "research" / "rfc9110" / "notes.md")
+        self.assertTrue(res_file.parent.is_dir())
+        if os.name != "nt":
+            self.assertEqual(res_file.parent.stat().st_mode & 0o777, 0o700)
+        res_file.write_text("# RFC 9110 notes\n", encoding="utf-8")
+
+        res_list = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "research", "list", "--project", "payments", "--json"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(res_list.returncode, 0, res_list.stderr)
+        res_items = json.loads(res_list.stdout)["research"]
+        self.assertEqual(len(res_items), 1)
+        self.assertEqual(res_items[0]["name"], "rfc9110")
+        self.assertEqual(res_items[0]["files"], ["notes.md"])
+
+        # Project-scoped general docs (including docs/contracts/): ~/.astack/<project>/docs/[subdir]/[file]
+        doc_p = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "docs", "path", "payments", "contracts", "--file", "cli.md", "--ensure"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(doc_p.returncode, 0, doc_p.stderr)
+        doc_file = Path(doc_p.stdout.strip())
+        self.assertEqual(doc_file, astack_home / "payments" / "docs" / "contracts" / "cli.md")
+        self.assertTrue(doc_file.parent.is_dir())
+        if os.name != "nt":
+            self.assertEqual(doc_file.parent.stat().st_mode & 0o777, 0o700)
+        doc_file.write_text("# CLI contracts\n", encoding="utf-8")
+
+        doc_list = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "docs", "list", "--project", "payments", "--subdir", "contracts", "--json"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(doc_list.returncode, 0, doc_list.stderr)
+        doc_items = json.loads(doc_list.stdout)["docs"]
+        self.assertEqual(len(doc_items), 1)
+        self.assertEqual(doc_items[0]["name"], "contracts/cli.md")
+
+        # Project-scoped logging: ~/.astack/<project>/logging/<logs|traces|metrics>/[FILE_YYYY_MM_DD_HH_MM_SS]
+        log_p = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "logging", "path", "payments", "logs", "checkout", "--ensure"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(log_p.returncode, 0, log_p.stderr)
+        log_file = Path(log_p.stdout.strip())
+        self.assertEqual(log_file.parent, astack_home / "payments" / "logging" / "logs")
+        self.assertRegex(log_file.name, r"^checkout_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}\.log$")
+        log_file.write_text("line1\n", encoding="utf-8")
+
+        tr_p = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "logging", "path", "payments", "traces", "api.json", "--ensure"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(tr_p.returncode, 0, tr_p.stderr)
+        tr_file = Path(tr_p.stdout.strip())
+        self.assertRegex(tr_file.name, r"^api_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}\.json$")
+        tr_file.write_text("{}\n", encoding="utf-8")
+
+        # Explicit pre-stamped metrics file keeps exact name
+        met_p = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "logging", "path", "payments", "metrics", "p99_2026_11_25_12_00_00.csv", "--ensure"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(met_p.returncode, 0, met_p.stderr)
+        met_file = Path(met_p.stdout.strip())
+        self.assertEqual(met_file.name, "p99_2026_11_25_12_00_00.csv")
+        met_file.write_text("p99,12.3\n", encoding="utf-8")
+
+        log_list = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "logging", "list", "--project", "payments", "--json"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(log_list.returncode, 0, log_list.stderr)
+        log_items = json.loads(log_list.stdout)["logging"]
+        self.assertEqual({i["kind"] for i in log_items}, {"logs", "traces", "metrics"})
+
+        log_traces = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "logging", "list", "--project", "payments", "--kind", "traces", "--json"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(log_traces.returncode, 0, log_traces.stderr)
+        self.assertEqual(len(json.loads(log_traces.stdout)["logging"]), 1)
+
+        for bad_new in (
+            ("research", "path", "payments", "../escape"),
+            ("research", "path", "payments", "ok", "--file", "nul.md"),
+            ("docs", "path", "payments", "contracts/../../escape"),
+            ("logging", "path", "payments", "logs", "bad:colon.log"),
+            ("logging", "path", "payments", "logs", "con.log"),
+        ):
+            r_bad_new = subprocess.run(
+                [sys.executable, "-B", str(BIN / "astack-tools"), *bad_new],
+                capture_output=True, text=True, env=env,
+            )
+            self.assertEqual(r_bad_new.returncode, 2, f"expected exit 2 for {bad_new}")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -16,8 +16,9 @@ Investigate a question across internal and external sources. Quote every source,
 4. **Cover both sides,** because internal habits miss external breakthroughs and external theory misses local constraints. State explicitly whenever one side has no sources.
 5. **Parallelize lookups (Lead-only, per `lead`):** check `roles.researcher` (`provider`, `model`, `effort`) in `~/.config/astack/settings.json` when present. Fan out independent strands to read-only researchers. Collect competing implementations to prototype and measure (`swarm-hypothesis`, `ab-test`) alongside proven limits.
 
-## Record what you find
+## Record and store what you find
 
+- **Canonical research store (cross-OS):** persist external research, specs, and references under `$HOME/.astack/<project_name>/research/<topic_or_repo>` (`%USERPROFILE%\.astack\<project_name>\research\<topic_or_repo>` on Windows; `ASTACK_HOME` overrides). Resolve paths via `astack-tools research path <project_name> <topic> [--file <file>] --ensure` and check prior work via `astack-tools research list --project <project_name>`. Read-only researchers never edit repo files; return the draft and target `research/` path for the lead when you cannot write there directly.
 - **Each source:** record its kind and exact location (`file:line`, URL + section, DOI, record ID, or command run). Note author, date, host, and shared origin (e.g. a vendor's docs and blog), and flag stale sources.
 - **Each finding:** state one concrete claim with citations (source, exact quote, location). Mark inferred claims that go beyond what the source states.
 - **Counterclaims:** list any source arguing against a finding. Rate unsourced doubts `strong`, `moderate`, or `weak`.

@@ -44,6 +44,7 @@ Reviewers never edit code or apply candidate fixes themselves, because authors t
    - Shims, legacy paths, dead flags, unused code -> `yagni`
    - Comments -> `comment-cop`
    - User-facing CLI, UI, errors, defaults, public APIs -> `delight-users`
+   - Interface/API/CLI/config tier scaling & contract bloat -> **stepped-complexity** and **rightsize-contracts** (use **rightsize-contracts** to recommend concrete user-facing complexity and interface reductions)
    - Magic numbers, timeouts, limits, batch/pool sizes, thresholds -> `no-picked-constants`
    - Sleeps, polling loops, timers, waits -> `event-driven`
    - Optimizations, approximations, deferred shortcuts -> `never-trade-functionality`
@@ -64,4 +65,4 @@ Reviewers never edit code or apply candidate fixes themselves, because authors t
 - exact repro or citation plus saved evidence paths;
 - recommended fix, internal `[rule: <name>]` tag, and root-cause vector if outside yours.
 
-Referenced skills: `lookup` (`${CLAUDE_SKILL_DIR}/../lookup/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`), `full-spectrum-testing` (`${CLAUDE_SKILL_DIR}/../full-spectrum-testing/SKILL.md`), `safe-to-deploy` (`${CLAUDE_SKILL_DIR}/../safe-to-deploy/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `lookup` (`${CLAUDE_SKILL_DIR}/../lookup/SKILL.md`), `prove-it` (`${CLAUDE_SKILL_DIR}/../prove-it/SKILL.md`), `full-spectrum-testing` (`${CLAUDE_SKILL_DIR}/../full-spectrum-testing/SKILL.md`), `safe-to-deploy` (`${CLAUDE_SKILL_DIR}/../safe-to-deploy/SKILL.md`), `stepped-complexity` (`${CLAUDE_SKILL_DIR}/../stepped-complexity/SKILL.md`), `rightsize-contracts` (`${CLAUDE_SKILL_DIR}/../rightsize-contracts/SKILL.md`). Read any cited skill file before acting when its trigger applies.

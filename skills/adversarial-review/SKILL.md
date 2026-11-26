@@ -44,6 +44,7 @@ Reviewers never edit code or apply candidate fixes themselves, because authors t
    - Shims, legacy paths, dead flags, unused code -> `yagni`
    - Comments -> `comment-cop`
    - User-facing CLI, UI, errors, defaults, public APIs -> `delight-users`
+   - Interface/API/CLI/config tier scaling & contract bloat -> **stepped-complexity** and **rightsize-contracts** (use **rightsize-contracts** to recommend concrete user-facing complexity and interface reductions)
    - Magic numbers, timeouts, limits, batch/pool sizes, thresholds -> `no-picked-constants`
    - Sleeps, polling loops, timers, waits -> `event-driven`
    - Optimizations, approximations, deferred shortcuts -> `never-trade-functionality`

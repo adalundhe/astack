@@ -31,7 +31,7 @@ Open each applicable skill in full before acting. Cite only skills you read this
 
 If `astack-tools` isn't on `PATH`, you have no shell tool, or a `get` truncates, read each skill's `SKILL.md` directly from `<ASTACK_SKILLS_DIR>`.
 
-**Your skills.** Required, every time: `/astack:analyze-environment`, `/astack:go`, `/astack:research-this`, `/astack:rtfm`, `/astack:run-it-back`. Load when the work calls for it: `/astack:ab-test`, `/astack:bap`, `/astack:baseline`, `/astack:benchmarking`, `/astack:blast-radius`, `/astack:challenge`, `/astack:create-adc`, `/astack:cross-repo`, `/astack:decide-by-data`, `/astack:decisions-in-plain-words`, `/astack:deeper`, `/astack:fail-safely`, `/astack:find-it`, `/astack:how-it-works`, `/astack:least-privilege`, `/astack:lookback`, `/astack:lookup`, `/astack:net-trace`, `/astack:no-leaked-secrets`, `/astack:observable-by-default`, `/astack:plan-it`, `/astack:prove-it`, `/astack:rearchitect`, `/astack:safe-iac`, `/astack:safe-to-deploy`, `/astack:show-the-states`, `/astack:swarm-hypothesis`, `/astack:talk-to-me`, `/astack:technical-writing`, `/astack:treeify`, `/astack:triage`, `/astack:unland`, `/astack:wat`.
+**Your skills.** Required, every time: `/astack:analyze-environment`, `/astack:go`, `/astack:research-this`, `/astack:rtfm`, `/astack:run-it-back`. Load when the work calls for it: `/astack:ab-test`, `/astack:bap`, `/astack:baseline`, `/astack:benchmarking`, `/astack:blast-radius`, `/astack:challenge`, `/astack:create-adc`, `/astack:cross-repo`, `/astack:decide-by-data`, `/astack:decisions-in-plain-words`, `/astack:deeper`, `/astack:delight-users`, `/astack:fail-safely`, `/astack:find-it`, `/astack:how-it-works`, `/astack:least-privilege`, `/astack:lookback`, `/astack:lookup`, `/astack:net-trace`, `/astack:next-step`, `/astack:no-leaked-secrets`, `/astack:observable-by-default`, `/astack:plan-it`, `/astack:prove-it`, `/astack:rearchitect`, `/astack:rightsize-contracts`, `/astack:safe-iac`, `/astack:safe-to-deploy`, `/astack:show-the-states`, `/astack:stepped-complexity`, `/astack:swarm-hypothesis`, `/astack:talk-to-me`, `/astack:technical-writing`, `/astack:treeify`, `/astack:triage`, `/astack:unland`, `/astack:wat`.
 
 ## First
 
@@ -39,7 +39,8 @@ If `astack-tools` isn't on `PATH`, you have no shell tool, or a `get` truncates,
 2. Read the matching skill before acting:
    - `analyze-environment`: discover CLIs, APIs, MCPs, env-var names, safe probes, non-root install commands, and human auth steps for `TOOLS.md`.
    - `how-it-works`: codebase walks with `file:line` citations.
-   - `research-this` and `rtfm`: primary-source verification with quote checks and A–F grading.
+   - `research-this` and `rtfm`: primary-source verification with quote checks and A–F grading (return external research drafts and target `~/.astack/<project>/research/` paths for the lead to persist).
+   - `next-step` paired with `delight-users` and `stepped-complexity`: examine interfaces and contracts (`~/.astack/<project>/docs/contracts/`) to recommend high-value, minimal-surface next-step feature opportunities.
    - `blast-radius`: indirect callers, schemas, invariants, and failure modes.
    - `rearchitect`: high-churn structural friction before restructuring.
 3. Follow `rtfm`: inspect code, git history, PR threads, linked issues/ADRs, and official docs before marking anything unknown.

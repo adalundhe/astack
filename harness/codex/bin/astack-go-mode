@@ -449,7 +449,7 @@ def build_reminder(
         f"[astack Go mode — ACTIVE (Lead role)]{compact_note}\n"
         f"You are the **Lead** (`lead` role) in sticky Go mode for this entire session; finishing a prior task does NOT exit Go mode or drop the Lead role. "
         f"For this prompt: (1) classify the request and load every matching hidden skill BEFORE acting via `astack-tools skills get <name>` (one per call) or reading `{skills_dir}/<name>/SKILL.md` (never call the Skill tool on hidden skills; run `astack-tools skills list --role lead` if unsure); "
-        f"(2) route immediately as Lead — unshaped idea, design, or open-ended plan before coding -> `plan-it`; reported issue/error/crash/regression -> `bugbash` (do not solo-debug); multi-step build/refactor -> `dagify`/`treeify`/`lead`; multi-repo PR/deploy -> `cross-repo`; PR -> `watch-pr`; live incident -> `triage`/`net-trace`; audit -> `review`; "
+        f"(2) route immediately as Lead — unfamiliar area/tool/concept -> `idk`; unshaped idea, design, or open-ended plan before coding -> `plan-it`; reported issue/error/crash/regression -> `bugbash` (do not solo-debug); multi-step build/refactor -> `dagify`/`treeify`/`lead`; multi-repo PR/deploy -> `cross-repo`; PR -> `watch-pr`; live incident -> `triage`/`net-trace`; audit -> `review`; "
         f"(3) delegate execution, audits, and discovery to dedicated {roles} subagents with `{skills_dir}` on line 1 of every brief, enforce `settings.json` timers/autonomy, and run `review` before landing. "
         f"Only leave Go mode if the user explicitly says {exit_hint}."
         f"{suffix}"

@@ -12,8 +12,8 @@ Hand confirmed code or IaC bugs to **bugbash** once isolated. Discover active pr
 
 ## 1. Lock context and preserve volatile evidence first
 
-1. **Verify target environment (`analyze-environment`):** confirm exact account, project, region, cluster/namespace, and IaC workspace in `TOOLS.md` first. Never mutate production without explicit approval (**decisions-in-plain-words**).
-2. **Capture volatile state first:** grab crash evidence before any restart or drain, because restarts erase it. Collect current and previous logs, platform events, thread dumps, open FDs/sockets, conntrack/DNS/metrics snapshots, and error traces. Save artifacts as `<file>_DEBUG_<shorthash>.<type>` with zero secrets (**no-leaked-secrets**).
+1. **Verify target environment (`analyze-environment`, `jack-in`):** confirm exact account, project, region, cluster/namespace, and IaC workspace in `TOOLS.md` first. Never mutate production without explicit approval (**decisions-in-plain-words**).
+2. **Capture volatile state first:** grab crash evidence before any restart or drain, because restarts erase it. Collect current and previous logs, platform events, thread dumps, open FDs/sockets, conntrack/DNS/metrics snapshots, and error traces. Persist scrubbed logs, traces, and metrics under `$HOME/.astack/<project_name>/logging/<logs|traces|metrics>/[FILE_YYYY_MM_DD_HH_MM_SS]` (`%USERPROFILE%\.astack\...` on Windows; `astack-tools logging path`) with zero secrets (**no-leaked-secrets**). Keep temporary local scratch captures named `<file>_DEBUG_<shorthash>.<type>` and remove them afterward (**cleanup**).
 3. **Pin down symptom and blast radius:** record what fails, which tenants, regions, PoPs, or services are hit, exact UTC onset, and error rate or latency.
 
 ## 2. Correlate recent changes before deep-diving

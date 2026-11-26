@@ -12,6 +12,14 @@ Usage:
   astack-tools reviews list [--project PROJECT] [--limit N] [--json]
   astack-tools repros path PROJECT [REPRO] [--ensure]
   astack-tools repros list [--project PROJECT] [--json]
+  astack-tools automations path PROJECT [AUTOMATION] [--ensure]
+  astack-tools automations list [--project PROJECT] [--runner werkflow|orchestral|taskex] [--json]
+  astack-tools research path PROJECT [SUBPATH] [--file FILE] [--ensure]
+  astack-tools research list [--project PROJECT] [--json]
+  astack-tools docs path PROJECT [SUBDIR] [--file FILE] [--ensure]
+  astack-tools docs list [--project PROJECT] [--subdir SUBDIR] [--json]
+  astack-tools logging path PROJECT [logs|traces|metrics] [NAME] [--ensure]
+  astack-tools logging list [--project PROJECT] [--kind logs|traces|metrics] [--limit N] [--json]
   astack-tools install [--profile core|standard|all] [--modules LIST] [--from-github] [--python SPEC] [--venv DIR] [--dry-run]
   astack-tools link-bin [--bin-dir DIR] [--copy] [--dry-run]
   astack-tools install-agents --harness HARNESS [--settings PATH] [--target DIR] [--dry-run]
@@ -733,6 +741,572 @@ def cmd_repros_list(args) -> int:
         return 0
     for ent in entries:
         print(f"{ent['project']}/{ent['repro']} ({ent['file_count']} file(s)): {ent['path']}")
+    return 0
+
+
+AUTOMATION_RUNNERS = ("werkflow", "orchestral", "taskex")
+_AUTOMATION_ALLOWED_DOTFILES = frozenset({".werkflow.json", ".werkflow.json.example"})
+
+
+def _is_visible_automation_file(rel: Path) -> bool:
+    parts = rel.parts
+    if not parts:
+        return False
+    if "__pycache__" in parts or rel.suffix == ".pyc":
+        return False
+    for part in parts[:-1]:
+        if part.startswith("."):
+            return False
+    leaf = parts[-1]
+    if leaf.startswith(".") and leaf not in _AUTOMATION_ALLOWED_DOTFILES:
+        return False
+    return True
+
+
+def _infer_automation_runner(auto_dir: Path, files: list[str]) -> tuple[str, str]:
+    py_files = [f for f in files if f.endswith(".py")]
+    top_py = [f for f in py_files if "/" not in f and f != "__init__.py" and not f.startswith("test_")]
+    ordered_py = top_py + [f for f in py_files if f not in top_py]
+    fallback_werkflow_mod = ""
+    for rel in ordered_py:
+        try:
+            text = (auto_dir / rel).read_text(encoding="utf-8", errors="replace")[:16384]
+        except OSError:
+            continue
+        if re.search(r"(?:^|\n)\s*(?:from|import)\s+werkflow\b", text):
+            return "werkflow", rel
+        if re.search(r"(?:^|\n)\s*(?:from|import)\s+orchestral\b", text):
+            return "orchestral", rel
+        if re.search(r"(?:^|\n)\s*(?:from|import)\s+taskex\b", text):
+            return "taskex", rel
+        if not fallback_werkflow_mod and re.search(r"(?:^|\n)\s*(?:from|import)\s+werkflow_[a-z0-9_]+\b", text):
+            fallback_werkflow_mod = rel
+    if fallback_werkflow_mod or ".werkflow.json" in files or ".werkflow.json.example" in files:
+        return "werkflow", (fallback_werkflow_mod or (ordered_py[0] if ordered_py else ""))
+    return "unknown", (ordered_py[0] if ordered_py else "")
+
+
+def _inspect_automation_dir(auto_dir: Path, project: str) -> dict[str, object]:
+    try:
+        files = sorted(
+            str(f.relative_to(auto_dir).as_posix())
+            for f in auto_dir.rglob("*")
+            if f.is_file() and _is_visible_automation_file(f.relative_to(auto_dir))
+        )
+    except OSError:
+        files = []
+
+    meta: dict[str, object] = {}
+    manifest = auto_dir / "automation.json"
+    if manifest.is_file():
+        try:
+            parsed = json.loads(manifest.read_text(encoding="utf-8", errors="replace"))
+            if isinstance(parsed, dict):
+                meta = parsed
+        except (OSError, ValueError):
+            meta = {}
+
+    inferred_runner, inferred_entry = _infer_automation_runner(auto_dir, files)
+    raw_runner = str(meta.get("runner") or "").strip().lower()
+    runner = raw_runner if raw_runner in AUTOMATION_RUNNERS else inferred_runner
+    entrypoint = str(meta.get("entrypoint") or "").strip() or inferred_entry
+    description = str(meta.get("description") or "").strip()
+    raw_modules = meta.get("modules")
+    modules = (
+        [str(m).strip() for m in raw_modules if str(m).strip()]
+        if isinstance(raw_modules, list)
+        else []
+    )
+    updated = str(meta.get("updated") or meta.get("created") or "").strip()
+
+    return {
+        "project": project,
+        "automation": auto_dir.name,
+        "runner": runner,
+        "entrypoint": entrypoint,
+        "description": description,
+        "modules": modules,
+        "updated": updated,
+        "path": str(auto_dir),
+        "file_count": len(files),
+        "files": files,
+    }
+
+
+def cmd_automations_path(args) -> int:
+    try:
+        project = _validate_lesson_slug(args.project, "project_name")
+        automation = _validate_lesson_slug(args.automation, "automation_name") if args.automation else None
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    root = astack_home_dir()
+    project_dir = root / project
+    automations_dir = project_dir / "automations"
+    target_dir = (automations_dir / automation) if automation else automations_dir
+    if root.exists():
+        resolved_root = root.resolve()
+        for existing in (project_dir, automations_dir, target_dir):
+            if existing.exists() and not existing.resolve().is_relative_to(resolved_root):
+                print(f"error: refusing path outside astack home ({resolved_root}): {existing.resolve()}", file=sys.stderr)
+                return 1
+    if args.ensure:
+        try:
+            _ensure_private_dir(root)
+            dirs_to_ensure = (
+                (project_dir, automations_dir, target_dir) if automation else (project_dir, automations_dir)
+            )
+            for directory in dirs_to_ensure:
+                _ensure_private_dir(directory, root=root)
+        except OSError as exc:
+            print(f"error: failed to create automation directory {target_dir}: {exc}", file=sys.stderr)
+            return 1
+        writable, write_err = _probe_writable(target_dir)
+        if not writable:
+            print(f"error: {target_dir} is not writable ({write_err})", file=sys.stderr)
+            return 1
+    print(target_dir)
+    return 0
+
+
+def cmd_automations_list(args) -> int:
+    root = astack_home_dir()
+    project_filter = None
+    if args.project:
+        try:
+            project_filter = _validate_lesson_slug(args.project, "project_name")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    runner_filter = (args.runner or "").strip().lower() or None
+
+    entries: list[dict[str, object]] = []
+    try:
+        root_is_dir = root.is_dir()
+    except OSError:
+        root_is_dir = False
+    if root_is_dir:
+        resolved_root = root.resolve()
+        try:
+            project_dirs = sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith("."))
+        except OSError:
+            project_dirs = []
+        for proj_dir in project_dirs:
+            try:
+                if not proj_dir.resolve().is_relative_to(resolved_root):
+                    continue
+            except OSError:
+                continue
+            proj = proj_dir.name
+            if project_filter and proj != project_filter:
+                continue
+            autos_dir = proj_dir / "automations"
+            try:
+                if not autos_dir.is_dir() or not autos_dir.resolve().is_relative_to(resolved_root):
+                    continue
+                children = sorted(
+                    (c for c in autos_dir.iterdir() if c.is_dir() and not c.name.startswith(".")),
+                    key=lambda p: p.name,
+                )
+            except OSError:
+                continue
+            for auto_dir in children:
+                try:
+                    if not auto_dir.resolve().is_relative_to(resolved_root):
+                        continue
+                except OSError:
+                    continue
+                info = _inspect_automation_dir(auto_dir, proj)
+                if runner_filter and info["runner"] != runner_filter:
+                    continue
+                entries.append(info)
+
+    entries.sort(key=lambda e: (str(e["project"]), str(e["automation"])))
+    if args.as_json:
+        print(json.dumps({"astack_home": str(root), "automations": entries}, indent=2))
+        return 0
+    if not entries:
+        scope = f" for project {project_filter}" if project_filter else ""
+        rscope = f" ({runner_filter})" if runner_filter else ""
+        print(f"No saved automations{rscope} found{scope} under {root}.")
+        return 0
+    for ent in entries:
+        desc = f" — {ent['description']}" if ent["description"] else ""
+        entry_note = f" [{ent['entrypoint']}]" if ent["entrypoint"] else ""
+        print(f"{ent['project']}/{ent['automation']} [{ent['runner']}]{entry_note}{desc} ({ent['file_count']} file(s)): {ent['path']}")
+    return 0
+
+
+_SAFE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
+_LOGGING_KINDS = ("logs", "traces", "metrics")
+_LOGGING_DEFAULT_EXT = {"logs": ".log", "traces": ".trace", "metrics": ".metrics"}
+_LOGGING_STAMP_RE = re.compile(r"_\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}(?:_\d+)?$")
+
+
+def _validate_safe_segment(value: str, label: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        raise ValueError(f"{label} must not be empty")
+    if len(raw) > MAX_LESSON_SLUG_LEN:
+        raise ValueError(f"{label} {raw!r} exceeds {MAX_LESSON_SLUG_LEN} characters (keep paths Windows MAX_PATH-safe)")
+    if "/" in raw or "\\" in raw or ":" in raw or ".." in raw or not _SAFE_SEGMENT_RE.fullmatch(raw):
+        raise ValueError(
+            f"invalid {label} {raw!r}: use ASCII letters, digits, '.', '_' or '-' "
+            "(starting and ending with a letter or digit, no '..', ':', or path separators)"
+        )
+    stem = raw.split(".", 1)[0].lower()
+    if stem in _WINDOWS_RESERVED_NAMES:
+        raise ValueError(f"invalid {label} {raw!r}: reserved device name on Windows")
+    return raw
+
+
+def _validate_rel_subpath(value: str, label: str, *, max_depth: int = 6) -> list[str]:
+    raw = (value or "").strip()
+    if not raw:
+        raise ValueError(f"{label} must not be empty")
+    if "\\" in raw or raw.startswith("/") or raw.endswith("/"):
+        raise ValueError(f"invalid {label} {raw!r}: use relative '/'-separated segments without leading/trailing slashes")
+    parts = raw.split("/")
+    if len(parts) > max_depth:
+        raise ValueError(f"{label} {raw!r} exceeds maximum depth ({max_depth})")
+    return [_validate_safe_segment(part, label) for part in parts]
+
+
+def _ensure_chain_under_root(root: Path, dirs: list[Path], label: str) -> int:
+    try:
+        _ensure_private_dir(root)
+        for directory in dirs:
+            _ensure_private_dir(directory, root=root)
+    except OSError as exc:
+        print(f"error: failed to create {label} directory {dirs[-1]}: {exc}", file=sys.stderr)
+        return 1
+    writable, write_err = _probe_writable(dirs[-1])
+    if not writable:
+        print(f"error: {dirs[-1]} is not writable ({write_err})", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _check_chain_within_root(root: Path, paths: list[Path]) -> int:
+    if root.exists():
+        resolved_root = root.resolve()
+        for existing in paths:
+            if existing.exists() and not existing.resolve().is_relative_to(resolved_root):
+                print(f"error: refusing path outside astack home ({resolved_root}): {existing.resolve()}", file=sys.stderr)
+                return 1
+    return 0
+
+
+def _cmd_scoped_tree_path(args, bucket: str, subpath_attr: str, label: str) -> int:
+    try:
+        project = _validate_lesson_slug(args.project, "project_name")
+        raw_sub = getattr(args, subpath_attr, None)
+        sub_parts = _validate_rel_subpath(raw_sub, f"{label}_subpath") if raw_sub else []
+        file_name = _validate_safe_segment(args.file, "file_name") if args.file else None
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    root = astack_home_dir()
+    project_dir = root / project
+    base_dir = project_dir / bucket
+    dirs = [project_dir, base_dir]
+    cur = base_dir
+    for part in sub_parts:
+        cur = cur / part
+        dirs.append(cur)
+    output_path = (cur / file_name) if file_name else cur
+    check_paths = [*dirs, output_path] if file_name else dirs
+    if _check_chain_within_root(root, check_paths) != 0:
+        return 1
+    if args.ensure:
+        if _ensure_chain_under_root(root, dirs, label) != 0:
+            return 1
+    print(output_path)
+    return 0
+
+
+def _list_scoped_tree(
+    root: Path,
+    bucket: str,
+    *,
+    project_filter: str | None = None,
+    subdir_parts: list[str] | None = None,
+) -> list[dict[str, object]]:
+    entries: list[dict[str, object]] = []
+    try:
+        root_is_dir = root.is_dir()
+    except OSError:
+        root_is_dir = False
+    if not root_is_dir:
+        return entries
+    resolved_root = root.resolve()
+    try:
+        project_dirs = sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith("."))
+    except OSError:
+        project_dirs = []
+    for proj_dir in project_dirs:
+        try:
+            if not proj_dir.resolve().is_relative_to(resolved_root):
+                continue
+        except OSError:
+            continue
+        proj = proj_dir.name
+        if project_filter and proj != project_filter:
+            continue
+        base_dir = proj_dir / bucket
+        scan_dir = base_dir
+        for part in (subdir_parts or []):
+            scan_dir = scan_dir / part
+        try:
+            if not scan_dir.is_dir() or not scan_dir.resolve().is_relative_to(resolved_root):
+                continue
+            children = sorted(
+                (c for c in scan_dir.iterdir() if not c.name.startswith(".") and c.name != "__pycache__"),
+                key=lambda p: p.name,
+            )
+        except OSError:
+            continue
+        for item in children:
+            try:
+                if not item.resolve().is_relative_to(resolved_root):
+                    continue
+            except OSError:
+                continue
+            rel_name = str(item.relative_to(base_dir).as_posix())
+            if item.is_dir():
+                try:
+                    files = sorted(
+                        str(f.relative_to(item).as_posix())
+                        for f in item.rglob("*")
+                        if f.is_file()
+                        and "__pycache__" not in f.relative_to(item).parts
+                        and f.suffix != ".pyc"
+                        and not any(p.startswith(".") for p in f.relative_to(item).parts)
+                    )
+                except OSError:
+                    files = []
+                entries.append({
+                    "project": proj,
+                    "name": rel_name,
+                    "kind": "dir",
+                    "path": str(item),
+                    "file_count": len(files),
+                    "files": files,
+                })
+            elif item.is_file() and item.suffix != ".pyc":
+                entries.append({
+                    "project": proj,
+                    "name": rel_name,
+                    "kind": "file",
+                    "path": str(item),
+                    "file_count": 1,
+                    "files": [item.name],
+                })
+    entries.sort(key=lambda e: (str(e["project"]), str(e["name"])))
+    return entries
+
+
+def cmd_research_path(args) -> int:
+    return _cmd_scoped_tree_path(args, "research", "subpath", "research")
+
+
+def cmd_research_list(args) -> int:
+    root = astack_home_dir()
+    project_filter = None
+    if args.project:
+        try:
+            project_filter = _validate_lesson_slug(args.project, "project_name")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    entries = _list_scoped_tree(root, "research", project_filter=project_filter)
+    if args.as_json:
+        print(json.dumps({"astack_home": str(root), "research": entries}, indent=2))
+        return 0
+    if not entries:
+        scope = f" for project {project_filter}" if project_filter else ""
+        print(f"No saved research found{scope} under {root}.")
+        return 0
+    for ent in entries:
+        print(f"{ent['project']}/{ent['name']} ({ent['file_count']} file(s)): {ent['path']}")
+    return 0
+
+
+def cmd_docs_path(args) -> int:
+    return _cmd_scoped_tree_path(args, "docs", "subdir", "docs")
+
+
+def cmd_docs_list(args) -> int:
+    root = astack_home_dir()
+    project_filter = None
+    subdir_parts = None
+    if args.project:
+        try:
+            project_filter = _validate_lesson_slug(args.project, "project_name")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    if args.subdir:
+        try:
+            subdir_parts = _validate_rel_subpath(args.subdir, "docs_subdir")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    entries = _list_scoped_tree(root, "docs", project_filter=project_filter, subdir_parts=subdir_parts)
+    if args.as_json:
+        print(json.dumps({"astack_home": str(root), "docs": entries}, indent=2))
+        return 0
+    if not entries:
+        scope = f" for project {project_filter}" if project_filter else ""
+        sub_note = f"/{'/'.join(subdir_parts)}" if subdir_parts else ""
+        print(f"No saved docs{sub_note} found{scope} under {root}.")
+        return 0
+    for ent in entries:
+        print(f"{ent['project']}/{ent['name']} ({ent['file_count']} file(s)): {ent['path']}")
+    return 0
+
+
+def _format_logging_filename(kind: str, raw_name: str, target_dir: Path) -> str:
+    safe = _validate_safe_segment(raw_name, "log_file")
+    p = Path(safe)
+    suffix = p.suffix
+    stem = safe[: -len(suffix)] if suffix else safe
+    if not suffix:
+        suffix = _LOGGING_DEFAULT_EXT[kind]
+    if _LOGGING_STAMP_RE.search(stem):
+        return f"{stem}{suffix}"
+    stamp = datetime.now(timezone.utc).strftime("%Y_%m_%d_%H_%M_%S")
+    base = f"{stem}_{stamp}"
+    candidate = f"{base}{suffix}"
+    idx = 2
+    while (target_dir / candidate).exists():
+        candidate = f"{base}_{idx}{suffix}"
+        idx += 1
+    return candidate
+
+
+def cmd_logging_path(args) -> int:
+    try:
+        project = _validate_lesson_slug(args.project, "project_name")
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    kind = args.kind
+    name = args.name
+    if name and not kind:
+        print("error: specify KIND (logs, traces, or metrics) when passing NAME", file=sys.stderr)
+        return 2
+
+    root = astack_home_dir()
+    project_dir = root / project
+    logging_dir = project_dir / "logging"
+    dirs = [project_dir, logging_dir]
+    if kind:
+        kind_dir = logging_dir / kind
+        dirs.append(kind_dir)
+    else:
+        kind_dir = logging_dir
+
+    if name:
+        try:
+            fname = _format_logging_filename(kind, name, kind_dir)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        output_path = kind_dir / fname
+        check_paths = [*dirs, output_path]
+    else:
+        output_path = kind_dir
+        check_paths = dirs
+
+    if _check_chain_within_root(root, check_paths) != 0:
+        return 1
+    if args.ensure:
+        if _ensure_chain_under_root(root, dirs, "logging") != 0:
+            return 1
+    print(output_path)
+    return 0
+
+
+def cmd_logging_list(args) -> int:
+    root = astack_home_dir()
+    project_filter = None
+    if args.project:
+        try:
+            project_filter = _validate_lesson_slug(args.project, "project_name")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+    kinds = (args.kind,) if args.kind else _LOGGING_KINDS
+    limit = args.limit if args.limit and args.limit > 0 else None
+
+    entries: list[dict[str, object]] = []
+    try:
+        root_is_dir = root.is_dir()
+    except OSError:
+        root_is_dir = False
+    if root_is_dir:
+        resolved_root = root.resolve()
+        try:
+            project_dirs = sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith("."))
+        except OSError:
+            project_dirs = []
+        for proj_dir in project_dirs:
+            try:
+                if not proj_dir.resolve().is_relative_to(resolved_root):
+                    continue
+            except OSError:
+                continue
+            proj = proj_dir.name
+            if project_filter and proj != project_filter:
+                continue
+            logging_dir = proj_dir / "logging"
+            try:
+                if not logging_dir.is_dir() or not logging_dir.resolve().is_relative_to(resolved_root):
+                    continue
+            except OSError:
+                continue
+            for kind in kinds:
+                kdir = logging_dir / kind
+                try:
+                    if not kdir.is_dir() or not kdir.resolve().is_relative_to(resolved_root):
+                        continue
+                    files = sorted(
+                        (f for f in kdir.iterdir() if f.is_file() and not f.name.startswith(".")),
+                        key=lambda p: p.name,
+                        reverse=True,
+                    )
+                except OSError:
+                    continue
+                for f in files:
+                    try:
+                        if not f.resolve().is_relative_to(resolved_root):
+                            continue
+                        size = f.stat().st_size
+                    except OSError:
+                        continue
+                    entries.append({
+                        "project": proj,
+                        "kind": kind,
+                        "file": f.name,
+                        "size_bytes": size,
+                        "path": str(f),
+                    })
+
+    entries.sort(key=lambda e: (str(e["file"]), str(e["project"]), str(e["kind"])), reverse=True)
+    if limit is not None:
+        entries = entries[:limit]
+    if args.as_json:
+        print(json.dumps({"astack_home": str(root), "logging": entries}, indent=2))
+        return 0
+    if not entries:
+        scope = f" for project {project_filter}" if project_filter else ""
+        kscope = f" ({args.kind})" if args.kind else ""
+        print(f"No saved logging artifacts{kscope} found{scope} under {root}.")
+        return 0
+    for ent in entries:
+        print(f"{ent['project']}/{ent['kind']}/{ent['file']} ({ent['size_bytes']} B): {ent['path']}")
     return 0
 
 
@@ -2015,6 +2589,53 @@ def main(argv=None) -> int:
     p_repros_list.add_argument("--project", help="filter to one project slug")
     p_repros_list.add_argument("--json", action="store_true", dest="as_json")
 
+    p_autos = sub.add_parser("automations", help="resolve or list saved automations under ~/.astack/<project>/automations/[<automation>/]")
+    autos_sub = p_autos.add_subparsers(dest="automations_command", required=True)
+    p_autos_path = autos_sub.add_parser("path", help="print (and optionally create) a project automations dir or named automation dir")
+    p_autos_path.add_argument("project", metavar="PROJECT")
+    p_autos_path.add_argument("automation", metavar="AUTOMATION", nargs="?")
+    p_autos_path.add_argument("--ensure", action="store_true", help="create directories with user-private permissions and verify writability")
+    p_autos_list = autos_sub.add_parser("list", help="list saved automations under ~/.astack/*/automations/<automation>/")
+    p_autos_list.add_argument("--project", help="filter to one project slug")
+    p_autos_list.add_argument("--runner", choices=AUTOMATION_RUNNERS, help="filter by automation runner (werkflow, orchestral, or taskex)")
+    p_autos_list.add_argument("--json", action="store_true", dest="as_json")
+
+    p_research = sub.add_parser("research", help="resolve or list saved external research under ~/.astack/<project>/research/")
+    research_sub = p_research.add_subparsers(dest="research_command", required=True)
+    p_research_path = research_sub.add_parser("path", help="print (and optionally create) a project research dir or file path")
+    p_research_path.add_argument("project", metavar="PROJECT")
+    p_research_path.add_argument("subpath", metavar="SUBPATH", nargs="?")
+    p_research_path.add_argument("--file", help="filename inside the resolved research directory")
+    p_research_path.add_argument("--ensure", action="store_true", help="create directories with user-private permissions and verify writability")
+    p_research_list = research_sub.add_parser("list", help="list saved research artifacts under ~/.astack/*/research/")
+    p_research_list.add_argument("--project", help="filter to one project slug")
+    p_research_list.add_argument("--json", action="store_true", dest="as_json")
+
+    p_docs = sub.add_parser("docs", help="resolve or list saved project docs under ~/.astack/<project>/docs/")
+    docs_sub = p_docs.add_subparsers(dest="docs_command", required=True)
+    p_docs_path = docs_sub.add_parser("path", help="print (and optionally create) a project docs dir (e.g. contracts) or file path")
+    p_docs_path.add_argument("project", metavar="PROJECT")
+    p_docs_path.add_argument("subdir", metavar="SUBDIR", nargs="?")
+    p_docs_path.add_argument("--file", help="filename inside the resolved docs directory")
+    p_docs_path.add_argument("--ensure", action="store_true", help="create directories with user-private permissions and verify writability")
+    p_docs_list = docs_sub.add_parser("list", help="list saved project docs under ~/.astack/*/docs/")
+    p_docs_list.add_argument("--project", help="filter to one project slug")
+    p_docs_list.add_argument("--subdir", help="filter to a relative subdir under docs/ (e.g. contracts)")
+    p_docs_list.add_argument("--json", action="store_true", dest="as_json")
+
+    p_logging = sub.add_parser("logging", help="resolve or list logs, traces, and metrics under ~/.astack/<project>/logging/<kind>/")
+    logging_sub = p_logging.add_subparsers(dest="logging_command", required=True)
+    p_logging_path = logging_sub.add_parser("path", help="print (and optionally create) a logging dir or UTC-stamped file path")
+    p_logging_path.add_argument("project", metavar="PROJECT")
+    p_logging_path.add_argument("kind", metavar="KIND", choices=_LOGGING_KINDS, nargs="?")
+    p_logging_path.add_argument("name", metavar="NAME", nargs="?")
+    p_logging_path.add_argument("--ensure", action="store_true", help="create directories with user-private permissions and verify writability")
+    p_logging_list = logging_sub.add_parser("list", help="list saved logs, traces, and metrics under ~/.astack/*/logging/")
+    p_logging_list.add_argument("--project", help="filter to one project slug")
+    p_logging_list.add_argument("--kind", choices=_LOGGING_KINDS, help="filter by signal kind (logs, traces, or metrics)")
+    p_logging_list.add_argument("--limit", type=int, help="maximum number of newest files to return")
+    p_logging_list.add_argument("--json", action="store_true", dest="as_json")
+
     p_inst = sub.add_parser("install", help="provision Python >=3.11 via uv, create/update the venv, and install packages")
     p_inst.add_argument("--venv", type=Path, default=default_venv())
     p_inst.add_argument("--profile", choices=("core", "standard", "all"), default="standard")
@@ -2079,6 +2700,14 @@ def main(argv=None) -> int:
         return cmd_reviews_path(args) if args.reviews_command == "path" else cmd_reviews_list(args)
     if args.command == "repros":
         return cmd_repros_path(args) if args.repros_command == "path" else cmd_repros_list(args)
+    if args.command == "automations":
+        return cmd_automations_path(args) if args.automations_command == "path" else cmd_automations_list(args)
+    if args.command == "research":
+        return cmd_research_path(args) if args.research_command == "path" else cmd_research_list(args)
+    if args.command == "docs":
+        return cmd_docs_path(args) if args.docs_command == "path" else cmd_docs_list(args)
+    if args.command == "logging":
+        return cmd_logging_path(args) if args.logging_command == "path" else cmd_logging_list(args)
     if args.command == "install":
         return cmd_install(args)
     if args.command == "link-bin":

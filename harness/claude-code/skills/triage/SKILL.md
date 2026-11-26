@@ -12,8 +12,8 @@ Hand confirmed code or IaC bugs to **bugbash** once isolated. Discover active pr
 
 ## 1. Lock context and preserve volatile evidence first
 
-1. **Verify target environment (`analyze-environment`):** confirm exact account, project, region, cluster/namespace, and IaC workspace in `TOOLS.md` first. Never mutate production without explicit approval (**decisions-in-plain-words**).
-2. **Capture volatile state first:** grab crash evidence before any restart or drain, because restarts erase it. Collect current and previous logs, platform events, thread dumps, open FDs/sockets, conntrack/DNS/metrics snapshots, and error traces. Save artifacts as `<file>_DEBUG_<shorthash>.<type>` with zero secrets (**no-leaked-secrets**).
+1. **Verify target environment (`analyze-environment`, `jack-in`):** confirm exact account, project, region, cluster/namespace, and IaC workspace in `TOOLS.md` first. Never mutate production without explicit approval (**decisions-in-plain-words**).
+2. **Capture volatile state first:** grab crash evidence before any restart or drain, because restarts erase it. Collect current and previous logs, platform events, thread dumps, open FDs/sockets, conntrack/DNS/metrics snapshots, and error traces. Persist scrubbed logs, traces, and metrics under `$HOME/.astack/<project_name>/logging/<logs|traces|metrics>/[FILE_YYYY_MM_DD_HH_MM_SS]` (`%USERPROFILE%\.astack\...` on Windows; `astack-tools logging path`) with zero secrets (**no-leaked-secrets**). Keep temporary local scratch captures named `<file>_DEBUG_<shorthash>.<type>` and remove them afterward (**cleanup**).
 3. **Pin down symptom and blast radius:** record what fails, which tenants, regions, PoPs, or services are hit, exact UTC onset, and error rate or latency.
 
 ## 2. Correlate recent changes before deep-diving
@@ -50,4 +50,4 @@ Cite the exact command and observed output for every claim (`ran` vs. `read`). N
 - **Isolated layer & root cause:** proven failing layer vs. ruled-out layers with `ran` evidence.
 - **Mitigation & handoff:** safest reversible step (if degraded) and permanent fix handoff (`bugbash` or runbook/telemetry owner).
 
-Referenced skills: `bugbash` (`${CLAUDE_SKILL_DIR}/../bugbash/SKILL.md`), `analyze-environment` (`${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`), `no-leaked-secrets` (`${CLAUDE_SKILL_DIR}/../no-leaked-secrets/SKILL.md`), `lookback` (`${CLAUDE_SKILL_DIR}/../lookback/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `bugbash` (`${CLAUDE_SKILL_DIR}/../bugbash/SKILL.md`), `analyze-environment` (`${CLAUDE_SKILL_DIR}/../analyze-environment/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`), `no-leaked-secrets` (`${CLAUDE_SKILL_DIR}/../no-leaked-secrets/SKILL.md`), `cleanup` (`${CLAUDE_SKILL_DIR}/../cleanup/SKILL.md`), `lookback` (`${CLAUDE_SKILL_DIR}/../lookback/SKILL.md`). Read any cited skill file before acting when its trigger applies.

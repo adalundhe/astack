@@ -1,6 +1,6 @@
 # astack
 
-`astack` is an opinionated toolkit for Claude Code, Codex, Cursor, Antigravity (agy), Pi, Devin, and other Agent Skills hosts. It pairs 90 on-demand skills (only one, go, sits in your context window until needed) with deterministic CLI tools for the parts you shouldn't leave to LLM vibes: merge verification, test-gate tripwires, capture-recapture review stopping math, rate-limit-aware PR and ticket watchers, pinned multi-repo release trains, TLC statechart diagrams, and durable local evidence and lessons. It's my personal toolkit for making sense of and executing on hard problems at scale, whether infrastructural, testing, or product.
+`astack` is an opinionated toolkit for Claude Code, Codex, Cursor, Antigravity (agy), Pi, Devin, and other Agent Skills hosts. It pairs 95 on-demand skills (only one, go, sits in your context window until needed) with deterministic CLI tools for the parts you shouldn't leave to LLM vibes: merge verification, test-gate tripwires, capture-recapture review stopping math, rate-limit-aware PR and ticket watchers, pinned multi-repo release trains, TLC statechart diagrams, and durable local evidence and lessons. It's my personal toolkit for making sense of and executing on hard problems at scale, whether infrastructural, testing, or product.
 
 I based much of astack off of [pstack](https://github.com/cursor/plugins/tree/main/pstack) and [mattpocock/skills](https://github.com/mattpocock/skills), credit where due and thank you.
 
@@ -86,7 +86,7 @@ From there, the Lead plans a reviewed DAG, dispatches isolated workers on timers
 
 Prompts are great for judgment and terrible for guarantees. `astack` puts plain Python tools behind the checks that matter: catching skipped tests, verifying real git merges, pacing forge API limits, refusing floating refs like `main` or `latest` on releases, and requiring real evidence files on disk before posting a PR reply.
 
-When a recurring job shouldn't be steered by an agent at all, you can turn it into plain Python via [taskex](https://github.com/adalundhe/taskex), [orchestral](https://github.com/adalundhe/orchestral), and [werkflow](https://github.com/adalundhe/werkflow).
+When a recurring job shouldn't be steered by an agent at all, you can turn a prompt into a saved, manageable Python automation with [taskex](https://github.com/adalundhe/taskex), [orchestral](https://github.com/adalundhe/orchestral), or [werkflow](https://github.com/adalundhe/werkflow) (+ `werkflow-modules`).
 
 ### Memory that outlives the chat
 
@@ -94,13 +94,17 @@ When a recurring job shouldn't be steered by an agent at all, you can turn it in
 
 ```text
 ~/.astack/<project>/
-├── lessons/<lesson>/LESSON.md   # Scoped lessons and domain terms
-├── architecture/AD_<N>.md       # Settled architecture decisions
-├── reviews/<date_time>/         # Traces, logs, metrics, screenshots, profiles, benchmarks
-└── repros/<repro>/              # Standalone reproduction scripts and shrunk test cases
+├── lessons/<lesson>/LESSON.md       # Scoped lessons and domain terms
+├── architecture/AD_<N>.md           # Settled architecture decisions
+├── research/<topic_or_repo>/        # External research, primary sources, and references
+├── docs/[contracts/]<file>          # Project docs, contract catalogs, and connection guides
+├── reviews/<date_time>/             # Review audit bundles and verifiable proof
+├── repros/<repro>/                  # Standalone reproduction scripts and shrunk test cases
+├── automations/<automation>/        # Saved Werkflow, Orchestral, and TaskEx automations
+└── logging/{logs,traces,metrics}/   # Timestamped logs, traces, and metrics captures
 ```
 
-Past reviews, repros, decisions, and hard-won lessons stay searchable across repos without cluttering commit history. If a repository already keeps its own ADRs, `astack` reads those too.
+Past research, docs, logs, reviews, repros, automations, decisions, and hard-won lessons stay searchable across repos without cluttering commit history. If a repository already keeps its own ADRs, `astack` reads those too.
 
 ---
 
@@ -110,7 +114,7 @@ Every bundled tool is stdlib-only Python and runs on macOS, Linux, and Windows.
 
 | Tool | What it does |
 |---|---|
-| `astack-tools` | Manages `~/.astack` (`init-home`, `lessons path\|list`, `arch path\|list`, `reviews path\|list`, `repros path\|list`), installs native agents, links `bin/` onto `PATH`, and manages the optional `uv` venv. |
+| `astack-tools` | Manages `~/.astack` (`init-home`, `lessons`, `arch`, `research`, `docs`, `reviews`, `repros`, `automations`, `logging` `path\|list`), installs native agents, links `bin/` onto `PATH`, and manages the optional `uv` venv. |
 | `astack-dispatch` | Dispatches and supervises cross-harness agents (`claude`, `codex`, `agy`, `cursor`, `devin`, `pi`, `gemini`, custom CLI), enforces `reviewer_pool`, and writes JSON receipts. |
 | `astack-verify-merge` | Verifies claimed commits are actually on the target branch and audits merge ranges without trusting worker summaries. |
 | `astack-check-gates` | Scans git ranges for deleted/renamed tests, skips, lint/typecheck mutes, weakened assertions, loosened tolerances, and CI config edits. |
@@ -126,10 +130,10 @@ Every bundled tool is stdlib-only Python and runs on macOS, Linux, and Windows.
 
 ## Skills
 
-90 skills total (`go` + 89 hidden). Only `go` sits in your model catalog; every other skill is loaded on demand by path. Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex (`go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex).
+95 skills total (`go` + 94 hidden). Only `go` sits in your model catalog; every other skill is loaded on demand by path. Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex (`go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex).
 
 <details>
-<summary><strong>Browse all 90 skills</strong></summary>
+<summary><strong>Browse all 95 skills</strong></summary>
 
 ### Entry point, planning, and orchestration
 
@@ -188,6 +192,8 @@ Every bundled tool is stdlib-only Python and runs on macOS, Linux, and Windows.
 ### Refactoring and cleanup
 
 - `simplify-me`: cuts unnecessary complexity without losing correctness, edge cases, or speed.
+- `rightsize-contracts`: catalogues user/API/CLI/UI/config contracts under `~/.astack/<project>/docs/contracts/`, orders use-case tiers via `stepped-complexity`, and recommends surface reductions.
+- `next-step`: analyzes contract tiers via `stepped-complexity` paired with `delight-users` to recommend minimal-surface, high-value next-step features.
 - `modularize`: splits monoliths via a smallest-behavior proof of concept, `dagify` migration, and `simplify-me`/`yagni` trim.
 - `rearchitect`: finds high-churn structural friction, ranks restructurings with diagrams, and plans the top pick via `dagify`.
 - `deeper`: tightens a task brief to primary sources, domain tools, and external proof without adding scope.
@@ -212,6 +218,7 @@ Every bundled tool is stdlib-only Python and runs on macOS, Linux, and Windows.
 - `yagni`: migrate callers and delete legacy paths together—no shims, deprecated aliases, or dead flags.
 - `comment-cop`: cut narrating comments; keep only API contracts, external constraints, legal headers, and links.
 - `delight-users`: audit from the consumer's side for missing states, vague errors, awkward APIs, and bad defaults.
+- `stepped-complexity`: require the exact minimal new interface, API, CLI, or config surface for each step up in user use case.
 - `no-picked-constants`: derive limits and timeouts from cited specs or adapt them at runtime—never pick magic numbers.
 - `event-driven`: wake on completion events instead of `sleep` loops, fixed timers, or polling.
 - `never-trade-functionality`: never trade accuracy, freshness, or features for speed; run `research-this` before accepting any limit.
@@ -224,6 +231,8 @@ Every bundled tool is stdlib-only Python and runs on macOS, Linux, and Windows.
 - `run-it-back`: restates goal, scope, exclusions, and assumptions in short checkable lines before coding.
 - `play-with-me`: builds a quick throwaway mockup, script, or demo proactively so you can try an idea first.
 - `talk-to-me`: explains unfamiliar concepts with domain terms, a diagram, a worked example, and an analogy.
+- `idk`: Lead-owned guided learning—dispatches researchers (`~/.astack/<project>/research/`), synthesizes visuals and analogies, and builds interactive `play-with-me` demos tied to local dev when available.
+- `jack-in`: Lead-owned environment access workflow—dispatches researchers (`analyze-environment`) to map access paths, workers to build reusable connection scripts/tooling (`~/.astack/<project>/automations/` + `docs/`), and limited safety-and-correctness vectored review.
 - `technical-writing`: audits impacted repo docs on every change and writes concise, concrete, code-verified technical docs.
 - `wat`: rewrites the last message to lead with the bottom line and cut jargon and meta-commentary.
 - `bap`: immediate mid-session course correction when the person repeats a rule—audits why it slipped, repairs live state, and adds a guard.
@@ -238,9 +247,9 @@ Every bundled tool is stdlib-only Python and runs on macOS, Linux, and Windows.
 ### Python workflow automation
 
 - `automate-this`: replaces repeated commands, polling, and noisy output with scripts, watchers, or subagents.
-- `taskex`: async/sync Python and shell tasks, watchers, recurring jobs, SQLite checkpointing, and pause-resume ([taskex](https://github.com/adalundhe/taskex)).
-- `orchestral`: dependency-graph (DAG) wave and staged concurrent pipelines with cycle checks, pause-resume, and SQLite recovery ([orchestral](https://github.com/adalundhe/orchestral)).
-- `werkflow`: modular DAG workflows with [werkflow](https://github.com/adalundhe/werkflow) and all 15 [werkflow-modules](https://github.com/adalundhe/werkflow-modules) packages.
+- `taskex`: turns prompts into saved TaskEx automations under `~/.astack/<project>/automations/<automation>/` (or runs, pauses, resumes, and manages them)—tracked tasks, background task management, watchers, schedules, keep/discard retention, and optional `werkflow-modules` ([taskex](https://github.com/adalundhe/taskex)).
+- `orchestral`: turns prompts into saved Orchestral DAG workflows under `~/.astack/<project>/automations/<automation>/` (or runs, pauses, resumes, and manages them)—concise shell or stdlib-Python DAG waves with SQLite checkpoints ([orchestral](https://github.com/adalundhe/orchestral)).
+- `werkflow`: turns prompts into saved Werkflow workflows under `~/.astack/<project>/automations/<automation>/` (or runs, updates, and manages them)—composing all 15 [werkflow-modules](https://github.com/adalundhe/werkflow-modules) packages, implicit state-passing, and `WorkflowGroup` pipelines ([werkflow](https://github.com/adalundhe/werkflow)).
 - `checkpoint`: instruments, saves, inspects, and verifies durable checkpoints for `taskex` and `orchestral` runs.
 - `suspend`: cleanly pauses running `taskex` tasks or `orchestral` workflows/steps without losing progress.
 - `resume`: unpauses suspended runs in place or recovers failed/crashed runs from checkpoints.

@@ -1,26 +1,42 @@
 ---
 name: werkflow
-description: "Author, configure, and run modular DAG workflows with werkflow and werkflow-modules (@step, @requires, CLI). Use for scripted multi-system pipelines."
+description: "Turn prompts into saved Werkflow DAG workflows with werkflow-modules, or run, update, and manage them. Use for modular multi-system pipelines."
 disable-model-invocation: true
 ---
 
 # Werkflow
 
-Author, configure, and run modular DAG workflows with `werkflow` (`https://github.com/adalundhe/werkflow`) and `werkflow-modules` (`https://github.com/adalundhe/werkflow-modules`, Python >= 3.11).
+Turn a prompt into a saved, reusable Werkflow workflow—or inspect, author, run, update, and manage existing ones with `werkflow` (`https://github.com/adalundhe/werkflow`) and `werkflow-modules` (`https://github.com/adalundhe/werkflow-modules`, Python >= 3.11).
 
-## Setup and execution
+**When to choose Werkflow:** reach for Werkflow when composing `werkflow-modules` integrations, robust implicit state-passing, or multi-class `WorkflowGroup` pipelines pays off. Strong fits include mass-generating Jira epics and tickets for migrations, collecting enterprise-wide Docker image stats, mass-migrating `requirements.txt` repos to Poetry, and building DORA metrics or small-scale CI/CD engines. You can also pair `taskex` (`TaskRunner`) inside Werkflow for background task management.
 
-- Check `automation.mode` in `~/.config/astack/settings.json` and run `astack-tools doctor`. Never install Python packages under `agentic-only` without explicit permission.
-- Under `python-stack`, run `astack-tools install` (`--profile standard` for core modules, or `--profile all` / `--modules docker,aws,jira,metrikflow,appito`). Load into a shell with `eval "$(astack-tools env)"`.
-- Prefer `astack-tools install --profile all` over `pip install 'werkflow[all]'`, because it pins fixed `werkflow-docker>=0.4.1` and `werkflow-metrikflow>=0.3.1` releases plus `werkflow-jira` and `werkflow-appito`.
-- **Run non-interactively (for agents and CI):**
-  ```bash
-  astack-tools werkflow run path/to/workflow.py --ci --no-prompt --graceful-abort \
-    --config-path .werkflow.json --log-level info --logfiles-directory ./logs
-  ```
-  - `--ci` disables spinners and interactive graphics.
-  - `--no-prompt` resolves prompt values from `.werkflow.json` (`project_options`) or uppercase env vars (`RESULT_KEY.upper()`).
-  - `--graceful-abort` catches step exceptions cleanly and calls `workflow.close()`.
+## Storage, setup, and lifecycle (cross-OS)
+
+- **Canonical path:** `$HOME/.astack/<project_name>/automations/<automation_name>/` (`%USERPROFILE%\.astack\<project_name>\automations\<automation_name>\` on Windows; `ASTACK_HOME` overrides). Use repo-local `workflows/` only when the user wants it checked into git.
+- Resolve and create folders via `astack-tools automations path <project_name> <automation_name> --ensure`. List saved workflows via `astack-tools automations list [--project <project_name>] --runner werkflow [--json]`.
+- Check `automation.mode` in `~/.config/astack/settings.json` and run `astack-tools doctor --json`. Under `agentic-only`, ask permission before installing Python packages or running **setup**.
+- Under `python-stack`, run `astack-tools install` (`--profile standard`, `--profile all`, or `--modules <comma-list>`). Prefer `astack-tools install --profile all` over `pip install 'werkflow[all]'`, because it pins fixed `werkflow-docker>=0.4.1` and `werkflow-metrikflow>=0.3.1` releases plus `werkflow-jira` and `werkflow-appito`. Load into a shell with `eval "$(astack-tools env)"`.
+- **Manage by intent:**
+  1. **List / inspect:** run `astack-tools automations list --project <project_name> --runner werkflow` and read `automation.json`, `.werkflow.json.example`, and the entrypoint.
+  2. **Create from a prompt:** check **rtfm**, **lookup**, and **analyze-environment** first. Clarify only missing targets, inputs, secrets, or destructive side effects. Replace unnecessary LLM loops with deterministic Python and `werkflow-modules` steps.
+  3. **Run non-interactively:** honor `autonomy` (**decisions-in-plain-words**) and test on a safe or dry-run target before touching live infrastructure:
+     ```bash
+     astack-tools werkflow run "<automation_dir>/workflow.py" --ci --no-prompt --graceful-abort \
+       --config-path "<automation_dir>/.werkflow.json" --log-level info --logfiles-directory "<automation_dir>/logs"
+     ```
+     - `--ci` disables spinners and interactive graphics.
+     - `--no-prompt` resolves prompt values from `.werkflow.json` (`project_options`) or uppercase env vars (`RESULT_KEY.upper()`).
+     - `--graceful-abort` catches step exceptions cleanly and calls `workflow.close()`.
+  4. **Update / retire:** inspect existing files and `.werkflow.json` keys first, keep reruns idempotent (**safe-to-rerun**), prune stale `logs/` cleanly (**cleanup**), and confirm before deleting a saved workflow.
+
+## Folder layout
+
+Keep each `<automation_name>/` folder self-contained:
+
+- `automation.json`: metadata (`runner`: `"werkflow"`, `entrypoint`: `"workflow.py"`, `description`, `modules`, `updated` UTC).
+- `workflow.py`: `@requires(...)` `Workflow` subclass(es) and `@step(...)` DAG.
+- `.werkflow.json.example`: non-secret `project_options` template (never commit or save real secrets; use env vars or `werkflow-secrets` per **no-leaked-secrets**).
+- `logs/`: local run logs (never committed into a repo).
 
 ## Authoring pattern
 
@@ -70,7 +86,7 @@ class RepoCheckWorkflow(Workflow):
   - `self.get_project_option("key")` — reads `project_options` from `.werkflow.json`.
 - **Prompts (`werkflow.prompt`):** `InputPrompt`, `SecurePrompt`, `ConfirmationPrompt`, `OptionPrompt`, `KeyValuePrompt`, `RepeatPrompt`. Give every prompt a `result_key` so `--no-prompt` resolves it from `.werkflow.json` or `RESULT_KEY.upper()`.
 - **Single-group discovery rule:** `werkflow run` scans all `Workflow` and `WorkflowGroup` subclasses in the file. In multi-workflow files, either set `priority = 1, 2, ...` on each `Workflow` (no `WorkflowGroup`) or list **every** `Workflow` in one `WorkflowGroup`. Leaving an ungrouped `Workflow` beside a `WorkflowGroup` raises `MultipleWorkflowsViolationError`.
-- **Cleanup:** always close modules in `async def close(self)` and keep `logs/` out of git (**cleanup**).
+- **Cleanup:** always close every module in `async def close(self)` and keep `logs/` out of git (**cleanup**).
 
 ## Available `werkflow-modules`
 
@@ -92,10 +108,9 @@ class RepoCheckWorkflow(Workflow):
 | `werkflow-metrikflow` | `werkflow_metrikflow.Metrik` | Recording and sending metrics (`Event`, `Interval`, `Rate`) |
 | `werkflow-appito` | `werkflow_appito.Appito` | `upload_file` |
 
-## Managing werkflow automation
+## Verify and compare
 
-- Keep project workflows in `workflows/` (or `scripts/workflows/`) with a `.werkflow.json.example`. Pass secrets via env vars or `werkflow-secrets`, never committed files.
-- Test with `--ci --no-prompt --graceful-abort` on a safe local target before hitting real infrastructure (**prove-it**, **safe-to-rerun**).
-- Prefer `orchestral` for lightweight DAG waves with SQLite pause/resume. Prefer `taskex` for standalone tracked tasks, watchers, or schedules.
+- Test with `--ci --no-prompt --graceful-abort` on a safe local or dry-run target before hitting real infrastructure (**prove-it**, **safe-to-rerun**).
+- Prefer **orchestral** for shorter, scriptish shell or stdlib-Python DAG waves where you own state-passing and branching. Prefer **taskex** for general automations, background task management, schedules, watchers, and keep/discard retention (which can also use `werkflow-modules`).
 
-**Done when:** the workflow passes `--ci --no-prompt --graceful-abort` on a safe target, closes all modules in `close()`, leaves no untracked logs, and reruns cleanly.
+**Done when:** the workflow is saved under `$HOME/.astack/<project_name>/automations/<automation_name>/` (or Windows equivalent), passes `--ci --no-prompt --graceful-abort` on a safe target, closes all modules in `close()`, reruns cleanly, and your reply gives the exact run command.

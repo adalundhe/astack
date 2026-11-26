@@ -27,7 +27,7 @@ Reach for tools in this order, because built-ins carry zero setup risk and astac
 2. **astack tools and skills next:** `prove-it`, `test-drive` (`drive-<app>`), `show-the-states` (`astack-statechart`), **benchmarking**, `astack-tools`.
 3. **Third-party tools last,** only when built-in and astack tools cannot expose the signal.
 
-Name every capture **`<file>_DEBUG_<shorthash>.<type>`** (e.g., `auth_DEBUG_a1b2c3d.log`). Keep captures untracked and free of secrets or PII (`no-leaked-secrets`).
+Name temporary workspace captures **`<file>_DEBUG_<shorthash>.<type>`** (e.g., `auth_DEBUG_a1b2c3d.log`). Persist retained logs, traces, and metrics under `$HOME/.astack/<project_name>/logging/<logs|traces|metrics>/[FILE_YYYY_MM_DD_HH_MM_SS]` (`astack-tools logging path`). Keep all captures untracked and free of secrets or PII (`no-leaked-secrets`).
 
 ## 3. Starting signals (illustrative, not exhaustive)
 

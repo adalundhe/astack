@@ -14,7 +14,7 @@ Prioritize the consumer's experience over implementation convenience, because ro
 2. **Deliver the full request cleanly:** ship it polished and complete without unrequested extras.
 3. **Sweat the details:** show visible feedback for every action, and write errors that state what failed and what to do next. Cover empty, loading, and failure states explicitly, pick sensible defaults, and keep copy and layout clean.
 4. **Prototype early:** build a quick throwaway demo or harness before full implementation and share it proactively (**play-with-me**).
-5. **Tighten the core loop:** make the most frequent user action the fastest and clearest path.
+5. **Tighten the core loop:** make the most frequent user action the fastest and clearest path. Keep complexity stepped cleanly across tiers (**stepped-complexity**, **next-step**).
 
 ## Watch for
 
@@ -37,6 +37,6 @@ Prioritize the consumer's experience over implementation convenience, because ro
 
 **Showing it:** walk the primary, empty, and error flows cold and show any dead-end error, missing feedback, or guessed default.
 
-Referenced skills: `play-with-me` (`${CLAUDE_SKILL_DIR}/../play-with-me/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `play-with-me` (`${CLAUDE_SKILL_DIR}/../play-with-me/SKILL.md`), `stepped-complexity` (`${CLAUDE_SKILL_DIR}/../stepped-complexity/SKILL.md`), `next-step` (`${CLAUDE_SKILL_DIR}/../next-step/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's experience-first principle (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

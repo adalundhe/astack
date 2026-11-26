@@ -1,18 +1,35 @@
 ---
 name: orchestral
-description: "Author, pause, resume, and recover concurrent Python/shell DAG wave pipelines with SQLite checkpoints. Use for parallel build/test/benchmark DAGs and resumable automation."
+description: "Turn prompts into saved Orchestral DAG workflows with checkpoints, or run, pause, resume, and manage them. Use for concise shell or Python DAG automation."
 disable-model-invocation: true
 ---
 
 # Orchestral
 
-Build concurrent DAG wave and multi-stage pipelines mixing shell commands, `async def` coroutines, and sync functions. Powered by `orchestral` (`https://github.com/adalundhe/orchestral`, on `taskex >= 0.5.0`, Python >= 3.11) with live pause/resume and SQLite recovery.
+Turn a prompt or task graph into a saved Orchestral DAG workflow—or inspect, run, pause, resume, update, and manage existing ones. Powered by `orchestral` (`https://github.com/adalundhe/orchestral`, on `taskex >= 0.5.0`, Python >= 3.11) with live pause/resume and SQLite recovery.
 
-## Setup and execution
+**When to choose Orchestral:** reach for Orchestral for shorter, scriptish DAG workflows—concise shell or stdlib-Python graph tools that need parallel waves and checkpoints without Werkflow's full module and state-passing machinery. Orchestral runs the DAG waves while leaving state-passing, custom skipping, and conditional logic to your step code.
 
-- Check `automation.mode` in `~/.config/astack/settings.json` first. Never install the Python stack under `agentic-only`; use agentic orchestration instead.
-- Verify availability with `astack-tools doctor` (`orchestral_dag` and `orchestral_checkpoints`). Install via `astack-tools install`, or `uv add orchestral` inside a Python project.
-- Run standalone scripts via `astack-tools python <script.py>` (or `eval "$(astack-tools env)"`).
+## Storage, setup, and lifecycle (cross-OS)
+
+- **Canonical path:** `$HOME/.astack/<project_name>/automations/<automation_name>/` (`%USERPROFILE%\.astack\<project_name>\automations\<automation_name>\` on Windows; `ASTACK_HOME` overrides). Keep scripts inside a git repo only when explicitly requested.
+- Resolve and create folders via `astack-tools automations path <project_name> <automation_name> --ensure`. List saved workflows via `astack-tools automations list [--project <project_name>] --runner orchestral [--json]`.
+- Check `automation.mode` in `~/.config/astack/settings.json` and run `astack-tools doctor --json` (`orchestral_dag` and `orchestral_checkpoints`). Under `agentic-only`, ask permission before installing Python packages or running **setup**.
+- Under `python-stack`, install via `astack-tools install`, or `uv add orchestral` inside a Python project. Run scripts via `astack-tools python "<automation_dir>/workflow.py"` (or `eval "$(astack-tools env)"`).
+- **Manage by intent:**
+  1. **List / inspect:** run `astack-tools automations list --project <project_name> --runner orchestral`, then read `automation.json`, the entrypoint, and `state/` checkpoint status.
+  2. **Create from a prompt (or `dagify` graph):** check **rtfm**, **lookup**, and **analyze-environment** first. Clarify only missing targets, failure policy, concurrency, or credentials. Keep logic deterministic in Python and shell steps.
+  3. **Run:** validate `orch.execution_order()` first, honor `autonomy` (**decisions-in-plain-words**), and test on a safe or dry-run target before mutating live systems.
+  4. **Pause, resume, update, or retire:** delegate live pausing and crash recovery to **checkpoint**, **suspend**, and **resume**. When editing steps, verify compatibility with `state/workflow.db` (or clear/bump `workflow_id`). Confirm before deleting a saved workflow.
+
+## Folder layout
+
+Keep each `<automation_name>/` folder self-contained:
+
+- `automation.json`: metadata (`runner`: `"orchestral"`, `entrypoint`: `"workflow.py"`, `workflow_id`, `description`, `updated` UTC).
+- `workflow.py`: exposes clean CLI flags (`--dry-run`, `--show-waves`, `--resume`, `--clear-checkpoints`, `--fail-fast`) and stores checkpoints at `Path(__file__).resolve().parent / "state" / "workflow.db"`.
+- `config.example.json` (if parameterized) without secrets; read credentials from env vars or secret managers (**no-leaked-secrets**).
+- `state/`: SQLite checkpoint database (never write secrets into checkpoint payloads).
 
 ## Execution model & core API
 
@@ -25,10 +42,13 @@ Primary `taskex` models and helpers (`Env`, `RunStatus`, `SQLiteCheckpointStore`
 
 ```python
 import asyncio
+from pathlib import Path
 from orchestral import (
     Env, Orchestral, RunStatus, SQLiteCheckpointStore, WorkflowStatus,
     checkpoint, last_checkpoint, pause_point,
 )
+
+STATE_DB = Path(__file__).resolve().parent / "state" / "workflow.db"
 
 async def transform_records(items: list[str]) -> list[str]:
     prev = last_checkpoint()
@@ -41,8 +61,9 @@ async def transform_records(items: list[str]) -> list[str]:
     return done
 
 async def main() -> int:
+    STATE_DB.parent.mkdir(parents=True, exist_ok=True)
     config = Env(MERCURY_SYNC_EXECUTOR_TYPE="none")  # "none" | "thread" | "process"
-    with SQLiteCheckpointStore("./state/workflow.db") as store:
+    with SQLiteCheckpointStore(str(STATE_DB)) as store:
         async with Orchestral(config=config, checkpoint_store=store, workflow_id="release-check") as orch:
             with orch as workflow:
                 s_lint = workflow.add_command("ruff", "check", ".", alias="lint", timeout="60s")
@@ -81,14 +102,14 @@ raise SystemExit(asyncio.run(main()))
 ### Checkpointing, pause, and crash recovery
 
 - Give durable workflows a stable `workflow_id` and a `SQLiteCheckpointStore` (or `MERCURY_SYNC_CHECKPOINT_DB_PATH`).
-- **Checkpoints:** save progress inside tasks with `checkpoint()` (or externally via `await orch.checkpoint(target, state)`) and inspect or manage them via `orch.get_checkpoint`, `list_checkpoints`, or `clear_checkpoints` (**checkpoint**).
+- **Checkpoints:** save progress inside tasks with `checkpoint()` (or externally via `await orch.checkpoint(target, state)`) and manage them via `orch.get_checkpoint`, `list_checkpoints`, or `clear_checkpoints` (**checkpoint**).
 - **Live pause:** freeze workflows or steps with `orch.pause()` and `pause_step(target)` (**suspend**).
 - **Resume & crash recovery:** unpause in place or replay with `orch.resume(rerun_completed=False)` and `add_task(..., resume_from=...)` (**resume**).
 
-## Managing orchestral automation
+## Verify and compare
 
-- Map **dagify** tasks into `add_task`/`add_command` with `dependencies=[...]`, test `orch.execution_order()`, and isolate outputs (**no-shared-writes**).
+- Map **dagify** tasks into `add_task`/`add_command` with `dependencies=[...]`, test `orch.execution_order()`, and isolate outputs (**no-shared-writes**, **prove-it**, **safe-to-rerun**).
 - Check both `orch.status` and per-step `RunStatus`, exiting non-zero on failure.
-- Use `taskex` for standalone tasks/watchers or `werkflow` for `@step` data injection and `werkflow-modules`.
+- Prefer **taskex** for general automations, background task management, schedules, and keep/discard retention, or **werkflow** for composed `werkflow-modules`, implicit state-passing, and multi-workflow pipelines.
 
-**Done when:** `orch.execution_order()` validates, `orch.status == WorkflowStatus.COMPLETED`, every step finishes `RunStatus.COMPLETE`, and checkpoints replay cleanly.
+**Done when:** the workflow is saved under `$HOME/.astack/<project_name>/automations/<automation_name>/` (or Windows equivalent), `orch.execution_order()` validates, `orch.status == WorkflowStatus.COMPLETED`, every step finishes `RunStatus.COMPLETE`, checkpoints replay cleanly, and your reply gives exact run and resume commands.
