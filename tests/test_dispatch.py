@@ -912,7 +912,10 @@ class MultiHarnessEvalRunnerTest(unittest.TestCase):
 
         slow_id = None
         try:
-            # 1. Program B spawns a slow untagged worker in repo_b; Program A spawns a fast worker in wt_a (worktree of repo_a)
+            # 1. No session env vars at all:
+            #    - Foreign Program B (standing in repo_b) spawns a slow worker in repo_b.
+            #    - Cross-repo Program A (standing in repo_a) spawns BOTH a worktree worker (wt_a)
+            #      AND a cross-repo worker targeting repo_b!
             sp_b = run_d(
                 ["spawn", "--harness", "codex", "--provider", "openai", "--model", "gpt-5.4",
                  "--role", "worker", "--cwd", str(repo_b), "--prompt", "SLOW",
@@ -928,10 +931,31 @@ class MultiHarnessEvalRunnerTest(unittest.TestCase):
                  "--state-dir", str(state_dir), "--json"],
                 cwd=repo_a, env=clean_env(),
             )
+            sp_ab = run_d(
+                ["spawn", "--harness", "codex", "--provider", "openai", "--model", "gpt-5.4",
+                 "--role", "worker", "--cwd", str(repo_b), "--prompt", "FAST",
+                 "--state-dir", str(state_dir), "--json"],
+                cwd=repo_a, env=clean_env(),
+            )
             self.assertEqual(sp_a.returncode, 0, sp_a.stderr)
+            self.assertEqual(sp_ab.returncode, 0, sp_ab.stderr)
             fast_a_id = json.loads(sp_a.stdout)["run_id"]
+            fast_ab_id = json.loads(sp_ab.stdout)["run_id"]
 
-            # Program A's wait --all finishes without blocking on Program B's slow worker
+            # Program A's astack-status (with NO session env var) sees BOTH wt_a AND cross-repo repo_b worker,
+            # while excluding Program B's foreign slow worker in repo_b!
+            lanes_a = self.dir / "prog-a" / "LANES.md"
+            lanes_a.parent.mkdir()
+            lanes_a.write_text(f"<!-- astack lane log -->\n# prog-a\n\nRepository: {repo_a}\n\n## Log\n\n")
+            st_a_nosess = subprocess.run(
+                [sys.executable, "-B", str(BIN / "astack-status"), str(lanes_a), "--line"],
+                cwd=repo_a, capture_output=True, text=True, env=clean_env(),
+            )
+            self.assertEqual(st_a_nosess.returncode, 0, st_a_nosess.stderr)
+            self.assertIn("2 running (2xh)", st_a_nosess.stdout)
+
+            # Program A's wait --all (with NO session env var) joins BOTH its worktree AND cross-repo workers
+            # without blocking on Program B's slow worker!
             w_a = run_d(
                 ["wait", "--all", "--timeout", "4", "--poll-interval", "0.05", "--state-dir", str(state_dir), "--json"],
                 cwd=repo_a, env=clean_env(),
@@ -939,7 +963,7 @@ class MultiHarnessEvalRunnerTest(unittest.TestCase):
             self.assertEqual(w_a.returncode, 0, w_a.stdout + w_a.stderr)
             wa_data = json.loads(w_a.stdout)
             self.assertTrue(wa_data["completed"])
-            self.assertEqual([r["run_id"] for r in wa_data["runs"]], [fast_a_id])
+            self.assertEqual({r["run_id"] for r in wa_data["runs"]}, {fast_a_id, fast_ab_id})
 
             # Program C (which dispatched nothing) does NOT see Program B's worker in astack-status
             lanes_c = self.dir / "prog-c" / "LANES.md"
@@ -974,9 +998,6 @@ class MultiHarnessEvalRunnerTest(unittest.TestCase):
             self.assertEqual(xb["session_id"], "claude-xrepo-99")
 
             # astack-status for cross-repo session sees both cross-repo workers (and NOT foreign slow_id)
-            lanes_a = self.dir / "prog-a" / "LANES.md"
-            lanes_a.parent.mkdir()
-            lanes_a.write_text(f"<!-- astack lane log -->\n# prog-a\n\nRepository: {repo_a}\n\n## Log\n\n")
             st_x = subprocess.run(
                 [sys.executable, "-B", str(BIN / "astack-status"), str(lanes_a), "--line"],
                 cwd=repo_a, capture_output=True, text=True, env=x_env,

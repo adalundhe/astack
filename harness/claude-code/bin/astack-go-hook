@@ -1,7 +1,22 @@
 #!/bin/sh
 # Fast hook entry point for sticky session-scoped Go mode.
 # Most PostToolUse calls never touch go/lead skills, so they cost one shell check instead of a Python start.
-event=$(cat)
+# Restores standard PATH entries when a host launches hooks with an empty PATH, and fails open with valid
+# harness-native JSON if Python is missing or fails so hooks never break a host session.
+
+for _d in /opt/homebrew/bin /usr/local/bin /usr/bin /bin; do
+  case ":${PATH:-}:" in
+    *":$_d:"*) ;;
+    *) [ -d "$_d" ] && PATH="${PATH:+${PATH}:}$_d" ;;
+  esac
+done
+export PATH
+
+case "$0" in
+  */*) script_dir="${0%/*}" ;;
+  *) script_dir="." ;;
+esac
+
 harness=""
 hook_event=""
 prev=""
@@ -17,18 +32,61 @@ for arg in "$@"; do
   esac
 done
 
+fail_open() {
+  if [ "$harness" = "cursor" ] && [ "$hook_event" = "beforeSubmitPrompt" ]; then
+    printf '{"continue": true}\n'
+  elif [ "$harness" = "antigravity" ] || [ "$harness" = "cursor" ]; then
+    printf '{}\n'
+  fi
+  exit 0
+}
+
+if command -v cat >/dev/null 2>&1; then
+  event=$(cat 2>/dev/null) || event=""
+else
+  event=""
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    event="${event}${_line}
+"
+  done
+fi
+
 if [ "$hook_event" = "PostToolUse" ]; then
   case "$event" in
     *astack:go*|*astack-go*|*astack:lead*|*astack-lead*|*skills/go/SKILL.md*|*skills/astack-go/SKILL.md*|*"skills get"*|*"skills list"*|*"\"skill\":\"go\""*|*"\"skill\": \"go\""*|*"\"skill\":\"lead\""*|*"\"skill\": \"lead\""*)
-      printf '%s' "$event" | exec "$(dirname "$0")/astack-go-mode" --hook "$@"
       ;;
     *)
-      if [ "$harness" = "antigravity" ]; then
-        printf '{}\n'
-      fi
-      exit 0
+      fail_open
       ;;
   esac
 fi
 
-printf '%s' "$event" | exec "$(dirname "$0")/astack-go-mode" --hook "$@"
+py=""
+if [ -n "${ASTACK_PYTHON:-}" ]; then
+  [ -x "$ASTACK_PYTHON" ] && py="$ASTACK_PYTHON"
+else
+  for _cand in python3 /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
+    case "$_cand" in
+      /*) [ -x "$_cand" ] && { py="$_cand"; break; } ;;
+      *)
+        if _found=$(command -v "$_cand" 2>/dev/null) && [ -n "$_found" ] && [ -x "$_found" ]; then
+          py="$_found"
+          break
+        fi
+        ;;
+    esac
+  done
+fi
+
+if [ -z "$py" ] || [ ! -r "$script_dir/astack-go-mode" ]; then
+  fail_open
+fi
+
+if out=$(printf '%s' "$event" | "$py" "$script_dir/astack-go-mode" --hook "$@" 2>/dev/null); then
+  if [ -n "$out" ]; then
+    printf '%s\n' "$out"
+  fi
+  exit 0
+fi
+
+fail_open

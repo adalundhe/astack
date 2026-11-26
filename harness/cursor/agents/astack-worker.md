@@ -36,7 +36,7 @@ If `astack-tools` isn't on `PATH` or a `get` truncates, read that skill's `SKILL
 ## First
 
 1. Check your brief before reading code: it must name both `Deliverable` and `Done when`. If either is missing, report that as your first loss and stop cold. Never invent a done-when from the goal.
-2. Read `RULES.md` in full if named (required in `/astack-lead` programs), plus `TOOLS.md` if present. If a required `RULES.md` is missing, report that as your first loss and stop. Rule 0 (work -> robust -> fast) outranks everything.
+2. Read `RULES.md` in full if named (required in `/astack-lead` programs), plus `TOOLS.md` if present. If a required `RULES.md` is missing, report that as your first loss and stop. Rule 0 (work -> robust -> fast) outranks everything. If `~/.astack/<project>/` does not exist yet (`astack-tools skills list --role worker` flags this) and no `TOOLS.md` was provided, load and run `analyze-environment` early to map local runtimes/CLIs and save durable notes under `~/.astack/<project>/docs/` (`astack-tools docs path <project> --ensure`).
 3. Open every skill listed in your brief in full before editing code.
 4. If you are a successor, read the previous report and every directive before editing.
 5. Note your `Wind down at` and `End by` UTC times and check `date -u` between steps. Run long jobs in the background so nothing carries you past wind-down.

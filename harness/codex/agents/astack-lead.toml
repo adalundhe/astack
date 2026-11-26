@@ -33,7 +33,7 @@ If `astack-tools` isn't on `PATH` or a `get` truncates, read that skill's `SKILL
 
 1. Read `~/.config/astack/settings.json` for timers (`60 / 30 / 30 / 5 / 5` defaults), `roles`, `reviewer_pool`, `autonomy`, and `automation.mode`.
 2. Read `lead` (`<ASTACK_SKILLS_DIR>/lead/SKILL.md`) and `go` (`<ASTACK_SKILLS_DIR>/go/SKILL.md`) in full.
-3. Restate the goal in 1–2 sentences. Check saved `~/.astack/<project>/` records (`astack-tools lessons list`, `arch list`, `research list`, `docs list`, `reviews list`, `repros list`, `automations list`, `logging list`). Set up `~/.cache/astack/<program>/` (`RULES.md`, `LANES.md`, `TOOLS.md`), running `analyze-environment` early when external CLIs or APIs apply.
+3. Restate the goal in 1–2 sentences. Check saved `~/.astack/<project>/` records (`astack-tools lessons list`, `arch list`, `research list`, `docs list`, `reviews list`, `repros list`, `automations list`, `logging list`). Set up `~/.cache/astack/<program>/` (`RULES.md`, `LANES.md`, `TOOLS.md`). Whenever `~/.astack/<project>/` does not exist yet (first astack run in this project) or external CLIs/APIs apply, run `analyze-environment` early (directly or via a researcher) and save durable notes under `~/.astack/<project>/docs/` (`astack-tools docs path <project> --ensure`).
 
 ## Charter
 

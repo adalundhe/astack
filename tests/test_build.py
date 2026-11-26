@@ -1013,6 +1013,28 @@ class BuildTest(unittest.TestCase):
         self.assertIn("rightsize-contracts", (ROOT / "agents/reviewer.md").read_text())
         self.assertIn("next-step", (ROOT / "agents/researcher.md").read_text())
 
+        # Structural drift guards: hardcoded skill counts in manifests/go/README and A-F grade bands in researcher.md
+        total_skills = len([p for p in (ROOT / "skills").iterdir() if (p / "SKILL.md").is_file()])
+        hidden_skills = total_skills - 1
+        for count_path in (
+            ROOT / "packaging/antigravity/plugin.json",
+            ROOT / "packaging/portable/plugin.json",
+            ROOT / ".antigravity-plugin/plugin.json",
+            ROOT / "skills/go/SKILL.md",
+            ROOT / "README.md",
+        ):
+            ctext = count_path.read_text()
+            for m in re.finditer(r"\b(\d+)\s+hidden\b", ctext):
+                self.assertEqual(int(m.group(1)), hidden_skills, f"{count_path.relative_to(ROOT)} has stale hidden count {m.group(1)} != {hidden_skills}")
+            for m in re.finditer(r"\b(\d+)\s+(?:on-demand\s+skills|skills\s+total)\b|Browse all (\d+) skills", ctext):
+                num = int(m.group(1) or m.group(2))
+                self.assertEqual(num, total_skills, f"{count_path.relative_to(ROOT)} has stale total skill count {num} != {total_skills}")
+        res_md = (ROOT / "agents/researcher.md").read_text()
+        self.assertIn("`C` (50–69)", res_md)
+        self.assertIn("`D` (30–49)", res_md)
+        self.assertNotIn("55–69", res_md)
+        self.assertNotIn("30–54", res_md)
+
 
 if __name__ == "__main__":
     unittest.main()

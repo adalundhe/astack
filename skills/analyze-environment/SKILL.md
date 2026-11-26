@@ -1,12 +1,14 @@
 ---
 name: analyze-environment
-description: "Discover local tools, contexts, and access paths, publish <program>/TOOLS.md, and isolate human auth steps. Use when mapping a task's environment or missing CLIs."
+description: "Discover local tools, contexts, and access paths, publish TOOLS.md, and isolate human auth steps. Use on a project's first astack run (no ~/.astack/<project>/) or when mapping missing CLIs."
 disable-model-invocation: true
 ---
 
 # Analyze environment
 
 Map the local runtime, CLIs, APIs, MCP servers, and access paths for the task. Publish `<program>/TOOLS.md` outside the repo, install missing user-space tools when authorized, and isolate **only** human-only auth steps.
+
+**First-run trigger:** whenever `$HOME/.astack/<project_name>/` does not exist yet (`astack-tools skills list --role <role>` promotes this skill to required automatically), Lead, Researcher, Worker, and Reviewer run `analyze-environment` early. Lead or Worker saves durable environment notes under `$HOME/.astack/<project_name>/docs/` (`astack-tools docs path <project_name> --ensure`), creating the project store for later runs. Researchers and Reviewers stay read-only and hand their catalog draft to Lead.
 
 1. **Discover what the task touches (`rtfm`):** inspect the brief, repo configs, CI workflows, IaC manifests, scripts, and env-var *names*. Never print secret values (**no-leaked-secrets**). List every relevant runtime, CLI, API, SDK, MCP server, and service.
 2. **Probe safely—read-only checks are always allowed:**

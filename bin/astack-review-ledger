@@ -24,12 +24,14 @@ Honest statistical framing:
   - When ZERO blocking bugs are found (D = 0):
     - Low-risk vectors stop after 1 clean non-worker review (`verdict: "clean_low_risk"`).
     - Risky vectors NEVER assume a picked detection rate (such as 0.5) AND NEVER multiply
-      per-model miss rates assuming independence:
+      aggregate count-only miss rates across models (which hides shared blind spots):
       - If per-bug empirical calibration (`per_bug`, recorded by `scripts/eval.py --calibrate`
         on `vectored-review-planted-bugs`) is present for all completed reviewers, measure
-        the pool's ACTUAL joint coverage across the shared planted bugs—directly identifying
-        `jointly_missed_bugs` (shared blind spots missed by ALL reviewers in the pool, where
-        adding redundant models NEVER shrinks the miss rate!). Stops (`verdict: "clean_calibrated"`)
+        per-bug joint coverage across the shared planted bugs: shared blind spots missed by
+        ALL reviewers (`det == 0` for every model) stay at `miss_b = 1.0` (`jointly_missed_bugs`,
+        where adding redundant models never shrinks the miss rate), while multi-run (`--runs > 1`)
+        stochastic miss rates on the same planted bug combine assuming conditional independence
+        across separate blind model runs on that bug. Stops (`verdict: "clean_calibrated"`)
         only when `jointly_missed_bugs` is empty AND `empirical_joint_miss_rate < miss_risk_target`
         (default 0.05), prioritizing unused pool models that caught the shared blind spots next.
       - If only legacy count-only catch rates (no `per_bug`) are provided, NEVER multiply
@@ -564,7 +566,7 @@ def zero_bug_empirical_estimate(
     catch_rates: dict[tuple[str, str], CatchRate],
     miss_risk_target: float = DEFAULT_MISS_RISK_TARGET,
 ) -> dict[str, Any]:
-    """Evaluate a zero-finding (D = 0) sweep using measured per-bug joint coverage (ZERO independence assumption!)."""
+    """Evaluate a zero-finding (D = 0) sweep via per-bug coverage (shared blind spots stay at 1.0; multi-run per-bug rates assume conditional independence across separate blind model runs)."""
     t = len(reviewers)
     per_model: dict[str, dict[str, Any]] = {}
     matched_crs: list[CatchRate] = []
@@ -615,6 +617,7 @@ def zero_bug_empirical_estimate(
                 det_b, tr_b = bm[bid]
                 if det_b > 0:
                     all_zero = False
+                # Conditional on fixed planted bug bid, models run blind in separate trials
                 miss_b *= 1.0 - (det_b / tr_b)
             if all_zero:
                 jointly_missed.append(bid)

@@ -36,7 +36,7 @@ If `astack-tools` isn't on `PATH`, you have no shell tool, or a `get` truncates,
 
 1. Read your brief: exact question(s), scope/paths, `RULES.md`/`TOOLS.md` paths, `skills/` path, and `Started` / `Wind down at` / `End by` UTC times.
 2. Read the matching skill before acting:
-   - `analyze-environment`: discover CLIs, APIs, MCPs, env-var names, safe probes, non-root install commands, and human auth steps for `TOOLS.md`.
+   - `analyze-environment`: discover CLIs, APIs, MCPs, env-var names, safe probes, non-root install commands, and human auth steps for `TOOLS.md`. Run it up front whenever `~/.astack/<project>/` does not exist yet (first astack run in this project), returning the `TOOLS & ACCESS CATALOG` draft and target `~/.astack/<project>/docs/` path for the lead to persist.
    - `how-it-works`: codebase walks with `file:line` citations.
    - `research-this` and `rtfm`: primary-source verification with quote checks and A–F grading (return external research drafts and target `~/.astack/<project>/research/` paths for the lead to persist).
    - `next-step` paired with `delight-users` and `stepped-complexity`: examine interfaces and contracts (`~/.astack/<project>/docs/contracts/`) to recommend minimal-surface next-step feature opportunities.
@@ -50,7 +50,7 @@ If `astack-tools` isn't on `PATH`, you have no shell tool, or a `get` truncates,
 - **Primary sources first,** because memory drifts and blogs lag upstream. Inspect code, git history, specs, official docs, and runnable commands directly.
 - **State contradictions plainly.** Name both sides of every conflict (e.g., *"README says X, while `src/foo.py:40` does Y"*). Never dump bare hashes or ask questions the sources settle.
 - **Label every claim honestly.** Distinguish **ran** (command + output) from **read** (`file:line` or URL + verbatim quote verified in place).
-- **Grade evidence A–F per `research-this`:** `A` (85+) = verified code/tests/official spec/docs or direct measurement; `B` (70–84) = strong primary source or corroborated secondary; `C` (55–69) = single secondary or partial match; `D` (30–54) = weak/indirect; `F` (<30) = contradicted or unverifiable.
+- **Grade evidence A–F per `research-this`:** `A` (85+) = verified code/tests/official spec/docs or direct measurement; `B` (70–84) = strong primary source or corroborated secondary; `C` (50–69) = single secondary or partial match; `D` (30–49) = weak/indirect; `F` (<30) = contradicted or unverifiable.
 - **Run safe read-only and dry-run probes (`analyze-environment`).** Never balk at read-only checks, `--dry-run`, `plan`/`diff`, or `auth status`. Document non-root install commands and isolate only the human login step—never print secrets (`no-leaked-secrets`).
 - **Report gaps plainly** under `COULD NOT ACCESS` rather than guessing.
 

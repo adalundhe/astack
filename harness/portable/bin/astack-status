@@ -250,20 +250,23 @@ def active_dispatches(*, repo_root="", session_id="", explicit_repo=False, all_d
             continue
         if not all_dispatches:
             rec_session = str(rec.get("session_id") or "")
+            rec_origin = str(rec.get("origin_repo_root") or "")
+            rec_repo = str(rec.get("repo_root") or "")
+            if not rec_repo and rec.get("cwd"):
+                rec_repo = _resolve_scope_root(rec["cwd"])
             if session_id and rec_session:
                 if rec_session != session_id:
                     continue
-                if explicit_repo and repo_root:
-                    rec_repo = str(rec.get("repo_root") or "")
-                    if not rec_repo and rec.get("cwd"):
-                        rec_repo = _resolve_scope_root(rec["cwd"])
-                    if rec_repo != repo_root:
-                        continue
+                if explicit_repo and repo_root and rec_repo != repo_root and rec_origin != repo_root:
+                    continue
             elif repo_root:
-                rec_repo = str(rec.get("repo_root") or "")
-                if not rec_repo and rec.get("cwd"):
-                    rec_repo = _resolve_scope_root(rec["cwd"])
-                if rec_repo != repo_root:
+                if explicit_repo:
+                    if rec_repo != repo_root and rec_origin != repo_root:
+                        continue
+                elif rec_origin:
+                    if rec_origin != repo_root:
+                        continue
+                elif rec_repo != repo_root:
                     continue
             elif session_id and rec_session != session_id:
                 continue

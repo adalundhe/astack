@@ -2366,6 +2366,56 @@ def _what_for(folder: Path, width: int = 110) -> str:
     return f"{clip(what)} Use {clip(when)}" if when else clip(what)
 
 
+def _resolve_project_slug(cwd: Path | None = None) -> str:
+    """Resolve the normalized project slug for a workspace (worktree-aware)."""
+    path = (cwd or Path.cwd()).expanduser()
+    cur = path
+    try:
+        resolved = path.resolve()
+        cur = resolved
+        for candidate in (resolved, *resolved.parents):
+            dot_git = candidate / ".git"
+            if dot_git.is_dir():
+                cur = candidate
+                break
+            if dot_git.is_file():
+                cur = candidate
+                try:
+                    raw_git = dot_git.read_text(encoding="utf-8", errors="ignore")
+                    m = re.match(r"^\s*gitdir:\s*(.+)$", raw_git, re.M)
+                    if m:
+                        gdir = Path(m.group(1).strip())
+                        if not gdir.is_absolute():
+                            gdir = (candidate / gdir).resolve()
+                        common_file = gdir / "commondir"
+                        if common_file.is_file():
+                            common_rel = common_file.read_text(encoding="utf-8", errors="ignore").strip()
+                            if common_rel:
+                                common_dir = (gdir / common_rel).resolve()
+                                if common_dir.name == ".git":
+                                    cur = common_dir.parent
+                except OSError:
+                    pass
+                break
+    except OSError:
+        pass
+    raw = cur.name.lower()
+    return re.sub(r"[^a-z0-9._-]+", "-", raw).strip("-._")
+
+
+def _detect_project_astack_dir(cwd: Path | None = None) -> tuple[str, Path | None, bool]:
+    """Return `(project_slug, project_dir, exists)` for `~/.astack/<project_name>/`."""
+    slug = _resolve_project_slug(cwd)
+    if not slug:
+        return "", None, False
+    pdir = astack_home_dir() / slug
+    try:
+        exists = pdir.is_dir()
+    except OSError:
+        exists = False
+    return slug, pdir, exists
+
+
 def cmd_skills_list(args) -> int:
     """The skills that are a role's: what to load before work, and what to load when the work calls for it."""
     skills_dir = _resolve_skills_dir()
@@ -2376,7 +2426,16 @@ def cmd_skills_list(args) -> int:
     if not marks:
         print(f"error: no skills found for {args.role} in go's \"Skills by role\" table", file=sys.stderr)
         return 1
+    slug, pdir, has_project_dir = _detect_project_astack_dir(getattr(args, "cwd", None))
+    first_run = bool(slug and pdir is not None and not has_project_dir)
+    if first_run and "analyze-environment" in marks:
+        marks["analyze-environment"] = REQUIRED
     print(f"astack skills for the {args.role}. Load one with `astack-tools skills get <name>`, one skill per call, read in full.")
+    if first_run and "analyze-environment" in marks:
+        print(
+            f"First astack run detected for project '{slug}' ({pdir} does not exist yet): "
+            "analyze-environment is REQUIRED for this run."
+        )
     for heading, mark in (("REQUIRED: load every one before your first edit", REQUIRED),
                           ("WHEN THE WORK CALLS FOR IT: load one the moment its situation comes up", WHEN_IT_APPLIES)):
         names = sorted((n for n, m in marks.items() if m == mark), key=lambda n: (n != "go", n))
@@ -2695,6 +2754,7 @@ def main(argv=None) -> int:
     skills_sub = p_skills.add_subparsers(dest="skills_command", required=True)
     p_skills_list = skills_sub.add_parser("list", help="a role's skills: required ones, and ones to load when the work calls for them")
     p_skills_list.add_argument("--role", choices=sorted(_ROLE_COLUMN), required=True)
+    p_skills_list.add_argument("--cwd", type=Path, default=None, help="project directory used to check whether ~/.astack/<project>/ already exists")
     p_skills_get = skills_sub.add_parser("get", help="print one skill in full")
     p_skills_get.add_argument("name", metavar="SKILL")
     sub.add_parser("python", help="run python inside the managed venv")

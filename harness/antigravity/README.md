@@ -71,7 +71,7 @@ flowchart LR
   Tools --> Store["~/.astack/"]
 ```
 
-From there, the Lead delegates to three dedicated roles. **Workers** edit code in isolated [Slates](https://github.com/hyper-light/slates) copy-on-write volumes or git worktrees on real timers. **Reviewers** stay strictly read-only—even across different models and CLIs—and save raw proof on disk instead of handing back "LGTM." **Researchers** check docs and live environments before anyone guesses. Your session stays in Go mode across follow-up prompts and compactions until you say `"exit go mode"`.
+From there, the Lead delegates to three dedicated roles. **Workers** edit code in isolated [Slates](https://github.com/hyper-light/slates) copy-on-write volumes or git worktrees on real timers. **Reviewers** never edit the target repo—OS-sandboxed on Codex, and role- and tool-scoped on other CLIs so they can still execute repros—and save raw proof under `~/.astack/` instead of handing back "LGTM." **Researchers** check docs and live environments before anyone guesses. Your session stays in Go mode across follow-up prompts and compactions until you say `"exit go mode"`.
 
 ### Try it
 
@@ -275,7 +275,7 @@ python3 scripts/eval.py --harness agy --case "vectored-review-*"
 python3 scripts/eval.py --harness claude --case "vectored-review-*"
 ```
 
-CI runs unit tests on every push ([.github/workflows/ci.yml](./.github/workflows/ci.yml)) and diff-selected live ablations via [.github/workflows/evals.yml](./.github/workflows/evals.yml) (see [evals/RESULTS.md](./evals/RESULTS.md)).
+CI runs unit tests on pushes to `main` and on pull requests ([.github/workflows/ci.yml](./.github/workflows/ci.yml)), and diff-selected live ablations via [.github/workflows/evals.yml](./.github/workflows/evals.yml) (see [evals/RESULTS.md](./evals/RESULTS.md)).
 
 ## License
 

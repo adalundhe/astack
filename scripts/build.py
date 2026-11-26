@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Build astack's packages for Claude Code, Cursor and Codex from the source at the repository root.
+"""Build astack's 5 packages (Claude Code, Cursor, Codex, Antigravity, and Portable) from the repository root.
 
 Usage: python3 scripts/build.py [--check]
 
-Writes harness/claude-code, harness/cursor and harness/codex. Cursor and Codex get prefixed names
-(astack-go, astack-lead, astack-worker, ...) and the sentences in packaging/<tool>/replace.json. Codex hides
-non-go skills with agents/openai.yaml (allow_implicit_invocation: false); Claude Code and Cursor use
-disable-model-invocation: true. Every skill that cites other skills gets a Referenced skills line with
-tool-native sibling paths so hidden skills can find each other even without Go mode. The build fails when a
-sentence in replace.json is missing from the source, or when a Claude Code-only name is left in their skills
-or agents. With --check, it builds into a temporary folder and fails if harness/ differs.
+Writes harness/claude-code, harness/cursor, harness/codex, harness/antigravity, and harness/portable,
+and syncs .antigravity-plugin/plugin.json. Prefixed packages (Cursor, Codex, Antigravity, Portable) get
+prefixed names (astack-go, astack-lead, astack-worker, ...) and the sentences in packaging/<tool>/replace.json.
+Codex hides non-go skills with agents/openai.yaml (allow_implicit_invocation: false); Claude Code, Cursor,
+Antigravity, and Portable use disable-model-invocation: true. Every skill that cites other skills gets a
+Referenced skills line with tool-native sibling paths so hidden skills can find each other even without Go mode.
+The build fails when a sentence in replace.json is missing from the source, or when a Claude Code-only name is
+left in their skills or agents. With --check, it builds into a temporary folder and fails if harness/ differs.
 """
 import argparse
 import json

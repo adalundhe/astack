@@ -941,6 +941,7 @@ def list_runs(
     run_ids: list[str] | None = None,
     session_id: str = "",
     repo_root: str = "",
+    origin_repo_root: str = "",
     active_only: bool = False,
 ) -> list[dict[str, Any]]:
     if not state_dir.is_dir():
@@ -957,11 +958,23 @@ def list_runs(
             continue
         if session_id and str(rec.get("session_id") or "") != session_id:
             continue
-        if repo_root:
+        if origin_repo_root:
+            rec_origin = str(rec.get("origin_repo_root") or "")
+            if rec_origin:
+                if rec_origin != origin_repo_root:
+                    continue
+            else:
+                rec_repo = str(rec.get("repo_root") or "")
+                if not rec_repo and rec.get("cwd"):
+                    rec_repo = _resolve_repo_root(Path(str(rec["cwd"])))
+                if rec_repo != origin_repo_root:
+                    continue
+        elif repo_root:
+            rec_origin = str(rec.get("origin_repo_root") or "")
             rec_repo = str(rec.get("repo_root") or "")
             if not rec_repo and rec.get("cwd"):
                 rec_repo = _resolve_repo_root(Path(str(rec["cwd"])))
-            if rec_repo != repo_root:
+            if rec_repo != repo_root and rec_origin != repo_root:
                 continue
         if active_only and rec.get("state") != "running":
             continue
@@ -1127,11 +1140,13 @@ def _prepare_invocation(
     log_path = Path(log_raw).expanduser().resolve() if log_raw else None
     effective_session = _resolve_session_id(session_id)
     repo_root = _resolve_repo_root(cwd)
+    origin_repo_root = _resolve_repo_root(Path.cwd())
 
     return {
         "run_id": run_id,
         "session_id": effective_session,
         "repo_root": repo_root,
+        "origin_repo_root": origin_repo_root,
         "harness": resolved_harness,
         "provider": prov,
         "model": mod,
@@ -1182,6 +1197,7 @@ def _execute_prepared(job: dict[str, Any], state_dir: Path | None) -> tuple[dict
             "run_id": run_id,
             "session_id": job.get("session_id") or "",
             "repo_root": job.get("repo_root") or _resolve_repo_root(cwd),
+            "origin_repo_root": job.get("origin_repo_root") or job.get("repo_root") or _resolve_repo_root(cwd),
             "state": state_name,
             "harness": resolved_harness,
             "provider": job["provider"],
@@ -1380,6 +1396,7 @@ def _spawn_prepared(job: dict[str, Any], state_dir: Path) -> dict[str, Any]:
         "run_id": run_id,
         "session_id": job.get("session_id") or "",
         "repo_root": job.get("repo_root") or _resolve_repo_root(Path(job["cwd"])),
+        "origin_repo_root": job.get("origin_repo_root") or job.get("repo_root") or _resolve_repo_root(Path(job["cwd"])),
         "state": "running",
         "harness": job["harness"],
         "provider": job["provider"],
@@ -1507,35 +1524,36 @@ def cmd_supervise(args) -> int:
     return 0 if receipt["exit_code"] == 0 else 1
 
 
-def _resolve_scope_filters(args) -> tuple[str, str]:
-    """Return (session_id, repo_root) scoping filters unless explicit --run-id or --global was requested."""
+def _resolve_scope_filters(args) -> tuple[str, str, str]:
+    """Return (session_id, repo_root, origin_repo_root) scoping filters unless --run-id or --global was requested."""
     if getattr(args, "run_id", None) or getattr(args, "global_scope", False):
-        return "", ""
+        return "", "", ""
     explicit_session = getattr(args, "session", "") or ""
     explicit_repo = getattr(args, "repo", None)
     session_id = _resolve_session_id(explicit_session)
     if explicit_repo:
-        return session_id, _resolve_repo_root(Path(explicit_repo))
+        return session_id, _resolve_repo_root(Path(explicit_repo)), ""
     if session_id:
-        return session_id, ""
-    return "", _resolve_repo_root(Path.cwd())
+        return session_id, "", ""
+    return "", "", _resolve_repo_root(Path.cwd())
 
 
 def cmd_status(args) -> int:
     state_dir = Path(args.state_dir).expanduser().resolve() if args.state_dir else default_dispatch_state_dir().resolve()
-    session_filter, repo_filter = _resolve_scope_filters(args)
+    session_filter, repo_filter, origin_filter = _resolve_scope_filters(args)
     runs = list_runs(
         state_dir,
         run_ids=args.run_id or None,
         session_id=session_filter,
         repo_root=repo_filter,
+        origin_repo_root=origin_filter,
         active_only=bool(args.active_only),
     )
     active = [r for r in runs if r.get("state") == "running"]
     payload = {
         "state_dir": str(state_dir),
         "session_filter": session_filter or None,
-        "repo_filter": repo_filter or None,
+        "repo_filter": (repo_filter or origin_filter) or None,
         "active_count": len(active),
         "total_count": len(runs),
         "runs": runs,
@@ -1562,6 +1580,7 @@ def _wait_for_runs(
     run_ids: list[str] | None,
     session_id: str = "",
     repo_root: str = "",
+    origin_repo_root: str = "",
     wait_any: bool = False,
     timeout_s: float | None = None,
     poll_interval: float = 0.5,
@@ -1570,7 +1589,14 @@ def _wait_for_runs(
     interval = max(0.05, float(poll_interval))
     deadline = (time.monotonic() + float(timeout_s)) if (timeout_s is not None and timeout_s > 0) else None
     target_ids = list(run_ids) if run_ids else [
-        r["run_id"] for r in list_runs(state_dir, session_id=session_id, repo_root=repo_root, active_only=True)
+        r["run_id"]
+        for r in list_runs(
+            state_dir,
+            session_id=session_id,
+            repo_root=repo_root,
+            origin_repo_root=origin_repo_root,
+            active_only=True,
+        )
     ]
     if not target_ids:
         return True, []
@@ -1606,12 +1632,13 @@ def _attach_output_preview(runs: list[dict[str, Any]], max_chars: int = 8000) ->
 
 def cmd_wait(args) -> int:
     state_dir = Path(args.state_dir).expanduser().resolve() if args.state_dir else default_dispatch_state_dir().resolve()
-    session_filter, repo_filter = _resolve_scope_filters(args)
+    session_filter, repo_filter, origin_filter = _resolve_scope_filters(args)
     completed, runs = _wait_for_runs(
         state_dir,
         run_ids=args.run_id or None,
         session_id=session_filter,
         repo_root=repo_filter,
+        origin_repo_root=origin_filter,
         wait_any=bool(args.any_mode),
         timeout_s=args.timeout,
         poll_interval=args.poll_interval,
@@ -1623,7 +1650,7 @@ def cmd_wait(args) -> int:
         "all_succeeded": all_ok,
         "state_dir": str(state_dir),
         "session_filter": session_filter or None,
-        "repo_filter": repo_filter or None,
+        "repo_filter": (repo_filter or origin_filter) or None,
         "runs": enriched,
     }
     if args.as_json:

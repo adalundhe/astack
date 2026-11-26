@@ -1,7 +1,51 @@
 #!/bin/sh
 # Hook entry point. Most tool calls never touch a lane log, so they cost one shell, not a Python start.
-event=$(cat)
-case $event in
-  *LANES.md*) printf '%s' "$event" | exec "$(dirname "$0")/astack-stamp" --hook ;;
+# Restores standard PATH entries when a host launches hooks with an empty PATH, and fails open on error.
+
+for _d in /opt/homebrew/bin /usr/local/bin /usr/bin /bin; do
+  case ":${PATH:-}:" in
+    *":$_d:"*) ;;
+    *) [ -d "$_d" ] && PATH="${PATH:+${PATH}:}$_d" ;;
+  esac
+done
+export PATH
+
+case "$0" in
+  */*) script_dir="${0%/*}" ;;
+  *) script_dir="." ;;
+esac
+
+if command -v cat >/dev/null 2>&1; then
+  event=$(cat 2>/dev/null) || event=""
+else
+  event=""
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    event="${event}${_line}
+"
+  done
+fi
+
+case "$event" in
+  *LANES.md*)
+    py=""
+    if [ -n "${ASTACK_PYTHON:-}" ]; then
+      [ -x "$ASTACK_PYTHON" ] && py="$ASTACK_PYTHON"
+    else
+      for _cand in python3 /opt/homebrew/bin/python3 /usr/local/bin/python3 /usr/bin/python3; do
+        case "$_cand" in
+          /*) [ -x "$_cand" ] && { py="$_cand"; break; } ;;
+          *)
+            if _found=$(command -v "$_cand" 2>/dev/null) && [ -n "$_found" ] && [ -x "$_found" ]; then
+              py="$_found"
+              break
+            fi
+            ;;
+        esac
+      done
+    fi
+    if [ -n "$py" ] && [ -r "$script_dir/astack-stamp" ]; then
+      printf '%s' "$event" | "$py" "$script_dir/astack-stamp" --hook >/dev/null 2>&1 || true
+    fi
+    ;;
 esac
 exit 0

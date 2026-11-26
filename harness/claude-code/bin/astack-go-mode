@@ -207,14 +207,57 @@ def _normalize_project_slug(path: Path) -> str:
         resolved = path.resolve()
         cur = resolved
         for candidate in (resolved, *resolved.parents):
-            if (candidate / ".git").exists():
+            dot_git = candidate / ".git"
+            if dot_git.is_dir():
                 cur = candidate
+                break
+            if dot_git.is_file():
+                cur = candidate
+                try:
+                    raw_git = dot_git.read_text(encoding="utf-8", errors="ignore")
+                    m = re.match(r"^\s*gitdir:\s*(.+)$", raw_git, re.M)
+                    if m:
+                        gdir = Path(m.group(1).strip())
+                        if not gdir.is_absolute():
+                            gdir = (candidate / gdir).resolve()
+                        common_file = gdir / "commondir"
+                        if common_file.is_file():
+                            common_rel = common_file.read_text(encoding="utf-8", errors="ignore").strip()
+                            if common_rel:
+                                common_dir = (gdir / common_rel).resolve()
+                                if common_dir.name == ".git":
+                                    cur = common_dir.parent
+                except OSError:
+                    pass
                 break
     except OSError:
         pass
     raw = cur.name.lower()
     slug = re.sub(r"[^a-z0-9._-]+", "-", raw).strip("-._")
     return slug
+
+
+def detect_first_run_project(workspace_dir: Optional[Path], skills_dir: Path) -> Tuple[str, str]:
+    """Return `(project_slug, first_run_notice)` when `~/.astack/<project>/` does not exist yet."""
+    if workspace_dir is None:
+        return "", ""
+    slug = _normalize_project_slug(workspace_dir)
+    if not slug:
+        return "", ""
+    project_dir = _astack_home_dir() / slug
+    try:
+        if project_dir.is_dir():
+            return slug, ""
+    except OSError:
+        return slug, ""
+    env_skill = skills_dir / "analyze-environment" / "SKILL.md"
+    notice = (
+        f"[astack first run — `{project_dir}` does not exist yet] "
+        f"Run `analyze-environment` (`{env_skill}`) early across Lead, Researcher, Worker, and Reviewer "
+        f"to map local runtimes, CLIs, contexts, and access paths, and save durable environment notes "
+        f"under `{project_dir / 'docs'}` (`astack-tools docs path {slug} --ensure`)."
+    )
+    return slug, notice
 
 
 def _parse_lesson_fm(text: str) -> Dict[str, Any]:
@@ -574,12 +617,15 @@ def handle_hook(
     slug, matched_lessons = discover_active_lessons(ws_dir, query=prompt) if prompt else ("", [])
     lessons_block = format_lessons_block(slug, matched_lessons)
     lessons_sig = _prompt_hash(lessons_block) if lessons_block else ""
+    env_slug, first_run_notice = detect_first_run_project(ws_dir, skills_dir)
     prev_hash = str((record or {}).get("last_prompt_hash") or "")
     prev_lessons_sig = str((record or {}).get("last_lessons_hash") or "")
+    prev_env_slug = str((record or {}).get("first_run_env_slug") or "")
 
     if prompt and ACTIVATE_PROMPT_RE.match(prompt):
         already_seen_prompt = event_name == "PreInvocation" and bool(p_hash and p_hash == prev_hash)
         include_lessons = lessons_block if (lessons_block and not already_seen_prompt) else ""
+        include_first_run = first_run_notice if (first_run_notice and not already_seen_prompt and env_slug != prev_env_slug) else ""
         save_session(state_dir, session_id, {
             "schema_version": SCHEMA_VERSION,
             "state": GoModeState.ACTIVE.value,
@@ -591,9 +637,11 @@ def handle_hook(
             "last_prompt_hash": p_hash,
             "last_step_count": step_count,
             "last_lessons_hash": lessons_sig or prev_lessons_sig,
+            "first_run_env_slug": env_slug if include_first_run else prev_env_slug,
         })
-        # Don't duplicate Go instructions on the /astack:go turn; surface only task-matched lessons if any
-        return format_output(harness, event_name, include_lessons or None)
+        # Don't duplicate Go instructions on the /astack:go turn; surface task-matched lessons or first-run notice
+        act_parts = [p for p in (include_first_run, include_lessons) if p]
+        return format_output(harness, event_name, "\n\n".join(act_parts) if act_parts else None)
 
     explicit_bap = bool(prompt and BAP_EXPLICIT_RE.match(prompt))
     if current_state != GoModeState.ACTIVE.value:
@@ -637,6 +685,8 @@ def handle_hook(
             return format_output(harness, event_name, None)
 
     include_lessons = lessons_block if (lessons_block and (compacted or lessons_sig != prev_lessons_sig)) else ""
+    include_first_run = first_run_notice if (first_run_notice and (compacted or env_slug != prev_env_slug)) else ""
+    combined_extras = "\n\n".join(p for p in (include_first_run, include_lessons) if p)
 
     updated = dict(record or {})
     updated.update({
@@ -649,12 +699,13 @@ def handle_hook(
         "last_prompt_hash": p_hash or prev_hash,
         "last_step_count": step_count if step_count is not None else prev_steps,
         "last_lessons_hash": lessons_sig or prev_lessons_sig,
+        "first_run_env_slug": env_slug if include_first_run else prev_env_slug,
     })
     save_session(state_dir, session_id, updated)
     return format_output(
         harness,
         event_name,
-        build_reminder(harness, skills_dir, post_compact=compacted, bap=bap_triggered, lessons_block=include_lessons),
+        build_reminder(harness, skills_dir, post_compact=compacted, bap=bap_triggered, lessons_block=combined_extras),
     )
 
 
@@ -703,15 +754,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     skills_dir = resolve_skills_dir(getattr(args, "harness", ""))
 
     if args.hook:
-        raw = sys.stdin.read()
+        event_name = args.event or ""
         try:
-            event = json.loads(raw) if raw.strip() else {}
-            if not isinstance(event, dict):
+            raw = sys.stdin.read()
+            try:
+                event = json.loads(raw) if raw.strip() else {}
+                if not isinstance(event, dict):
+                    event = {}
+            except ValueError:
                 event = {}
-        except ValueError:
-            event = {}
-        event_name = args.event or str(event.get("hook_event_name") or event.get("hookEventName") or "")
-        out = handle_hook(event, harness=args.harness, event_name=event_name, state_dir=state_dir, skills_dir=skills_dir)
+            event_name = args.event or str(event.get("hook_event_name") or event.get("hookEventName") or "")
+            out = handle_hook(event, harness=args.harness, event_name=event_name, state_dir=state_dir, skills_dir=skills_dir)
+        except Exception:
+            out = format_output(args.harness, event_name, None)
         if out or args.harness in ("antigravity", "cursor"):
             sys.stdout.write(json.dumps(out) + "\n")
         return 0

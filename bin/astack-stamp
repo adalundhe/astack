@@ -110,9 +110,15 @@ def main(argv):
     if argv[1:] == ["--hook"]:
         try:
             event = json.load(sys.stdin)
-        except json.JSONDecodeError:
+            if not isinstance(event, dict):
+                return 0
+            paths = paths_from_hook(event)
+            stamp_text = now()
+            for path in paths:
+                stamp(path, stamp_text)
+        except Exception:
             return 0
-        paths = paths_from_hook(event)
+        return 0
     elif len(argv) > 1 and not argv[1].startswith("-"):
         paths = argv[1:]
     else:

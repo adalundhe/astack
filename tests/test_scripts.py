@@ -573,6 +573,72 @@ class ToolsTest(Scratch):
         self.assertIn("Use ", listing.stdout, "each line says when to load it")
         self.assertEqual(run("astack-tools", "skills", "list").returncode, 2)
 
+    def test_skills_list_and_go_mode_promote_analyze_environment_when_project_astack_dir_missing(self):
+        astack_home = self.dir / "astack-first-run-home"
+        repo = self.dir / "FreshProj"
+        repo.mkdir()
+        git(repo, "init", "-q", "-b", "main")
+        commit(repo, "README.md", "hello")
+        wt = self.dir / "wt-lane-1"
+        git(repo, "worktree", "add", "-q", "-b", "lane/one", str(wt))
+
+        env = {**os.environ, "ASTACK_HOME": str(astack_home)}
+
+        # 1. Before ~/.astack/freshproj/ exists: all 4 roles see analyze-environment under REQUIRED (even from worktree!)
+        for role in ("lead", "worker", "reviewer", "researcher"):
+            res = subprocess.run(
+                [sys.executable, "-B", str(BIN / "astack-tools"), "skills", "list", "--role", role, "--cwd", str(wt)],
+                capture_output=True, text=True, env=env,
+            )
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertIn("First astack run detected for project 'freshproj'", res.stdout)
+            required, _, _ = res.stdout.partition("WHEN THE WORK CALLS FOR IT")
+            self.assertRegex(required, r"(?m)^  analyze-environment: ", f"{role} should require analyze-environment on first run")
+
+        # 2. Go-mode hook emits the first-run notice once on /astack:go activation in a new project (worktree-aware)
+        state_root = self.dir / "state-first-run"
+        hook_env = {**env, "ASTACK_STATE_DIR": str(state_root)}
+        h_first = subprocess.run(
+            [str(BIN / "astack-go-hook"), "--harness", "claude-code", "--event", "UserPromptSubmit"],
+            input=json.dumps({"session_id": "fr-1", "prompt": "/astack:go inspect api", "cwd": str(wt)}),
+            capture_output=True, text=True, env=hook_env,
+        )
+        self.assertEqual(h_first.returncode, 0, h_first.stderr)
+        ctx = json.loads(h_first.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("astack first run", ctx)
+        self.assertIn("analyze-environment", ctx)
+        self.assertIn("freshproj", ctx)
+
+        # 3. Once ~/.astack/freshproj/ exists: lead/worker/reviewer return analyze-environment to WHEN THE WORK CALLS FOR IT
+        (astack_home / "freshproj").mkdir(parents=True)
+        for role in ("lead", "worker", "reviewer"):
+            res_after = subprocess.run(
+                [sys.executable, "-B", str(BIN / "astack-tools"), "skills", "list", "--role", role, "--cwd", str(wt)],
+                capture_output=True, text=True, env=env,
+            )
+            self.assertEqual(res_after.returncode, 0, res_after.stderr)
+            self.assertNotIn("First astack run detected", res_after.stdout)
+            _, _, applies = res_after.stdout.partition("WHEN THE WORK CALLS FOR IT")
+            self.assertRegex(applies, r"(?m)^  analyze-environment: ", f"{role} should move analyze-environment back to situational")
+
+        # Researcher always keeps analyze-environment under REQUIRED (no first-run banner once project dir exists)
+        res_res = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "skills", "list", "--role", "researcher", "--cwd", str(wt)],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertNotIn("First astack run detected", res_res.stdout)
+        req_res, _, _ = res_res.stdout.partition("WHEN THE WORK CALLS FOR IT")
+        self.assertRegex(req_res, r"(?m)^  analyze-environment: ")
+
+        # Go-mode hook stays quiet on /astack:go activation once ~/.astack/freshproj/ exists
+        h_after = subprocess.run(
+            [str(BIN / "astack-go-hook"), "--harness", "claude-code", "--event", "UserPromptSubmit"],
+            input=json.dumps({"session_id": "fr-2", "prompt": "/astack:go inspect api", "cwd": str(wt)}),
+            capture_output=True, text=True, env=hook_env,
+        )
+        self.assertEqual(h_after.returncode, 0, h_after.stderr)
+        self.assertEqual(h_after.stdout.strip(), "")
+
     def test_skills_get_prints_one_skill_in_full_and_says_where_it_ends(self):
         got = run("astack-tools", "skills", "get", "prove-it")
         self.assertEqual(got.returncode, 0, got.stderr)
@@ -1417,6 +1483,93 @@ class GoModeHookTest(Scratch):
         repeat_ctx = json.loads(r_repeat.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("astack BAP", repeat_ctx)
         self.assertIn("astack Go mode — ACTIVE (Lead role)", repeat_ctx)
+
+    def test_hook_launchers_survive_empty_path_and_fail_open_without_python(self):
+        state_root = self.dir / "state-empty-path"
+        empty_path_env = {
+            "PATH": "",
+            "HOME": str(self.dir),
+            "ASTACK_STATE_DIR": str(state_root),
+            "ASTACK_HOME": str(self.dir / "astack-home"),
+        }
+
+        # 1. With PATH="", astack-go-hook still restores standard paths, activates Go mode, and injects on follow-up
+        r1 = subprocess.run(
+            [str(BIN / "astack-go-hook"), "--harness", "claude-code", "--event", "UserPromptSubmit"],
+            input=json.dumps({"session_id": "empty-path-cc", "prompt": "/astack:go fix cache"}),
+            capture_output=True, text=True, env=empty_path_env,
+        )
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        r2 = subprocess.run(
+            [str(BIN / "astack-go-hook"), "--harness", "claude-code", "--event", "UserPromptSubmit"],
+            input=json.dumps({"session_id": "empty-path-cc", "prompt": "Now add tests"}),
+            capture_output=True, text=True, env=empty_path_env,
+        )
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+        self.assertIn("ACTIVE (Lead role)", json.loads(r2.stdout)["hookSpecificOutput"]["additionalContext"])
+
+        # 2. With PATH="", astack-stamp-hook actually stamps LANES.md instead of silently skipping it
+        lane_log = self.dir / "LANES.md"
+        lane_log.write_text("<!-- astack lane log -->\n\n## Log\nstarted worker-a on cache\n", encoding="utf-8")
+        r_stamp = subprocess.run(
+            [str(BIN / "astack-stamp-hook")],
+            input=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(lane_log)}}),
+            capture_output=True, text=True, env=empty_path_env,
+        )
+        self.assertEqual(r_stamp.returncode, 0, r_stamp.stderr)
+        self.assertRegex(
+            lane_log.read_text(encoding="utf-8").splitlines()[-1],
+            r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z started worker-a on cache$",
+        )
+
+        # 3. When Python is missing or crashes, both hooks fail open (exit 0) with valid harness-native JSON
+        for broken_py in ("/nonexistent/astack-python3", "/usr/bin/false"):
+            no_py_env = {**empty_path_env, "ASTACK_PYTHON": broken_py}
+            r_cc = subprocess.run(
+                [str(BIN / "astack-go-hook"), "--harness", "claude-code", "--event", "UserPromptSubmit"],
+                input=json.dumps({"session_id": "nopy", "prompt": "hello"}),
+                capture_output=True, text=True, env=no_py_env,
+            )
+            self.assertEqual(r_cc.returncode, 0, f"{broken_py}: {r_cc.stderr}")
+            self.assertEqual(r_cc.stdout.strip(), "")
+
+            r_ag = subprocess.run(
+                [str(BIN / "astack-go-hook"), "--harness", "antigravity", "--event", "PreInvocation"],
+                input=json.dumps({"conversationId": "nopy-ag", "lastUserInput": "hello"}),
+                capture_output=True, text=True, env=no_py_env,
+            )
+            self.assertEqual(r_ag.returncode, 0, f"{broken_py}: {r_ag.stderr}")
+            self.assertEqual(json.loads(r_ag.stdout), {})
+
+            r_cur = subprocess.run(
+                [str(BIN / "astack-go-hook"), "--harness", "cursor", "--event", "beforeSubmitPrompt"],
+                input=json.dumps({"conversation_id": "nopy-cur", "prompt": "hello"}),
+                capture_output=True, text=True, env=no_py_env,
+            )
+            self.assertEqual(r_cur.returncode, 0, f"{broken_py}: {r_cur.stderr}")
+            self.assertEqual(json.loads(r_cur.stdout), {"continue": True})
+
+            r_st = subprocess.run(
+                [str(BIN / "astack-stamp-hook")],
+                input=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(lane_log)}}),
+                capture_output=True, text=True, env=no_py_env,
+            )
+            self.assertEqual(r_st.returncode, 0, f"{broken_py}: {r_st.stderr}")
+
+        # 4. Python entrypoint also fails open with valid JSON if state-dir is an unwritable file collision
+        bad_state = self.dir / "not-a-dir"
+        bad_state.write_text("file blocking mkdir", encoding="utf-8")
+        r_bad = subprocess.run(
+            [
+                sys.executable, "-B", str(BIN / "astack-go-mode"),
+                "--hook", "--harness", "cursor", "--event", "beforeSubmitPrompt",
+                "--state-dir", str(bad_state),
+            ],
+            input=json.dumps({"conversation_id": "bad-state", "prompt": "/astack-go test"}),
+            capture_output=True, text=True,
+        )
+        self.assertEqual(r_bad.returncode, 0, r_bad.stderr)
+        self.assertEqual(json.loads(r_bad.stdout), {"continue": True})
 
     def test_auto_memory_recall_is_prompt_matched_non_anchoring_and_requires_explicit_active_status(self):
         state_root = self.dir / "state-lessons"
