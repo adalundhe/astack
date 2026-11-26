@@ -16,8 +16,14 @@ SKILLS = BIN.parent / "skills"
 MARKER = "<!-- astack lane log -->"
 
 
-def run(script, *args, stdin=None, cwd=None, cache=None):
-    env = {**os.environ, "XDG_CACHE_HOME": str(cache)} if cache else None
+def run(script, *args, stdin=None, cwd=None, cache=None, extra_env=None):
+    env = None
+    if cache or extra_env:
+        env = dict(os.environ)
+        if cache:
+            env["XDG_CACHE_HOME"] = str(cache)
+        if extra_env:
+            env.update(extra_env)
     command = [str(BIN / script)] if script.endswith("-hook") else [sys.executable, str(BIN / script)]
     return subprocess.run([*command, *args], capture_output=True, text=True, input=stdin, cwd=cwd, env=env)
 
@@ -148,6 +154,14 @@ class StatusTest(Scratch):
         commit(self.repo, "a.txt", "a")
         git(self.repo, "branch", "lane/search")
 
+    def status(self, *args):
+        return run(
+            "astack-status",
+            *args,
+            cache=self.dir / "empty-cache",
+            extra_env={"ASTACK_DISPATCH_STATE_DIR": str(self.dir / "empty-dispatches")},
+        )
+
     def write_log(self, lines):
         path = self.dir / "prog" / "LANES.md"
         path.parent.mkdir()
@@ -156,15 +170,15 @@ class StatusTest(Scratch):
 
     def test_says_when_log_lines_have_no_stamp_instead_of_reporting_no_agents(self):
         path = self.write_log([f"started search-1 on search (a1) | branch lane/search | wind-down {stamp_at(5)} | ends {stamp_at(10)} | deliverable: d | done when: e"])
-        result = run("astack-status", str(path))
+        result = self.status(str(path))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("1 log line(s) have no UTC stamp", result.stdout)
         self.assertIn("astack-stamp", result.stdout)
-        line = run("astack-status", str(path), "--line")
+        line = self.status(str(path), "--line")
         self.assertIn("1 log lines have no stamp", line.stdout)
         # Stamped, it counts.
         self.assertEqual(run("astack-stamp", str(path)).returncode, 0)
-        stamped = run("astack-status", str(path))
+        stamped = self.status(str(path))
         self.assertNotIn("no UTC stamp", stamped.stdout)
         self.assertIn("search-1", stamped.stdout)
 
@@ -176,7 +190,7 @@ class StatusTest(Scratch):
             f"{stamp_at(-31)} ended old-1: MERGED 123 (verified)",
             f"{stamp_at(-30)} closed old: done",
         ])
-        result = run("astack-status", str(path))
+        result = self.status(str(path))
         self.assertEqual(result.returncode, 0, result.stderr)
         out = result.stdout
         self.assertIn("search-1 on search (agent a1)", out)
@@ -194,7 +208,7 @@ class StatusTest(Scratch):
             f"{stamp_at(-15)} person: \"No\" -> export-2 told",
             f"{stamp_at(-5)} asked: \"Ship the faster parser now?\"",
         ])
-        out = run("astack-status", str(path)).stdout
+        out = self.status(str(path)).stdout
         self.assertIn("Ship the faster parser now?", out)
         self.assertNotIn("Keep the old export format?", out)
 
@@ -202,7 +216,7 @@ class StatusTest(Scratch):
         path = self.write_log([
             f"{stamp_at(-2)} started search-2 on search (a2) | successor of search-1 | branch lane/search | wind-down {stamp_at(53)} | ends {stamp_at(58)} | deliverable: d | done when: e",
         ])
-        out = run("astack-status", str(path)).stdout
+        out = self.status(str(path)).stdout
         self.assertIn("search-2 on search (agent a2, successor of search-1)", out)
 
     def test_one_line_summary(self):
@@ -211,7 +225,7 @@ class StatusTest(Scratch):
             f"{stamp_at(-70)} started b-1 on b (y) | branch lane/b | wind-down {stamp_at(-15)} | ends {stamp_at(-10)} | deliverable: d | done when: e",
             f"{stamp_at(-1)} asked: \"Which?\"",
         ])
-        line = run("astack-status", str(path), "--line").stdout.strip()
+        line = self.status(str(path), "--line").stdout.strip()
         self.assertRegex(line, r"^astack prog: 2 running · next end \d\d:\d\dZ \(\d+m\) · 1 past limit · 1 waiting on you$")
 
     def test_tracks_reviewer_and_researcher_timers_alongside_workers(self):
@@ -222,7 +236,7 @@ class StatusTest(Scratch):
             f"{stamp_at(-50)} started rev-done on pricing (r0) | role reviewer | model anthropic/sonnet | wind-down {stamp_at(-25)} | ends {stamp_at(-20)} | scope: repo/src/pricing.py",
             f"{stamp_at(-25)} ended rev-done: CLEAR; blocking=0 minor=1 dropped=0",
         ])
-        result = run("astack-status", str(path))
+        result = self.status(str(path))
         self.assertEqual(result.returncode, 0, result.stderr)
         out = result.stdout
         self.assertIn("Running workers", out)
@@ -238,7 +252,7 @@ class StatusTest(Scratch):
         self.assertIn("api: open, 1 worker", out)
         self.assertNotIn("concurrency: open", out)
         self.assertNotIn("auth-history: open", out)
-        line = run("astack-status", str(path), "--line").stdout.strip()
+        line = self.status(str(path), "--line").stdout.strip()
         self.assertRegex(line, r"^astack prog: 3 running \(1w, 1r, 1res\) · next end \d\d:\d\dZ \(\d+m\) · 1 past limit$")
 
 
