@@ -157,15 +157,17 @@ class DispatchTest(unittest.TestCase):
                 # Reviewers need to execute/save reproductions (only researchers use read-only `--mode ask`)
                 self.assertNotIn("--mode", preview["argv"])
 
-        # Codex reviewer with external --review-dir (alias for --repro-dir, e.g. ~/.astack/<project>/reviews/<date_time>/)
-        # uses `-C <review_dir> --sandbox workspace-write` AND explicitly excludes /tmp, $TMPDIR, and extra writable_roots
-        # so repos under /tmp or $TMPDIR stay read-only while evidence bundles persist cleanly!
+        # Codex reviewer with external --review-dir AND --repro-dir (e.g. ~/.astack/<project>/reviews/<dt>/ + repros/<name>/)
+        # sets `-C <review_dir> --sandbox workspace-write`, grants writable_roots ONLY to <repro_dir>,
+        # and excludes /tmp + $TMPDIR so --cwd stays strictly read-only!
         repro_out = self.dir / "repros"
         repro_out.mkdir()
+        review_out = self.dir / "reviews"
+        review_out.mkdir()
         res_cx_repro = self.run_dispatch(
             "run", "--harness", "codex", "--role", "reviewer",
             "--provider", "openai", "--model", "gpt-5.4",
-            "--cwd", str(self.work), "--review-dir", str(repro_out),
+            "--cwd", str(self.work), "--repro-dir", str(repro_out),
             "--prompt", "Review auth.py", "--dry-run", "--json",
         )
         self.assertEqual(res_cx_repro.returncode, 0, res_cx_repro.stderr)
@@ -177,6 +179,19 @@ class DispatchTest(unittest.TestCase):
         self.assertIn("sandbox_workspace_write.exclude_tmpdir_env_var=true", prev_cx["argv"])
         self.assertIn("sandbox_workspace_write.writable_roots=[]", prev_cx["argv"])
         self.assertEqual(Path(prev_cx["repro_dir"]).resolve(), repro_out.resolve())
+
+        res_cx_both = self.run_dispatch(
+            "run", "--harness", "codex", "--role", "reviewer",
+            "--provider", "openai", "--model", "gpt-5.4",
+            "--cwd", str(self.work), "--review-dir", str(review_out), "--repro-dir", str(repro_out),
+            "--prompt", "Review auth.py", "--dry-run", "--json",
+        )
+        self.assertEqual(res_cx_both.returncode, 0, res_cx_both.stderr)
+        prev_both = json.loads(res_cx_both.stdout)
+        self.assertEqual(Path(prev_both["argv"][prev_both["argv"].index("-C") + 1]).resolve(), review_out.resolve())
+        self.assertEqual(Path(prev_both["review_dir"]).resolve(), review_out.resolve())
+        self.assertEqual(Path(prev_both["repro_dir"]).resolve(), repro_out.resolve())
+        self.assertIn(f"sandbox_workspace_write.writable_roots=[{json.dumps(str(repro_out.resolve()))}]", prev_both["argv"])
 
         # Overlapping --repro-dir in EITHER direction (inside --cwd OR ancestor of --cwd) MUST be rejected (exit 2)!
         bad_repro = self.work / "repros"

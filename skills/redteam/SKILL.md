@@ -25,7 +25,7 @@ Lead-only proactive attack, fix, and re-review loop for an existing codebase or 
 
 1. Slice the target into risk-classified vectors, adding a `seams` vector (`blast-radius`) when split. Dispatch blind read-only reviewers from `reviewer_pool` (`adversarial-review`, `astack-review-ledger`).
 2. Run real code in approved local dev builds or hosted dev/staging (`test-drive`, `full-spectrum-testing`, `net-trace`). Probe hostile inputs, fuzzing, concurrency storms, crash replay (`safe-to-rerun`), injected faults (`fail-safely`), resource limits, and auth (`least-privilege`).
-3. Reviewers save failing repro scripts, traces, logs, metrics, monitoring snapshots, screenshots, profiles, and benchmarks under `~/.astack/<project>/reviews/<date_time>/` (`astack-tools reviews path <project> --new --ensure`), cleaning temp target state. Rerun every blocking finding, merge by fix-equivalence, and check `no-leaked-secrets` and `technical-writing` drift.
+3. Reviewers save standalone failing repros under `~/.astack/<project>/repros/` (`astack-tools repros path`) and collected artifacts under `~/.astack/<project>/reviews/<date_time>/` (`astack-tools reviews path`), cleaning temp target state. Rerun every blocking finding, merge by fix-equivalence, and check `no-leaked-secrets` and `technical-writing` drift.
 4. Check stopping conditions after every wave:
    - **Done:** no remaining proven issues (or user stop rules met) -> go to Step 5.
    - **Human call / pool run-out:** escalate product trade-offs or `landing_blocked: true` via `decisions-in-plain-words`, hiding internal status.
@@ -41,8 +41,8 @@ Lead-only proactive attack, fix, and re-review loop for an existing codebase or 
 ## 4. Pair with **clamber** when performance is in scope, then re-review
 
 1. Follow **work -> robust -> fast**: land correctness, security, and reliability fixes first.
-2. When latency, throughput, memory, or variance is in scope, run **clamber** (`benchmarking`, `baseline`, `ab-test`). Baseline median and variance, hill-climb in isolated commits, revert regressions, and preserve functionality (`never-trade-functionality`).
-3. Loop back to Step 2 with saved failing repros (`prove-it`) and a `seams` check until stop rules hold.
+2. When latency, throughput, memory, or variance is in scope, run **clamber** under **benchmarking**'s host-quiescence rules. Baseline median and variance, hill-climb in isolated commits, revert regressions, and preserve functionality (`never-trade-functionality`).
+3. Loop back to Step 2 after benchmarking finishes, using saved failing repros (`prove-it`) and a `seams` check until stop rules hold.
 
 ## 5. Squish, clean up, run **lookback**, and report
 

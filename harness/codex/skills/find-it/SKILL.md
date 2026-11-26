@@ -12,7 +12,7 @@ Replicate the bug from real data and environment conditions, then **shrink the r
 ## 1. Replicate real data and environment first
 
 - **Acquire correlated real data—never block when unavailable:** use `TOOLS.md` (`analyze-environment`) and `rtfm` to run read-only probes. Pull evidence from attachments, CI logs, observability tools, or a local stack with traffic emulation.
-- **Build missing acquisition tools or skills (`automate-this`, `test-drive`):** write a secret-safe (`no-leaked-secrets`) fetcher or helper when none exists. Reviewers keep scratch fetchers in their repro folder and report usage for reuse.
+- **Build missing acquisition tools or skills (`automate-this`, `test-drive`):** write a secret-safe (`no-leaked-secrets`) fetcher or helper when none exists. Save standalone repros and scratch fetchers under `~/.astack/<project>/repros/<repro>/` (`astack-tools repros path <project> <repro> --ensure`). Report usage for reuse.
 - **Fall back without stalling:** if real data stays unavailable, build the closest case from code paths, schemas, and symptoms. Mark it inferred (`decisions-in-plain-words`) and refine it if real data arrives.
 - **Match the whole failure environment:** match runtime versions, OS, CPU architecture, and resource pressure (memory, CPU, disk, FDs). Also match network behavior, flags, concurrency, and dependencies, then strip variables in Section 4.
 - **Measure frequency and check `main`:** record failure rate (source, window, sample count) for `prove-it`. Run the repro on `main` first; isolate preexisting `main` failures (`leave-it-better`) only if they block you.
@@ -55,7 +55,7 @@ Reduce the confirmed failure to the smallest standalone repro before proposing a
   - **Flaky repros:** never trust one clean run or raw point estimates. Compute a conservative 95% lower confidence bound $p_{\text{low}}$ on the measured failure rate $k/m$ (e.g., Clopper–Pearson: $3/20$ gives $p_{\text{low}} \approx 0.032$, needing $\sim 93$ clean runs at $\alpha=0.05$, not $19$). Across a $K$-step bisect ($K \approx \lceil\log_2 N\rceil$), control family-wise error with per-step $\alpha_{\text{step}} = \alpha / K$ (or $\alpha / (2K)$ two-sided): $n \ge \lceil \ln(\alpha_{\text{step}})/\ln(1-p_{\text{low}}) \rceil$. Any single failure marks `bad`.
   - **Performance regressions:** bisect with interleaved alternating `(good, candidate)` runs sized from baseline median and $\sigma$ (**benchmarking**), applying per-step $\alpha / (2K)$ across $K$ bisect steps before marking a commit `good` or `bad`.
 - **Profiles & state charts:** read hot paths top-down, separate waiting from CPU work, map frames to `file:line`, and diagram bad transitions (`show-the-states`). One capture is only a hypothesis—confirm with a **before/after pair**.
-- **One falsifiable hypothesis at a time:** state the hypothesis and disproof test first. Record every rejected theory with evidence. Writable workers and single-agent hosts revert disproved edits immediately; read-only reviewers stay inside their repro folder. After **two consecutive disproved hypotheses**, stop and run **challenge**.
+- **One falsifiable hypothesis at a time:** state the hypothesis and disproof test first. Record every rejected theory with evidence. Workers and single-agent hosts revert disproved edits immediately. Read-only reviewers write only under `~/.astack/<project>/repros/` and `~/.astack/<project>/reviews/`. After **two consecutive disproved hypotheses**, stop and run **challenge**.
 
 ## 6. Hand off and clean up
 

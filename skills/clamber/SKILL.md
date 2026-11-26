@@ -41,7 +41,7 @@ Then execute one clean cycle:
 5. **Commit or revert cleanly:** commit each kept win alone with before/after median and $\sigma$ in the message for clean bisection. Revert failed attempts completely.
 6. **Log the attempt** and repeat.
 
-Test independent ideas in parallel workspaces (**ab-test**). Lead may pair `clamber` with **redteam** so kept optimizations clear vectored review for correctness and races.
+Test independent ideas in parallel workspaces (**ab-test**). Follow **benchmarking**'s host-quiescence rules, and run **redteam** or **review** strictly after benchmarking finishes.
 
 ## Finish
 

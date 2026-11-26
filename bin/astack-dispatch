@@ -468,16 +468,22 @@ def build_command(
     custom_command: list[str] | None = None,
     out_file: Path | None = None,
     repro_dir: Path | None = None,
+    review_dir: Path | None = None,
 ) -> tuple[list[str], str | None]:
     """Build exact non-interactive (argv, stdin_text) for the target harness."""
     effective_prompt = prompt_text
-    if repro_dir is not None and role == "reviewer":
-        repro_header = (
-            f"Target repository under review (READ-ONLY — never modify): {cwd}\n"
-            f"Writable review evidence folder (save repros, traces, logs, metrics, monitoring snapshots, screenshots, profiles, benchmarks, and audit receipts here): {repro_dir}\n\n"
-        )
-        if str(repro_dir) not in effective_prompt:
-            effective_prompt = repro_header + effective_prompt
+    if role == "reviewer" and (repro_dir is not None or review_dir is not None):
+        header_lines = [f"Target repository under review (READ-ONLY — never modify): {cwd}"]
+        if review_dir is not None and str(review_dir) not in effective_prompt:
+            header_lines.append(
+                f"Writable review evidence folder (traces, logs, metrics, monitoring snapshots, screenshots, profiles, benchmarks, audit receipts): {review_dir}"
+            )
+        if repro_dir is not None and repro_dir != review_dir and str(repro_dir) not in effective_prompt:
+            header_lines.append(
+                f"Writable standalone repro folder (e.g. ~/.astack/<project>/repros/<repro>/): {repro_dir}"
+            )
+        if len(header_lines) > 1:
+            effective_prompt = "\n".join(header_lines) + "\n\n" + effective_prompt
     if skills_dir is not None and str(skills_dir) not in prompt_text:
         go_name = "astack-go" if (skills_dir / "astack-go" / "SKILL.md").is_file() else "go"
         effective_prompt = (
@@ -502,6 +508,7 @@ def build_command(
             "effort": effort,
             "cwd": str(cwd),
             "repro_dir": str(repro_dir) if repro_dir else "",
+            "review_dir": str(review_dir) if review_dir else "",
             "role": role,
         }
         argv = [binary]
@@ -536,8 +543,12 @@ def build_command(
         # set `-C <repro_dir> --sandbox workspace-write` AND exclude `/tmp`, `$TMPDIR`, and extra writable
         # roots so even a repo under `/tmp` or `$TMPDIR` stays strictly READ-ONLY in Codex's OS sandbox
         # while Codex can still save runnable reproduction scripts in `repro_dir` (with `TMPDIR=<repro_dir>/.tmp`).
-        if role == "reviewer" and repro_dir is not None:
-            codex_cd = repro_dir
+        primary_write_dir = review_dir or repro_dir
+        extra_write_roots: list[str] = []
+        if review_dir is not None and repro_dir is not None and repro_dir != review_dir:
+            extra_write_roots.append(str(repro_dir))
+        if role == "reviewer" and primary_write_dir is not None:
+            codex_cd = primary_write_dir
             codex_sandbox = "workspace-write"
         else:
             codex_cd = cwd
@@ -552,11 +563,12 @@ def build_command(
             "--ephemeral",
             "--skip-git-repo-check",
         ]
-        if role == "reviewer" and repro_dir is not None:
+        if role == "reviewer" and primary_write_dir is not None:
+            roots_toml = "[" + ", ".join(json.dumps(r) for r in extra_write_roots) + "]"
             argv.extend([
                 "-c", "sandbox_workspace_write.exclude_slash_tmp=true",
                 "-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true",
-                "-c", "sandbox_workspace_write.writable_roots=[]",
+                "-c", f"sandbox_workspace_write.writable_roots={roots_toml}",
             ])
         if not is_default_model:
             argv.extend(["--model", model])
@@ -918,6 +930,7 @@ def _prepare_invocation(
     vector: str = "",
     cwd_raw: str | None = None,
     repro_dir_raw: str | None = None,
+    review_dir_raw: str | None = None,
     prompt_text: str | None = None,
     prompt_file: str | None = None,
     system_prompt_file: str | None = None,
@@ -1016,6 +1029,15 @@ def _prepare_invocation(
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
     repro_dir: Path | None = None
+    review_dir: Path | None = None
+    if review_dir_raw:
+        review_dir = Path(review_dir_raw).expanduser().resolve()
+        if _paths_overlap(review_dir, cwd):
+            raise DispatchError(
+                f"--review-dir ({review_dir}) must be strictly disjoint from --cwd ({cwd}) so the repo under review stays read-only"
+            )
+        if not dry_run:
+            review_dir.mkdir(parents=True, exist_ok=True)
     if repro_dir_raw:
         repro_dir = Path(repro_dir_raw).expanduser().resolve()
         if _paths_overlap(repro_dir, cwd):
@@ -1024,7 +1046,7 @@ def _prepare_invocation(
             )
         if not dry_run:
             repro_dir.mkdir(parents=True, exist_ok=True)
-    elif role == "reviewer" and resolved_harness == "codex" and out_path is not None:
+    elif review_dir is None and role == "reviewer" and resolved_harness == "codex" and out_path is not None:
         candidate_dir = out_path.parent.resolve()
         if not _paths_overlap(candidate_dir, cwd):
             repro_dir = candidate_dir
@@ -1043,6 +1065,7 @@ def _prepare_invocation(
         custom_command=custom_command,
         out_file=out_path if resolved_harness == "codex" else None,
         repro_dir=repro_dir,
+        review_dir=review_dir,
     )
 
     run_id = _validate_run_id(run_id_raw) if run_id_raw else _make_run_id(role, resolved_harness, mod)
@@ -1065,6 +1088,7 @@ def _prepare_invocation(
         "vector": vector or None,
         "cwd": str(cwd),
         "repro_dir": str(repro_dir) if repro_dir else None,
+        "review_dir": str(review_dir) if review_dir else None,
         "binary": binary,
         "argv": argv,
         "stdin_text": stdin_text,
@@ -1082,6 +1106,7 @@ def _execute_prepared(job: dict[str, Any], state_dir: Path | None) -> tuple[dict
     resolved_harness = job["harness"]
     cwd = Path(job["cwd"])
     repro_dir = Path(job["repro_dir"]) if job.get("repro_dir") else None
+    review_dir = Path(job["review_dir"]) if job.get("review_dir") else None
     out_path = Path(job["out_file"]) if job.get("out_file") else None
     log_path = Path(job["log_file"]) if job.get("log_file") else None
     receipt_path = Path(job["receipt_file"]) if job.get("receipt_file") else None
@@ -1091,8 +1116,9 @@ def _execute_prepared(job: dict[str, Any], state_dir: Path | None) -> tuple[dict
     started = time.monotonic()
     timestamp = _utc_iso()
     proc_env = dict(os.environ)
-    if resolved_harness == "codex" and job["role"] == "reviewer" and repro_dir is not None:
-        repro_tmp = repro_dir / ".tmp"
+    primary_tmp_parent = review_dir or repro_dir
+    if resolved_harness == "codex" and job["role"] == "reviewer" and primary_tmp_parent is not None:
+        repro_tmp = primary_tmp_parent / ".tmp"
         repro_tmp.mkdir(parents=True, exist_ok=True)
         proc_env["TMPDIR"] = str(repro_tmp)
 
@@ -1241,6 +1267,7 @@ def cmd_run(args) -> int:
             vector=args.vector,
             cwd_raw=args.cwd,
             repro_dir_raw=args.repro_dir,
+            review_dir_raw=args.review_dir,
             prompt_text=args.prompt,
             prompt_file=args.prompt_file,
             system_prompt_file=args.system_prompt_file,
@@ -1373,6 +1400,7 @@ def cmd_spawn(args) -> int:
             vector=args.vector,
             cwd_raw=args.cwd,
             repro_dir_raw=args.repro_dir,
+            review_dir_raw=args.review_dir,
             prompt_text=args.prompt,
             prompt_file=args.prompt_file,
             system_prompt_file=args.system_prompt_file,
@@ -1585,7 +1613,8 @@ def cmd_batch(args) -> int:
                 role=str(spec.get("role") or "reviewer"),
                 vector=str(spec.get("vector") or ""),
                 cwd_raw=spec.get("cwd"),
-                repro_dir_raw=spec.get("repro_dir") or spec.get("review_dir"),
+                repro_dir_raw=spec.get("repro_dir"),
+                review_dir_raw=spec.get("review_dir"),
                 prompt_text=spec.get("prompt"),
                 prompt_file=spec.get("prompt_file"),
                 system_prompt_file=spec.get("system_prompt_file"),
@@ -1652,9 +1681,11 @@ def _add_dispatch_target_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--cwd", help="working directory / isolated worktree path")
     p.add_argument(
         "--repro-dir",
+        help="writable folder OUTSIDE --cwd (e.g. ~/.astack/<project>/repros/<repro>/) where reviewers save standalone reproductions (keeps --cwd read-only on Codex)",
+    )
+    p.add_argument(
         "--review-dir",
-        dest="repro_dir",
-        help="writable folder OUTSIDE --cwd (e.g. ~/.astack/<project>/reviews/<date_time>/) where reviewers save repros, traces, logs, metrics, screenshots, profiles, and benchmarks (keeps --cwd read-only on Codex)",
+        help="writable folder OUTSIDE --cwd (e.g. ~/.astack/<project>/reviews/<date_time>/) where reviewers save traces, logs, metrics, screenshots, profiles, benchmarks, and audit receipts",
     )
     p.add_argument("--prompt", help="inline prompt text")
     p.add_argument("--prompt-file", help="file containing prompt text")

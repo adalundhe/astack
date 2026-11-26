@@ -41,7 +41,7 @@ Then execute one clean cycle:
 5. **Commit or revert cleanly:** commit each kept win alone with before/after median and $\sigma$ in the message for clean bisection. Revert failed attempts completely.
 6. **Log the attempt** and repeat.
 
-Test independent ideas in parallel workspaces (**ab-test**). Lead may pair `clamber` with **redteam** so kept optimizations clear vectored review for correctness and races.
+Test independent ideas in parallel workspaces (**ab-test**). Follow **benchmarking**'s host-quiescence rules, and run **redteam** or **review** strictly after benchmarking finishes.
 
 ## Finish
 
@@ -51,6 +51,6 @@ Test independent ideas in parallel workspaces (**ab-test**). Lead may pair `clam
 
 **Reply (`prove-it`):** report baseline vs. final median and $\sigma$ for every metric, kept/reverted steps, experiment log, current bottleneck, and best next lead.
 
-Referenced skills: `never-trade-functionality` (`../never-trade-functionality/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `redteam` (`../redteam/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `swarm-hypothesis` (`../swarm-hypothesis/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `never-trade-functionality` (`../never-trade-functionality/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`), `ab-test` (`../ab-test/SKILL.md`), `redteam` (`../redteam/SKILL.md`), `review` (`../astack-review/SKILL.md`), `research-this` (`../research-this/SKILL.md`), `swarm-hypothesis` (`../swarm-hypothesis/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's Hillclimb playbook (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

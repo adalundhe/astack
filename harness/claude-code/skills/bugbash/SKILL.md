@@ -31,7 +31,7 @@ Collect the report and all linked issues, PRs, docs, logs, traces, metrics, or s
   - history, config, and environment bisection;
   - runtime profiling, tracing, and telemetry.
 
-Instruct every investigator to follow **find-it** in order: replicate from real data, **shrink the repro first**, then prove the root cause. Give each investigator a fresh review evidence folder via `astack-tools reviews path <project> --new --ensure` (`~/.astack/<project>/reviews/<date_time>/`) to save repros, traces, logs, metrics, monitoring snapshots, screenshots, profiles, and benchmarks. Require minimal fix proposals with `blast-radius`.
+Instruct every investigator to follow **find-it** in order: replicate from real data, **shrink the repro first**, then prove the root cause. Give each investigator a project repro folder (`astack-tools repros path`) and review bundle (`astack-tools reviews path`) for standalone repros and runtime artifacts. Require minimal fix proposals with `blast-radius`.
 
 ## 3. Converge via peer **challenge** (when multiple vectors ran)
 

@@ -41,7 +41,7 @@ Then execute one clean cycle:
 5. **Commit or revert cleanly:** commit each kept win alone with before/after median and $\sigma$ in the message for clean bisection. Revert failed attempts completely.
 6. **Log the attempt** and repeat.
 
-Test independent ideas in parallel workspaces (**ab-test**). Lead may pair `clamber` with **redteam** so kept optimizations clear vectored review for correctness and races.
+Test independent ideas in parallel workspaces (**ab-test**). Follow **benchmarking**'s host-quiescence rules, and run **redteam** or **review** strictly after benchmarking finishes.
 
 ## Finish
 
@@ -51,6 +51,6 @@ Test independent ideas in parallel workspaces (**ab-test**). Lead may pair `clam
 
 **Reply (`prove-it`):** report baseline vs. final median and $\sigma$ for every metric, kept/reverted steps, experiment log, current bottleneck, and best next lead.
 
-Referenced skills: `never-trade-functionality` (`${CLAUDE_SKILL_DIR}/../never-trade-functionality/SKILL.md`), `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`), `redteam` (`${CLAUDE_SKILL_DIR}/../redteam/SKILL.md`), `research-this` (`${CLAUDE_SKILL_DIR}/../research-this/SKILL.md`), `swarm-hypothesis` (`${CLAUDE_SKILL_DIR}/../swarm-hypothesis/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `never-trade-functionality` (`${CLAUDE_SKILL_DIR}/../never-trade-functionality/SKILL.md`), `benchmarking` (`${CLAUDE_SKILL_DIR}/../benchmarking/SKILL.md`), `ab-test` (`${CLAUDE_SKILL_DIR}/../ab-test/SKILL.md`), `redteam` (`${CLAUDE_SKILL_DIR}/../redteam/SKILL.md`), `review` (`${CLAUDE_SKILL_DIR}/../review/SKILL.md`), `research-this` (`${CLAUDE_SKILL_DIR}/../research-this/SKILL.md`), `swarm-hypothesis` (`${CLAUDE_SKILL_DIR}/../swarm-hypothesis/SKILL.md`), `decisions-in-plain-words` (`${CLAUDE_SKILL_DIR}/../decisions-in-plain-words/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's Hillclimb playbook (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

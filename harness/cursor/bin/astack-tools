@@ -10,6 +10,8 @@ Usage:
   astack-tools arch list [--project PROJECT] [--json]
   astack-tools reviews path PROJECT [DATE_TIME | --new] [--ensure]
   astack-tools reviews list [--project PROJECT] [--limit N] [--json]
+  astack-tools repros path PROJECT [REPRO] [--ensure]
+  astack-tools repros list [--project PROJECT] [--json]
   astack-tools install [--profile core|standard|all] [--modules LIST] [--from-github] [--python SPEC] [--venv DIR] [--dry-run]
   astack-tools link-bin [--bin-dir DIR] [--copy] [--dry-run]
   astack-tools install-agents --harness HARNESS [--settings PATH] [--target DIR] [--dry-run]
@@ -616,6 +618,124 @@ def cmd_reviews_list(args) -> int:
     return 0
 
 
+def cmd_repros_path(args) -> int:
+    try:
+        project = _validate_lesson_slug(args.project, "project_name")
+        repro = _validate_lesson_slug(args.repro, "repro_name") if args.repro else None
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    root = astack_home_dir()
+    project_dir = root / project
+    repros_dir = project_dir / "repros"
+    target_dir = (repros_dir / repro) if repro else repros_dir
+    if root.exists():
+        resolved_root = root.resolve()
+        for existing in (project_dir, repros_dir, target_dir):
+            if existing.exists() and not existing.resolve().is_relative_to(resolved_root):
+                print(f"error: refusing path outside astack home ({resolved_root}): {existing.resolve()}", file=sys.stderr)
+                return 1
+    if args.ensure:
+        try:
+            _ensure_private_dir(root)
+            dirs_to_ensure = (project_dir, repros_dir, target_dir) if repro else (project_dir, repros_dir)
+            for directory in dirs_to_ensure:
+                _ensure_private_dir(directory, root=root)
+        except OSError as exc:
+            print(f"error: failed to create repro directory {target_dir}: {exc}", file=sys.stderr)
+            return 1
+        writable, write_err = _probe_writable(target_dir)
+        if not writable:
+            print(f"error: {target_dir} is not writable ({write_err})", file=sys.stderr)
+            return 1
+    print(target_dir)
+    return 0
+
+
+def cmd_repros_list(args) -> int:
+    root = astack_home_dir()
+    project_filter = None
+    if args.project:
+        try:
+            project_filter = _validate_lesson_slug(args.project, "project_name")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
+    entries: list[dict[str, object]] = []
+    try:
+        root_is_dir = root.is_dir()
+    except OSError:
+        root_is_dir = False
+    if root_is_dir:
+        resolved_root = root.resolve()
+        try:
+            project_dirs = sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith("."))
+        except OSError:
+            project_dirs = []
+        for proj_dir in project_dirs:
+            try:
+                if not proj_dir.resolve().is_relative_to(resolved_root):
+                    continue
+            except OSError:
+                continue
+            proj = proj_dir.name
+            if project_filter and proj != project_filter:
+                continue
+            repros_dir = proj_dir / "repros"
+            try:
+                if not repros_dir.is_dir() or not repros_dir.resolve().is_relative_to(resolved_root):
+                    continue
+                children = sorted(
+                    (c for c in repros_dir.iterdir() if not c.name.startswith(".")),
+                    key=lambda p: p.name,
+                )
+            except OSError:
+                continue
+            for item in children:
+                try:
+                    if not item.resolve().is_relative_to(resolved_root):
+                        continue
+                except OSError:
+                    continue
+                if item.is_dir():
+                    try:
+                        files = sorted(
+                            str(f.relative_to(item).as_posix())
+                            for f in item.rglob("*")
+                            if f.is_file() and not any(part.startswith(".") for part in f.relative_to(item).parts)
+                        )
+                    except OSError:
+                        files = []
+                    entries.append({
+                        "project": proj,
+                        "repro": item.name,
+                        "path": str(item),
+                        "file_count": len(files),
+                        "files": files,
+                    })
+                elif item.is_file():
+                    entries.append({
+                        "project": proj,
+                        "repro": item.name,
+                        "path": str(item),
+                        "file_count": 1,
+                        "files": [item.name],
+                    })
+
+    entries.sort(key=lambda e: (str(e["project"]), str(e["repro"])))
+    if args.as_json:
+        print(json.dumps({"astack_home": str(root), "repros": entries}, indent=2))
+        return 0
+    if not entries:
+        scope = f" for project {project_filter}" if project_filter else ""
+        print(f"No saved repros found{scope} under {root}.")
+        return 0
+    for ent in entries:
+        print(f"{ent['project']}/{ent['repro']} ({ent['file_count']} file(s)): {ent['path']}")
+    return 0
+
+
 def _parse_lesson_front_matter(text: str) -> dict[str, object]:
     """Parse flat YAML frontmatter (scalars + inline or block string lists) with stdlib only."""
     match = re.match(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", text, re.S)
@@ -686,7 +806,11 @@ def cmd_lessons_list(args) -> int:
     filter_status = (args.status or "").strip().lower() or None
 
     entries: list[dict[str, object]] = []
-    if root.is_dir():
+    try:
+        root_is_dir = root.is_dir()
+    except OSError:
+        root_is_dir = False
+    if root_is_dir:
         resolved_root = root.resolve()
         project_dirs = [root / filter_project] if filter_project else sorted(
             (p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")),
@@ -1881,6 +2005,16 @@ def main(argv=None) -> int:
     p_reviews_list.add_argument("--limit", type=int, help="maximum number of newest bundles to return")
     p_reviews_list.add_argument("--json", action="store_true", dest="as_json")
 
+    p_repros = sub.add_parser("repros", help="resolve or list standalone reproduction folders under ~/.astack/<project>/repros/[<repro>/]")
+    repros_sub = p_repros.add_subparsers(dest="repros_command", required=True)
+    p_repros_path = repros_sub.add_parser("path", help="print (and optionally create) a project repros dir or named repro dir")
+    p_repros_path.add_argument("project", metavar="PROJECT")
+    p_repros_path.add_argument("repro", metavar="REPRO", nargs="?")
+    p_repros_path.add_argument("--ensure", action="store_true", help="create directories with user-private permissions and verify writability")
+    p_repros_list = repros_sub.add_parser("list", help="list saved reproduction scripts and folders under ~/.astack/*/repros/")
+    p_repros_list.add_argument("--project", help="filter to one project slug")
+    p_repros_list.add_argument("--json", action="store_true", dest="as_json")
+
     p_inst = sub.add_parser("install", help="provision Python >=3.11 via uv, create/update the venv, and install packages")
     p_inst.add_argument("--venv", type=Path, default=default_venv())
     p_inst.add_argument("--profile", choices=("core", "standard", "all"), default="standard")
@@ -1943,6 +2077,8 @@ def main(argv=None) -> int:
         return cmd_arch_path(args) if args.arch_command == "path" else cmd_arch_list(args)
     if args.command == "reviews":
         return cmd_reviews_path(args) if args.reviews_command == "path" else cmd_reviews_list(args)
+    if args.command == "repros":
+        return cmd_repros_path(args) if args.repros_command == "path" else cmd_repros_list(args)
     if args.command == "install":
         return cmd_install(args)
     if args.command == "link-bin":

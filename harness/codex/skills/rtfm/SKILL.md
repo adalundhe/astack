@@ -9,7 +9,7 @@ Read existing sources before asking the person anything. Drive-by questions wast
 
 Before asking a question, declaring a blocker, or calling requirements unclear, check in order:
 
-1. **Prompt, brief, and saved memories:** read the thread, brief, `RULES.md`, `astack-decisions`, and saved `~/.astack` records via **lookup**. Check `~/.astack/<project_name>/lessons/<lesson_name>/LESSON.md`, `~/.astack/<project_name>/architecture/AD_<N>.md` (`astack-tools arch list`), and `~/.astack/<project_name>/reviews/<date_time>/` (`astack-tools reviews list`).
+1. **Prompt, brief, and saved memories:** read the thread, brief, `RULES.md`, `astack-decisions`, and saved `~/.astack` records via **lookup**. Check `lessons/`, `architecture/AD_<N>.md` (`astack-tools arch list`), `reviews/<date_time>/` (`astack-tools reviews list`), and `repros/` (`astack-tools repros list`).
 2. **PR, issue, and linked context:** read descriptions, comments, inline threads, commits, and linked ADRs or specs. Run `gh pr view --comments`, `gh issue view --comments`, `git log`, and `git blame`. Follow links instead of guessing. (Lead/Worker: run **lookback** if deep history isn't captured; read-only roles flag the gap to Lead.)
 3. **The repository:** read READMEs, docs, repo ADRs, `AGENTS.md`, `CLAUDE.md`, and `CONTRIBUTING.md`. Inspect relevant source, callers, tests, and git history.
 4. **Local environment (`analyze-environment`):** inspect configs, CI workflows, CLIs, MCP servers, env-var names, and reachable services. Run safe read-only probes.

@@ -68,7 +68,7 @@ Treat external-harness CLIs (`codex`, `claude`, `agy`, `cursor`, `devin`, `pi`, 
 Dispatch only tasks whose dependencies are verified closed, keeping writable paths disjoint.
 
 1. Provision an isolated workspace per **Workspaces & role split**.
-2. Write the brief from `brief.md`. Put the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`) on line 1. Name the deliverable, done-when or vector, out-of-scope items, writable paths (or a fresh `~/.astack/<project>/reviews/<date_time>/` evidence folder for reviewers via `astack-tools reviews path <project> --new --ensure`), linked context, required skills, `RULES.md` / report paths, and UTC timestamps. Require `astack-tools skills list --role <role>` and `astack-tools skills get <skill>` before reading code.
+2. Write the brief from `brief.md`. Put the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`) on line 1. Name the deliverable, done-when or vector, out-of-scope items, writable paths, linked context, required skills, `RULES.md` / report paths, and UTC timestamps. For reviewers, pass `~/.astack/<project>/reviews/<date_time>/` (`astack-tools reviews path`) and `~/.astack/<project>/repros/` (`astack-tools repros path`). Require `astack-tools skills list --role <role>` and `astack-tools skills get <skill>` before reading code.
 3. Spawn it with `subagent_type: "astack:worker"` in the background, passing the brief and `roles.worker` (`model`, `effort`) from settings when set. Spawn `astack:reviewer` and `astack:researcher` in the background with their UTC timestamps too, or use `astack-dispatch` when cross-harness.
 4. Log the start in `LANES.md`.
 
@@ -86,7 +86,7 @@ Write one short, self-contained message: stop X, do Y, because Z. Send it into t
 6. **Log side findings in one line.** Turn a side finding into a task only if it blocks progress or the person asks.
 7. **Filter escalations** under `NEEDS THE PERSON` through **Decisions** before asking.
 
-Run full test suites and whole-system benchmarks on the target branch after merges. Route any reported issue, error, crash, or regression to **bugbash**.
+Run full test suites and whole-system benchmarks on the target branch after merges, following **benchmarking**'s host-quiescence rules (drain active lanes; run **review** after benchmarking). Route any reported issue, error, crash, or regression to **bugbash**.
 
 When a DAG, component tree, **bugbash**, `redteam`, `sprint` ticket, or **review** ends:
 - Run **squish** before PR handoff if fragmented commits or PRs can be consolidated cleanly.

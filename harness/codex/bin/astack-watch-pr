@@ -622,9 +622,9 @@ def audit_reply_text(
         if not verified_artifacts and not any("evidence" in v or "dispatch receipt" in v for v in violations):
             violations.append(
                 f"audit receipt {audit_receipt_path} cites no verifiable evidence artifacts: "
-                "store traces, logs, metrics, monitoring data, screenshots, profiles, benchmarks, "
-                "or repro outputs under ~/.astack/<project>/reviews/<date_time>/ and cite them via "
-                "Evidence: <path> or --evidence-dir"
+                "store traces, logs, metrics, monitoring data, screenshots, profiles, or benchmarks "
+                "under ~/.astack/<project>/reviews/<date_time>/ (and standalone repros under "
+                "~/.astack/<project>/repros/<repro>/) and cite them via Evidence: <path> or --evidence-dir"
             )
     for label, pattern in FORBIDDEN_REPLY_PATTERNS:
         if pattern.search(body):

@@ -68,7 +68,7 @@ Treat external-harness CLIs (`codex`, `claude`, `agy`, `cursor`, `devin`, `pi`, 
 Dispatch only tasks whose dependencies are verified closed, keeping writable paths disjoint.
 
 1. Provision an isolated workspace per **Workspaces & role split**.
-2. Write the brief from `brief.md`. Put the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`) on line 1. Name the deliverable, done-when or vector, out-of-scope items, writable paths (or a fresh `~/.astack/<project>/reviews/<date_time>/` evidence folder for reviewers via `astack-tools reviews path <project> --new --ensure`), linked context, required skills, `RULES.md` / report paths, and UTC timestamps. Require `astack-tools skills list --role <role>` and `astack-tools skills get <skill>` before reading code.
+2. Write the brief from `brief.md`. Put the resolved absolute `skills/` path (`astack-tools skills-dir`, never `..`) on line 1. Name the deliverable, done-when or vector, out-of-scope items, writable paths, linked context, required skills, `RULES.md` / report paths, and UTC timestamps. For reviewers, pass `~/.astack/<project>/reviews/<date_time>/` (`astack-tools reviews path`) and `~/.astack/<project>/repros/` (`astack-tools repros path`). Require `astack-tools skills list --role <role>` and `astack-tools skills get <skill>` before reading code.
 3. Spawn an isolated worker using your host's subagent tool with `agents/astack-worker.md` instructions (or `astack-dispatch spawn --role worker --system-prompt-file <agents/astack-worker.md>`), passing the brief and `roles.worker` (`provider`, `model`, `effort`, optional `harness`) from settings when set. Spawn `astack-reviewer` and `astack-researcher` in the background with their UTC timestamps too, or use `astack-dispatch` when cross-harness.
 4. Log the start in `LANES.md`.
 
@@ -86,7 +86,7 @@ Write one short, self-contained message: stop X, do Y, because Z. Send it into t
 6. **Log side findings in one line.** Turn a side finding into a task only if it blocks progress or the person asks.
 7. **Filter escalations** under `NEEDS THE PERSON` through **Decisions** before asking.
 
-Run full test suites and whole-system benchmarks on the target branch after merges. Route any reported issue, error, crash, or regression to **bugbash**.
+Run full test suites and whole-system benchmarks on the target branch after merges, following **benchmarking**'s host-quiescence rules (drain active lanes; run **review** after benchmarking). Route any reported issue, error, crash, or regression to **bugbash**.
 
 When a DAG, component tree, **bugbash**, `redteam`, `sprint` ticket, or **review** ends:
 - Run **squish** before PR handoff if fragmented commits or PRs can be consolidated cleanly.
@@ -119,6 +119,6 @@ Write plainly, losses first (**wat**):
 
 Never leak internal astack state into user replies or `"Open Items"` (no single-model reviewer pool, `reviewer_pool` size, `settings.json` defaults, pool-exhaustion labels, coverage-map paths, model rosters, worktree paths, or estimator formulas). Frame unconverged risky areas strictly as code risk: proven bugs, likely remaining bugs with range, and the choice to approve deeper verification or accept the risk. Audit any human-facing PR comment via **leave-feedback** before posting. Name any skipped step (`plan reviewed`, check-ins, `verified`, `ledger`, `rules rev`, closing `lookback`) as a loss.
 
-Referenced skills: `go` (`../astack-go/SKILL.md`), `dagify` (`../dagify/SKILL.md`), `treeify` (`../treeify/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`), `slates` (`../slates/SKILL.md`), `lookup` (`../lookup/SKILL.md`), `analyze-environment` (`../analyze-environment/SKILL.md`), `review` (`../astack-review/SKILL.md`), `bugbash` (`../bugbash/SKILL.md`), `squish` (`../squish/SKILL.md`), `lookback` (`../lookback/SKILL.md`), `make-it-stick` (`../make-it-stick/SKILL.md`), `wat` (`../wat/SKILL.md`), `leave-feedback` (`../leave-feedback/SKILL.md`). Read any cited skill file before acting when its trigger applies.
+Referenced skills: `go` (`../astack-go/SKILL.md`), `dagify` (`../dagify/SKILL.md`), `treeify` (`../treeify/SKILL.md`), `decisions-in-plain-words` (`../decisions-in-plain-words/SKILL.md`), `slates` (`../slates/SKILL.md`), `lookup` (`../lookup/SKILL.md`), `analyze-environment` (`../analyze-environment/SKILL.md`), `review` (`../astack-review/SKILL.md`), `benchmarking` (`../benchmarking/SKILL.md`), `bugbash` (`../bugbash/SKILL.md`), `squish` (`../squish/SKILL.md`), `lookback` (`../lookback/SKILL.md`), `make-it-stick` (`../make-it-stick/SKILL.md`), `wat` (`../wat/SKILL.md`), `leave-feedback` (`../leave-feedback/SKILL.md`). Read any cited skill file before acting when its trigger applies.
 
 <!-- Adapts pstack's Orchestrate, autopilot-full, and figure-it-out playbooks and poteto-mode Subagents section (MIT, Copyright (c) 2026 Lauren Tan). See NOTICE.md. -->

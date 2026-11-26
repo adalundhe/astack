@@ -1638,6 +1638,35 @@ class GoModeHookTest(Scratch):
             )
             self.assertEqual(r_bad.returncode, 2, f"expected exit 2 for {bad_args}")
 
+        # Project-scoped repros: ~/.astack/<project>/repros/<repro>/
+        rp = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "repros", "path", "payments", "retry-dup-charge", "--ensure"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(rp.returncode, 0, rp.stderr)
+        repro_dir = Path(rp.stdout.strip())
+        self.assertEqual(repro_dir, astack_home / "payments" / "repros" / "retry-dup-charge")
+        self.assertTrue(repro_dir.is_dir())
+        if os.name != "nt":
+            self.assertEqual(repro_dir.stat().st_mode & 0o777, 0o700)
+        (repro_dir / "repro.py").write_text("raise SystemExit(1)\n", encoding="utf-8")
+
+        rp_list = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "repros", "list", "--project", "payments", "--json"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(rp_list.returncode, 0, rp_list.stderr)
+        repro_items = json.loads(rp_list.stdout)["repros"]
+        self.assertEqual(len(repro_items), 1)
+        self.assertEqual(repro_items[0]["repro"], "retry-dup-charge")
+        self.assertEqual(repro_items[0]["files"], ["repro.py"])
+
+        rp_bad = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "repros", "path", "payments", "../escape"],
+            capture_output=True, text=True, env=env,
+        )
+        self.assertEqual(rp_bad.returncode, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
