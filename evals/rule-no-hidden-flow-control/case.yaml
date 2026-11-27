@@ -1,2 +1,7 @@
-schema_version: "1.1"
+schema_version: "1.2"
 name: rule-no-hidden-flow-control
+tier: smoke
+kind: atomic
+skills: [no-hidden-flow-control]
+context:
+  scaffold_script: setup.sh

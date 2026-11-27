@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Run TLC on a TLA+ model in -tool mode (or parse TLC DOT/trace output), find shortest paths to broken invariants, and emit Mermaid stateDiagram-v2.
+"""Run TLC on a TLA+ model in -tool mode (or parse TLC DOT/trace output), compute checked human-readable statecharts via optional view modules, find shortest paths to broken invariants, install TLC automatically, and emit Mermaid stateDiagram-v2.
 
 Usage:
-  astack-statechart check MODEL.tla [--cfg MODEL.cfg] [--tlc CMD] [--jar PATH] [--dump-dot PATH] [--mermaid PATH] [--max-states N] [--workers N] [--stop-on-first] [--json]
-  astack-statechart render INPUT.dot [--trace TLC_OUT.txt] [--mermaid PATH] [--max-states N] [--json]
+  astack-statechart check MODEL.tla [--cfg MODEL.cfg] [--view VIEW.py|VIEW.json] [--tlc CMD] [--jar PATH] [--no-install] [--dump-dot PATH] [--mermaid PATH] [--max-states N] [--workers N] [--stop-on-first] [--json]
+  astack-statechart render INPUT.dot [--trace TLC_OUT.txt] [--view VIEW.py|VIEW.json] [--mermaid PATH] [--max-states N] [--json]
+  astack-statechart install-tlc [--dest PATH] [--url URL] [--sha256 HEX] [--force] [--json]
 
 Exit codes:
-  check:  0 = all invariants hold (TLC exit 0 and no errors/violations)
-          1 = violation/deadlock/liveness/assertion failure found (or TLC violation exit 10–14)
-          2 = TLC missing, invocation/parse/config error, or non-zero TLC crash (e.g. 1, 150, 255)
-  render: 0 = rendered cleanly, 2 = missing file or parse error
+  check:       0 = all invariants hold (TLC exit 0 and no errors/violations)
+               1 = violation/deadlock/liveness/assertion failure found (or TLC violation exit 10–14)
+               2 = TLC missing, view error, invocation/parse/config error, or non-zero TLC crash (e.g. 1, 150, 255)
+  render:      0 = rendered cleanly, 2 = missing file, view error, or parse error
+  install-tlc: 0 = TLC jar installed and verified, 2 = download or verification error
 """
 from __future__ import annotations
 
@@ -24,6 +26,35 @@ import tempfile
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
+
+sys.dont_write_bytecode = True
+
+
+def _bootstrap_lib() -> None:
+    here = Path(__file__).resolve().parent
+    for candidate in (here.parent / "lib", here / "_astack_lib"):
+        if (candidate / "astack_statechart" / "__init__.py").is_file():
+            path_str = str(candidate)
+            if path_str not in sys.path:
+                sys.path.insert(0, path_str)
+            return
+
+
+_bootstrap_lib()
+from astack_statechart import (  # noqa: E402
+    DEFAULT_TLC_SHA256,
+    DEFAULT_TLC_URL,
+    DEFAULT_TLC_VERSION,
+    TLCInstallError,
+    ViewConfig,
+    ViewError,
+    ViewRenderResult,
+    default_tlc_jar_path,
+    install_tlc,
+    java_install_hint,
+    load_view,
+    project_and_render_view,
+)
 
 
 # Official TLC -tool EC message codes (tlc2.output.EC)
@@ -913,6 +944,7 @@ def find_tlc(explicit_tlc: str | None, explicit_jar: str | None) -> list[str] | 
     if env_jar := (os.environ.get("TLA2TOOLS_JAR") or os.environ.get("TLA2TOOLS")):
         jar_candidates.append(Path(env_jar).expanduser())
     jar_candidates.extend([
+        default_tlc_jar_path(),
         Path("/opt/homebrew/share/tla+/tla2tools.jar"),
         Path("/usr/local/share/tla+/tla2tools.jar"),
         Path.home() / ".local" / "share" / "tla+" / "tla2tools.jar",
@@ -934,6 +966,7 @@ def _format_report(
     mermaid: str,
     omitted: int,
     stats: dict | None = None,
+    view_result: ViewRenderResult | None = None,
 ) -> str:
     lines: list[str] = []
     total_states = len(graph.nodes)
@@ -944,18 +977,52 @@ def _format_report(
         gen = stats.get("states_generated")
         gen_txt = f"{gen} generated" if gen is not None else "stats"
         lines.append(f"  TLC: {stats['distinct_states']} distinct states ({gen_txt}{depth})")
+    if view_result is not None:
+        groups_bits = []
+        if view_result.nested_groups:
+            groups_bits.append(f"nested={len(view_result.nested_groups)}")
+        if view_result.parallel_groups:
+            groups_bits.append(f"parallel={len(view_result.parallel_groups)}")
+        g_suffix = f" ({', '.join(groups_bits)})" if groups_bits else ""
+        lines.append(
+            f"  view: {view_result.abstract_states} reader states, {view_result.abstract_transitions} transitions "
+            f"computed from {view_result.concrete_states} checked model states{g_suffix}"
+        )
+        if view_result.violation_splits:
+            lines.append(f"  rule splits: {len(view_result.violation_splits)} state label(s) split to keep rule violations visible")
+        if view_result.synchronized_transitions:
+            lines.append(f"  synchronized parallel transitions: {len(view_result.synchronized_transitions)}")
+        if view_result.cross_region_violations:
+            lines.append(f"  cross-region rule violations: {len(view_result.cross_region_violations)}")
+        if view_result.extra_rule_violations:
+            rules_txt = ", ".join(sorted(view_result.extra_rule_violations))
+            lines.append(f"  view rule violations: {rules_txt}")
     if omitted > 0:
-        lines.append(f"  diagram: showing {total_states - omitted}/{total_states} states ({omitted} omitted)")
+        shown_total = view_result.abstract_states if view_result is not None else (total_states - omitted)
+        denom = (view_result.abstract_states + omitted) if view_result is not None else total_states
+        lines.append(f"  diagram: showing {shown_total}/{denom} states ({omitted} omitted)")
     if violations:
         lines.append("\nShortest paths to violations:")
-        for v in violations:
-            hop_txt = "unreachable" if v.hops < 0 else f"{v.hops} step(s)"
-            lines.append(f"  - [{v.kind}] {v.name} ({hop_txt}):")
-            for step in v.steps:
-                act = f" via {step['action']}" if step.get("action") else ""
-                lines.append(f"      {step.get('step', '?')}.{act}: {_clean_mermaid_label(step['state'])}")
-            if v.cycle_back_to is not None:
-                lines.append(f"      -> cycles back to state {v.cycle_back_to}")
+        if view_result is not None and view_result.translated_violations:
+            for tv in view_result.translated_violations:
+                hop_txt = "unreachable" if tv["hops"] < 0 else f"{tv['hops']} step(s)"
+                lines.append(f"  - [{tv['kind']}] {tv['name']} ({hop_txt}):")
+                for step in tv["steps"]:
+                    act = f" via {step['action']}" if step.get("action") else ""
+                    lines.append(f"      {step.get('step', '?')}.{act}: {step['state_label']}")
+                if tv.get("cycle_back_to") is not None:
+                    lines.append(f"      -> cycles back to state {tv['cycle_back_to']}")
+        else:
+            for v in violations:
+                hop_txt = "unreachable" if v.hops < 0 else f"{v.hops} step(s)"
+                lines.append(f"  - [{v.kind}] {v.name} ({hop_txt}):")
+                for step in v.steps:
+                    act = f" via {step['action']}" if step.get("action") else ""
+                    lines.append(f"      {step.get('step', '?')}.{act}: {_clean_mermaid_label(step['state'])}")
+                if v.cycle_back_to is not None:
+                    lines.append(f"      -> cycles back to state {v.cycle_back_to}")
+    elif view_result is not None and view_result.extra_rule_violations:
+        lines.append("  View rule violation(s) marked on the diagram.")
     else:
         lines.append("  All checked invariants held.")
     lines.append("\n```mermaid")
@@ -1056,11 +1123,71 @@ def _classify_tlc_outcome(returncode: int, violations: list[Violation], trace_in
     return 2, violations
 
 
+def _render_with_optional_view(
+    graph: StateGraph,
+    violations: list[Violation],
+    *,
+    max_states: int | None,
+    view_cfg: ViewConfig | None,
+) -> tuple[str, int, ViewRenderResult | None]:
+    if view_cfg is None:
+        mermaid, omitted = render_mermaid(graph, violations, max_states=max_states)
+        return mermaid, omitted, None
+    vres = project_and_render_view(
+        nodes=graph.nodes,
+        edges=[(e.src, e.dst, e.label) for e in graph.edges],
+        initial_ids=graph.initial_ids,
+        violating_ids=graph.violating_ids,
+        violations=[v.__dict__ for v in violations],
+        view=view_cfg,
+        max_states=max_states,
+    )
+    for rname, nids in vres.extra_rule_violations.items():
+        for nid in nids:
+            _add_violation_mark(graph.violating_ids, nid, rname)
+    return vres.mermaid, vres.omitted_states, vres
+
+
+def cmd_install_tlc(args) -> int:
+    dest = Path(args.dest).expanduser() if args.dest else None
+    try:
+        info = install_tlc(
+            dest=dest,
+            url=args.url,
+            expected_sha256=args.sha256,
+            force=args.force,
+            timeout=args.timeout,
+        )
+    except TLCInstallError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.as_json:
+        print(json.dumps(info, indent=2))
+        return 0
+    verb = "already installed" if info["already_installed"] else "installed"
+    ver = info.get("tlc_version") or f"v{info['version']}"
+    print(f"astack-statechart: TLC {verb} at {info['jar']} ({ver}, sha256={info['sha256'][:12]}...)")
+    if not info["java_found"]:
+        print(
+            f"warning: runnable Java runtime not found on PATH. Install Java to run TLC:\n"
+            f"  {info['java_install_hint']}",
+            file=sys.stderr,
+        )
+    return 0
+
+
 def cmd_render(args) -> int:
     dot_path = Path(args.dot).expanduser()
     if not dot_path.is_file():
         print(f"error: DOT file not found: {dot_path}", file=sys.stderr)
         return 2
+    view_cfg: ViewConfig | None = None
+    if args.view:
+        try:
+            view_cfg = load_view(args.view)
+        except ViewError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
     try:
         graph = parse_dot(dot_path.read_text(encoding="utf-8", errors="replace"))
     except ValueError as exc:
@@ -1074,11 +1201,17 @@ def cmd_render(args) -> int:
             return 2
         trace_info = parse_tlc_output(trace_path.read_text(encoding="utf-8", errors="replace"))
     graph, violations = _merge_graph_and_trace(graph, trace_info)
-    mermaid, omitted = render_mermaid(graph, violations, max_states=args.max_states)
+    try:
+        mermaid, omitted, view_result = _render_with_optional_view(
+            graph, violations, max_states=args.max_states, view_cfg=view_cfg
+        )
+    except ViewError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     if args.mermaid:
         Path(args.mermaid).expanduser().write_text(mermaid, encoding="utf-8")
     if args.as_json:
-        payload = {
+        payload: dict = {
             "states": len(graph.nodes),
             "transitions": len(graph.edges),
             "initial_states": graph.initial_ids,
@@ -1087,9 +1220,11 @@ def cmd_render(args) -> int:
             "violations": [v.__dict__ for v in violations],
             "mermaid": mermaid,
         }
+        if view_result is not None:
+            payload["view"] = view_result.to_metadata()
         print(json.dumps(payload, indent=2))
         return 0
-    print(_format_report(graph, violations, mermaid, omitted, stats=trace_info))
+    print(_format_report(graph, violations, mermaid, omitted, stats=trace_info, view_result=view_result))
     return 0
 
 
@@ -1098,14 +1233,57 @@ def cmd_check(args) -> int:
     if not model.is_file():
         print(f"error: TLA+ model not found: {model}", file=sys.stderr)
         return 2
+    view_cfg: ViewConfig | None = None
+    if args.view:
+        try:
+            view_cfg = load_view(args.view)
+        except ViewError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
     tlc_cmd = find_tlc(args.tlc, args.jar)
+    auto_installed_jar: str | None = None
     if not tlc_cmd:
-        print(
-            "error: TLC not found (or no runnable Java runtime). Install TLA+ tools (set TLA2TOOLS_JAR=/path/to/tla2tools.jar, "
-            "pass --jar/--tlc, or install `tlc` on PATH with Java).",
-            file=sys.stderr,
+        can_auto = (
+            not args.tlc
+            and not args.jar
+            and not args.no_install
+            and not os.environ.get("ASTACK_NO_AUTO_INSTALL")
         )
-        return 2
+        if can_auto:
+            java = shutil.which("java")
+            if not (java and _java_is_runnable(java)):
+                print(
+                    f"error: TLC requires a runnable Java runtime (java not runnable on PATH).\n"
+                    f"Install Java first: {java_install_hint()}\n"
+                    f"Then re-run (astack-statechart installs tla2tools.jar v{DEFAULT_TLC_VERSION} automatically, "
+                    f"or run `astack-statechart install-tlc`).",
+                    file=sys.stderr,
+                )
+                return 2
+            try:
+                info = install_tlc(url=args.tlc_url, expected_sha256=args.tlc_sha256)
+                auto_installed_jar = info["jar"]
+                if not info["already_installed"]:
+                    print(
+                        f"astack-statechart: installed tla2tools.jar v{info['version']} to {auto_installed_jar}",
+                        file=sys.stderr,
+                    )
+                tlc_cmd = find_tlc(None, auto_installed_jar)
+            except TLCInstallError as exc:
+                print(
+                    f"error: TLC not found and automatic install failed ({exc}). "
+                    f"Run `astack-statechart install-tlc`, set TLA2TOOLS_JAR, or pass --jar/--tlc.",
+                    file=sys.stderr,
+                )
+                return 2
+        if not tlc_cmd:
+            print(
+                "error: TLC not found (or no runnable Java runtime). Run `astack-statechart install-tlc` "
+                "(requires Java), set TLA2TOOLS_JAR=/path/to/tla2tools.jar, or pass --jar/--tlc.",
+                file=sys.stderr,
+            )
+            return 2
 
     cfg = Path(args.cfg).expanduser().resolve() if args.cfg else model.with_suffix(".cfg")
     with tempfile.TemporaryDirectory(prefix="astack-statechart-") as scratch:
@@ -1151,12 +1329,22 @@ def cmd_check(args) -> int:
             print(f"error: TLC exited {proc.returncode} on {model.name}:\n{detail}", file=sys.stderr)
             return 2
 
-        mermaid, omitted = render_mermaid(graph, violations, max_states=args.max_states)
+        try:
+            mermaid, omitted, view_result = _render_with_optional_view(
+                graph, violations, max_states=args.max_states, view_cfg=view_cfg
+            )
+        except ViewError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
+        if view_result is not None and view_result.extra_rule_violations and exit_code == 0:
+            exit_code = 1
+
         if args.mermaid:
             Path(args.mermaid).expanduser().write_text(mermaid, encoding="utf-8")
 
         if args.as_json:
-            payload = {
+            payload: dict = {
                 "model": str(model),
                 "tlc_exit_code": proc.returncode,
                 "parser_mode": trace_info.get("mode"),
@@ -1170,23 +1358,31 @@ def cmd_check(args) -> int:
                 "violations": [v.__dict__ for v in violations],
                 "mermaid": mermaid,
             }
+            if auto_installed_jar:
+                payload["auto_installed_jar"] = auto_installed_jar
+            if view_result is not None:
+                payload["view"] = view_result.to_metadata()
             print(json.dumps(payload, indent=2))
         else:
-            print(_format_report(graph, violations, mermaid, omitted, stats=trace_info))
+            print(_format_report(graph, violations, mermaid, omitted, stats=trace_info, view_result=view_result))
         return exit_code
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        description="Run TLC in -tool mode (with -dump dot,actionlabels) or parse TLC DOT/traces to report shortest counterexamples and Mermaid stateDiagram-v2."
+        description="Run TLC in -tool mode, install TLC automatically, and compute checked human-readable Mermaid stateDiagram-v2 charts via optional view modules."
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_check = sub.add_parser("check", help="run TLC on a TLA+ model, report shortest paths to broken invariants, and draw Mermaid stateDiagram-v2")
     p_check.add_argument("model", help="path to MODEL.tla")
     p_check.add_argument("--cfg", help="path to MODEL.cfg (defaults to <model>.cfg if present)")
+    p_check.add_argument("--view", help="path to view module (.py or .json) mapping checked states to reader words, nested/parallel states, and marked rules")
     p_check.add_argument("--tlc", help="explicit tlc executable path")
     p_check.add_argument("--jar", help="explicit tla2tools.jar path")
+    p_check.add_argument("--no-install", action="store_true", help="do not auto-install tla2tools.jar when TLC is absent")
+    p_check.add_argument("--tlc-url", help=f"override download URL when auto-installing TLC (default: v{DEFAULT_TLC_VERSION})")
+    p_check.add_argument("--tlc-sha256", help="expected SHA-256 hex checksum when using --tlc-url")
     p_check.add_argument("--dump-dot", help="save TLC DOT dump to this path")
     p_check.add_argument("--mermaid", help="write Mermaid stateDiagram-v2 to this file")
     p_check.add_argument("--max-states", type=int, help="cap rendered states (always keeping initial and failure-path states)")
@@ -1199,15 +1395,26 @@ def main(argv=None) -> int:
     p_render = sub.add_parser("render", help="parse a Graphviz DOT state graph (and optional TLC output) into shortest violation paths + Mermaid")
     p_render.add_argument("dot", help="path to TLC -dump dot output")
     p_render.add_argument("--trace", help="optional TLC stdout/stderr text file (-tool or plain) for counterexample traces")
+    p_render.add_argument("--view", help="path to view module (.py or .json) mapping checked states to reader words, nested/parallel states, and marked rules")
     p_render.add_argument("--mermaid", help="write Mermaid stateDiagram-v2 to this file")
     p_render.add_argument("--max-states", type=int, help="cap rendered states (always keeping initial and failure-path states)")
     p_render.add_argument("--json", action="store_true", dest="as_json")
+
+    p_inst = sub.add_parser("install-tlc", help=f"download, SHA-256 verify, and install tla2tools.jar v{DEFAULT_TLC_VERSION} into user-space storage")
+    p_inst.add_argument("--dest", help=f"destination jar path (default: {default_tlc_jar_path()})")
+    p_inst.add_argument("--url", help=f"download URL (default: {DEFAULT_TLC_URL})")
+    p_inst.add_argument("--sha256", help=f"expected SHA-256 hex digest (default pinned for v{DEFAULT_TLC_VERSION}: {DEFAULT_TLC_SHA256[:16]}...)")
+    p_inst.add_argument("--force", action="store_true", help="re-download even if a verified jar already exists")
+    p_inst.add_argument("--timeout", type=float, default=120.0, help="download timeout in seconds (default: 120)")
+    p_inst.add_argument("--json", action="store_true", dest="as_json")
 
     args = parser.parse_args(argv)
     if args.command == "check":
         return cmd_check(args)
     if args.command == "render":
         return cmd_render(args)
+    if args.command == "install-tlc":
+        return cmd_install_tlc(args)
     return 2
 
 

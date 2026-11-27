@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-prove-it
+tier: core
+kind: atomic
+skills: [prove-it]
+context:
+  scaffold_script: setup.sh

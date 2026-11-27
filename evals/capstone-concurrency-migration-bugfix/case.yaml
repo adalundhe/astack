@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: capstone-concurrency-migration-bugfix
+tier: core
+kind: capstone
+skills: [bugbash, no-shared-writes, safe-to-deploy, tests-assert-behaviour, prove-it]
+context:
+  scaffold_script: setup.sh

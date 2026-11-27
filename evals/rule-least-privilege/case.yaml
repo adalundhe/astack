@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: rule-least-privilege
+tier: core
+kind: atomic
+skills: [least-privilege]
+context:
+  scaffold_script: setup.sh

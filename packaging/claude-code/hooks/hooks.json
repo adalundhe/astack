@@ -1,6 +1,18 @@
 {
   "description": "Auto-recall ~/.astack lessons, stamp lane logs with UTC timestamps, and keep Go mode (Lead role) sticky across prompts and compaction.",
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Read|Write|Edit|MultiEdit|Glob|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/astack-go-hook",
+            "args": ["--harness", "claude-code", "--event", "PreToolUse"]
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit|MultiEdit|Bash",
@@ -17,8 +29,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/bin/astack-go-hook --harness claude-code --event PostToolUse",
-            "args": []
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/astack-go-hook",
+            "args": ["--harness", "claude-code", "--event", "PostToolUse"]
           }
         ]
       }
@@ -28,8 +40,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/bin/astack-go-hook --harness claude-code --event UserPromptSubmit",
-            "args": []
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/astack-go-hook",
+            "args": ["--harness", "claude-code", "--event", "UserPromptSubmit"]
           }
         ]
       }
@@ -39,8 +51,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/bin/astack-go-hook --harness claude-code --event SessionStart",
-            "args": []
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/astack-go-hook",
+            "args": ["--harness", "claude-code", "--event", "SessionStart"]
           }
         ]
       }

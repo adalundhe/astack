@@ -2053,6 +2053,98 @@ class GoModeHookTest(Scratch):
             )
             self.assertEqual(r_bad_new.returncode, 2, f"expected exit 2 for {bad_new}")
 
+    def test_astack_tools_home_and_pretooluse_host_home_leak_guard(self):
+        """`astack-tools home` + `skills list` stamp ASTACK_HOME, and PreToolUse blocks host-home `.astack` access in sandboxes."""
+        import pwd
+
+        real_host_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+        sandbox_home = self.dir / "sandbox-home"
+        sandbox_astack = self.dir / "sandbox-astack"
+        sandbox_home.mkdir()
+        sandbox_astack.mkdir()
+        sb_env = {**os.environ, "HOME": str(sandbox_home), "ASTACK_HOME": str(sandbox_astack)}
+
+        # 1) `astack-tools home` returns exact ASTACK_HOME; `skills list` prints it up front
+        r_home = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "home"],
+            capture_output=True, text=True, env=sb_env,
+        )
+        self.assertEqual(r_home.returncode, 0, r_home.stderr)
+        self.assertEqual(Path(r_home.stdout.strip()), sandbox_astack)
+
+        r_list = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-tools"), "skills", "list", "--role", "reviewer"],
+            capture_output=True, text=True, env=sb_env,
+        )
+        self.assertEqual(r_list.returncode, 0, r_list.stderr)
+        self.assertIn(f"ASTACK_HOME: {sandbox_astack}", r_list.stdout)
+        self.assertIn("never expand `~`", r_list.stdout)
+
+        # 2) PreToolUse blocks real host ~/.astack access for BOTH Lead and subagents across harnesses!
+        leak_cmd = f"cp {real_host_home}/.astack/amphora/repros/r3b_runner.rs {sandbox_astack}/amphora/repros/r3b_runner.rs"
+        for harness, event_name, payload, check_deny in (
+            (
+                "claude-code",
+                "PreToolUse",
+                {"session_id": "s1", "agent_id": "sub-1", "tool_name": "Bash", "tool_input": {"command": leak_cmd}},
+                lambda d: d["hookSpecificOutput"]["permissionDecision"] == "deny" and str(sandbox_astack.resolve()) in d["hookSpecificOutput"]["permissionDecisionReason"],
+            ),
+            (
+                "codex",
+                "PreToolUse",
+                {"session_id": "s1", "subagent_type": "astack-reviewer", "tool_name": "Read", "tool_input": {"file_path": f"{real_host_home}/.astack/amphora/repros/r3b.rs"}},
+                lambda d: d["hookSpecificOutput"]["permissionDecision"] == "deny",
+            ),
+            (
+                "antigravity",
+                "PreToolUse",
+                {"conversationId": "c1", "toolCall": {"name": "run_command", "args": {"CommandLine": leak_cmd}}},
+                lambda d: d.get("decision") == "deny" and str(sandbox_astack.resolve()) in d.get("reason", ""),
+            ),
+            (
+                "cursor",
+                "beforeShellExecution",
+                {"command": leak_cmd},
+                lambda d: d.get("permission") == "deny" and str(sandbox_astack.resolve()) in d.get("agent_message", ""),
+            ),
+        ):
+            res = subprocess.run(
+                [str(BIN / "astack-go-hook"), "--harness", harness, "--event", event_name],
+                input=json.dumps(payload),
+                capture_output=True, text=True, env=sb_env,
+            )
+            self.assertEqual(res.returncode, 0, f"{harness}: {res.stderr}")
+            out_d = json.loads(res.stdout)
+            self.assertTrue(check_deny(out_d), f"{harness} should deny host-home leak, got {out_d}")
+
+        # 3) Sandboxed path access & normal repo paths are ALLOWED
+        ok_sb = subprocess.run(
+            [str(BIN / "astack-go-hook"), "--harness", "claude-code", "--event", "PreToolUse"],
+            input=json.dumps({"tool_name": "Bash", "tool_input": {"command": f"cp {sandbox_astack}/amphora/repros/a.rs /tmp/b.rs"}}),
+            capture_output=True, text=True, env=sb_env,
+        )
+        self.assertEqual(ok_sb.returncode, 0)
+        self.assertEqual(ok_sb.stdout.strip(), "")
+
+        ok_repo = subprocess.run(
+            [str(BIN / "astack-go-hook"), "--harness", "claude-code", "--event", "PreToolUse"],
+            input=json.dumps({"tool_name": "Read", "tool_input": {"file_path": f"{real_host_home}/Projects/amphora/src/lib.rs"}}),
+            capture_output=True, text=True, env=sb_env,
+        )
+        self.assertEqual(ok_repo.returncode, 0)
+        self.assertEqual(ok_repo.stdout.strip(), "")
+
+        # 4) Non-sandboxed normal run (HOME == real_host_home, ASTACK_HOME unset) allows ~/.astack cleanly
+        normal_env = {k: v for k, v in os.environ.items() if k != "ASTACK_HOME"}
+        normal_env["HOME"] = str(real_host_home)
+        ok_norm = subprocess.run(
+            [str(BIN / "astack-go-hook"), "--harness", "claude-code", "--event", "PreToolUse"],
+            input=json.dumps({"tool_name": "Read", "tool_input": {"file_path": f"{real_host_home}/.astack/amphora/repros/r3b.rs"}}),
+            capture_output=True, text=True, env=normal_env,
+        )
+        self.assertEqual(ok_norm.returncode, 0)
+        self.assertEqual(ok_norm.stdout.strip(), "")
+
 
 if __name__ == "__main__":
     unittest.main()

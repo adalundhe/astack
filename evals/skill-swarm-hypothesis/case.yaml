@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-swarm-hypothesis
+tier: deep
+kind: atomic
+skills: [swarm-hypothesis]
+context:
+  scaffold_script: setup.sh

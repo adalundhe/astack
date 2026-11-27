@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: rule-no-leaked-secrets
+tier: smoke
+kind: atomic
+skills: [no-leaked-secrets]
+context:
+  scaffold_script: setup.sh

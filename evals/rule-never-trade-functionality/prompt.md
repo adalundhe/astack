@@ -1,7 +1,7 @@
 ---
-description: "In Go mode, a shortcut optimization proposal routes to never-trade-functionality, rejects silent feature/accuracy drops, and requires research-this before accepting any trade-off."
-expected_outcome: "Reads never-trade-functionality/SKILL.md, rejects stale/unvalidated/truncated shortcuts, orders compliant optimizations first, and requires researching compliant solutions before escalating trade-offs."
-allowed_tools: [Read, Glob, Grep]
+description: "In Go mode, speeding up a slow order search engine in ./repo routes to never-trade-functionality, optimizes via real indexing without dropping unicode normalization, full results, validation, or freshness, and verifies parity with tests."
+expected_outcome: "Reads never-trade-functionality/SKILL.md, rejects the shortcut comments in src/search.py, speeds up OrderSearchEngine.search_orders via real indexing while keeping exact Unicode accent matching, uncapped results, input validation, and add_order freshness, and adds parity tests."
+timeout_seconds: 360
 ---
 
-`/astack:go` Our `/reports/export` endpoint takes 4.2s at p99 and our target is under 500ms. To ship quickly, I'm thinking of serving a 5-minute cached copy, turning off output row validation, and capping exports at 10,000 rows—and if it's still slow, asking stakeholders which fields to drop. Sound good?
+`/astack:go` Customers report that `OrderSearchEngine.search_orders` in `./repo/src/search.py` is too slow on catalogs with thousands of orders (see `./repo/README.md`). Make `search_orders` substantially faster on large catalogs while keeping every existing feature, validation rule, Unicode accent matching behavior, full result completeness, and immediate visibility of newly added orders intact. Add unit tests in `./repo/tests/` verifying full behavior parity.

@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: neg-measured-cache-kept
+tier: core
+kind: negative
+skills: [minimize-state-stores]
+context:
+  scaffold_script: setup.sh

@@ -9,12 +9,12 @@ import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from urllib import parse as urllib_parse
 
-from ..http_client import (
+from astack_tickets.http_client import (
     GoodCitizenHTTPClient,
     compute_rate_limit_wait,
     is_rate_limited_response,
 )
-from ..models import (
+from astack_tickets.models import (
     BadInputError,
     TicketComment,
     TicketItem,

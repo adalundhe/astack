@@ -1,7 +1,7 @@
 """Stdlib-only ticket queue watcher and ingester for GitHub Issues, Jira, and Linear."""
 from __future__ import annotations
 
-from .adapters import (
+from astack_tickets.adapters import (
     GitHubIssuesAdapter,
     JiraAdapter,
     LinearAdapter,
@@ -10,8 +10,8 @@ from .adapters import (
     parse_linear_filter,
     run_adapter_search,
 )
-from .brief import build_ticket_brief, dispatch_ticket_lead
-from .cli import (
+from astack_tickets.brief import build_ticket_brief, dispatch_ticket_lead
+from astack_tickets.cli import (
     build_parser,
     cmd_auth_check,
     cmd_ingest,
@@ -22,7 +22,7 @@ from .cli import (
     format_tickets_table,
     main,
 )
-from .http_client import (
+from astack_tickets.http_client import (
     GoodCitizenHTTPClient,
     HTTPResponse,
     RateLimitGovernor,
@@ -32,7 +32,7 @@ from .http_client import (
     parse_reset_header,
     parse_retry_after,
 )
-from .models import (
+from astack_tickets.models import (
     ACTIVE_STATES,
     BadInputError,
     DEFAULT_AUTONOMY_ALLOW,
@@ -59,7 +59,7 @@ from .models import (
     utc_iso,
     utc_now,
 )
-from .state import (
+from astack_tickets.state import (
     DurableSprintState,
     WatchLock,
     default_cache_root,

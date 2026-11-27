@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-cleanup
+tier: core
+kind: atomic
+skills: [cleanup]
+context:
+  scaffold_script: setup.sh

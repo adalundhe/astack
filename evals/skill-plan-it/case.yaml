@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-plan-it
+tier: core
+kind: atomic
+skills: [plan-it]
+context:
+  scaffold_script: setup.sh

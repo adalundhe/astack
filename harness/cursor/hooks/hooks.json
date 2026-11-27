@@ -1,6 +1,16 @@
 {
   "version": 1,
   "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "./bin/astack-go-hook --harness cursor --event beforeShellExecution"
+      }
+    ],
+    "beforeReadFile": [
+      {
+        "command": "./bin/astack-go-hook --harness cursor --event beforeReadFile"
+      }
+    ],
     "afterFileEdit": [
       {
         "command": "./bin/astack-stamp-hook"

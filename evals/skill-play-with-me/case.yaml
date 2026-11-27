@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-play-with-me
+tier: deep
+kind: atomic
+skills: [play-with-me]
+context:
+  scaffold_script: setup.sh

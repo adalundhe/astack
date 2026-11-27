@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-challenge
+tier: deep
+kind: atomic
+skills: [challenge]
+context:
+  scaffold_script: setup.sh

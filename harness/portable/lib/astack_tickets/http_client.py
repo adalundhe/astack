@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from urllib import error as urllib_error
 from urllib import request as urllib_request
 
-from .models import (
+from astack_tickets.models import (
     BadInputError,
     TrackerAuthError,
     TrackerNotFoundError,

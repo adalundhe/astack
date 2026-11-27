@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: neg-existing-project-no-first-run-env
+tier: smoke
+kind: negative
+skills: [analyze-environment]
+context:
+  scaffold_script: setup.sh

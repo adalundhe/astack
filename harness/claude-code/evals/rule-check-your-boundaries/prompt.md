@@ -1,26 +1,7 @@
 ---
-description: "In Go mode, refactoring a raw-dict endpoint routes to check-your-boundaries and parses untrusted input once at the edge."
-expected_outcome: "Reads check-your-boundaries/SKILL.md, parses raw payloads once into typed domain objects at the handler boundary, and strips repeated defensive checks from core logic."
-allowed_tools: [Read, Glob, Grep]
+description: "In Go mode, refactoring a raw-dict webhook processor in ./repo routes to check-your-boundaries, parses and validates payloads once at the entry point into typed domain dataclasses, and tests malformed inputs."
+expected_outcome: "Reads check-your-boundaries/SKILL.md, parses raw webhook payloads once at the entry point into typed domain dataclasses, strips scattered dict re-checks from core helpers, rejects malformed inputs at the boundary, and adds passing unit tests."
+timeout_seconds: 360
 ---
 
-`/astack:go` Clean up this Python invoice endpoint—we're about to add several more fields and the defensive checks are getting messy. Reply with the refactored code.
-
-```python
-def calculate_total(payload: dict) -> float:
-    if not payload or "items" not in payload or payload["items"] is None:
-        raise ValueError("missing items")
-    return sum(float(i["price"]) * int(i["qty"]) for i in payload["items"])
-
-def apply_discount(payload: dict, total: float) -> float:
-    code = payload.get("discount_code") if isinstance(payload, dict) else None
-    if code == "SAVE10":
-        return total * 0.9
-    return total
-
-def handle_request(http_request) -> dict:
-    body = http_request.json()
-    total = calculate_total(body)
-    final = apply_discount(body, total)
-    return {"status": 200, "total": final}
-```
+`/astack:go` Clean up the Python webhook invoice processor in `./repo` (`./repo/src/webhooks.py`; see `./repo/README.md` for the contract). Right now raw payloads get passed deep into helper functions, defensive dict checks are duplicated everywhere, and malformed requests either slip through or crash with unhandled errors. Refactor `./repo/src/webhooks.py` so incoming payloads are parsed and validated once at the entry point into typed domain objects, keep core calculation helpers operating directly on those typed objects, and add thorough tests in `./repo/tests/` covering both valid and malformed payloads.

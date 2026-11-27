@@ -6,11 +6,11 @@ import json
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib import request as urllib_request
 
-from ..http_client import GoodCitizenHTTPClient, RateLimitGovernor
-from ..models import TicketItem, TrackerKind
-from .github import GitHubIssuesAdapter
-from .jira import JiraAdapter, adf_to_text
-from .linear import LinearAdapter, parse_linear_filter
+from astack_tickets.http_client import GoodCitizenHTTPClient, RateLimitGovernor
+from astack_tickets.models import TicketItem, TrackerKind
+from astack_tickets.adapters.github import GitHubIssuesAdapter
+from astack_tickets.adapters.jira import JiraAdapter, adf_to_text
+from astack_tickets.adapters.linear import LinearAdapter, parse_linear_filter
 
 
 def build_adapter(

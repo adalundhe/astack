@@ -1,6 +1,6 @@
 ---
 name: astack-go
-description: "Single entry point for astack; routes on demand by path to all 94 hidden workflows and coding rules. Use before any review, bug, refactor, build, plan, test, benchmark, research, or catch-up task."
+description: "Single entry point for astack; routes on demand by path to all 97 hidden workflows and coding rules. Use before any review, bug, refactor, build, plan, test, benchmark, research, or catch-up task."
 ---
 
 # Go mode
@@ -30,15 +30,15 @@ Read matching skill file(s) before starting:
 
 - **Setup:** `../astack-setup/SKILL.md`
 - **Plan & run:**
-  - Interrogate and shape an idea, plan, or architecture before coding: `../plan-it/SKILL.md`
+  - Interrogate/shape an idea or design before coding: `../plan-it/SKILL.md`
   - Reviewed task DAG: `../dagify/SKILL.md`
   - Bottom-up component-tree waves: `../treeify/SKILL.md`
-  - Multi-repo PR merge & deploy DAG (`astack-release`): `../cross-repo/SKILL.md`
-  - Safe revert & deploy rollback (investigate landing/deploy shape first): `../unland/SKILL.md`
+  - Multi-repo merge & deploy DAG (`astack-release`): `../cross-repo/SKILL.md`
+  - Safe revert & rollback (check landing/deploy first): `../unland/SKILL.md`
   - Automated/recurring workflows: `../workflow-this/SKILL.md`
   - Parallel worker lanes: `../astack-lead/SKILL.md`
   - Issue-tracker sync: `../track-it/SKILL.md`
-  - Watch GitHub/Jira/Linear tickets & drive via `go` (`astack-watch-tickets`): `../sprint/SKILL.md`
+  - Watch tickets & drive via `go` (`astack-watch-tickets`): `../sprint/SKILL.md`
   - Isolated VFS workspaces (`slates`, fallback worktrees): `../slates/SKILL.md`
 - **Status & catch-up:**
   - Active workers/lanes: `../astack-status/SKILL.md`
@@ -47,9 +47,9 @@ Read matching skill file(s) before starting:
   - Restate goal/scope/done-when: `../run-it-back/SKILL.md`
   - Peer challenge on hypotheses/fixes/designs: `../challenge/SKILL.md`
   - Inspect repo/PR/history/docs first: `../rtfm/SKILL.md`
-  - Consult saved `~/.astack` lessons, architecture decisions, and review evidence bundles: `../lookup/SKILL.md`
+  - Saved `~/.astack` lessons, ADs, and review bundles: `../lookup/SKILL.md`
   - Discover CLIs, APIs, MCPs, contexts (`TOOLS.md`): `../analyze-environment/SKILL.md`
-  - Discover and build verified connection tooling for a target environment: `../jack-in/SKILL.md`
+  - Discover & build verified env connection tooling: `../jack-in/SKILL.md`
   - Codebase walkthrough (`file:line`): `../how-it-works/SKILL.md`
   - Mermaid state/failure diagrams: `../show-the-states/SKILL.md`
   - Graded primary-source research (A–F): `../research-this/SKILL.md`
@@ -57,7 +57,7 @@ Read matching skill file(s) before starting:
   - Throwaway prototype/mockup: `../play-with-me/SKILL.md`
   - Explain unfamiliar concepts: `../talk-to-me/SKILL.md`
   - Unfamiliar area, tool, or discipline (research + visuals + interactive demo): `../idk/SKILL.md`
-  - Next-step interface & feature opportunities (`stepped-complexity` + `delight-users`): `../next-step/SKILL.md`
+  - Minimal-surface next-step features (`stepped-complexity` + `delight-users`): `../next-step/SKILL.md`
   - Architecture decision document (`AD_<N>.md`): `../create-adc/SKILL.md`
 - **Optimize & experiment:**
   - Statistical benchmarks: `../benchmarking/SKILL.md`
@@ -80,10 +80,12 @@ Read matching skill file(s) before starting:
 - **Refactor, review, PRs:**
   - Indirect breakage beyond diff: `../blast-radius/SKILL.md`
   - Cut unnecessary complexity: `../simplify-me/SKILL.md`
-  - Audit & reduce user/API/CLI/config contract surface: `../rightsize-contracts/SKILL.md`
+  - Reduce user/API/CLI/config contract surface: `../rightsize-contracts/SKILL.md`
   - Monolith split via POC + `dagify`: `../modularize/SKILL.md`
   - High-churn structural redesign: `../rearchitect/SKILL.md`
   - Vectored adversarial review: `../astack-review/SKILL.md` and `../adversarial-review/SKILL.md`
+  - Single-reviewer blocker check (user-invoked): `../quickcheck/SKILL.md`
+  - Score `[0, 1)` review vectors & finder checks: `../risk-modeling/SKILL.md`
   - Independently audited PR replies: `../leave-feedback/SKILL.md`
   - Evidence-backed pushback: `../worrywart/SKILL.md`
   - Resolve all review findings/threads: `../address-feedback/SKILL.md`
@@ -93,18 +95,19 @@ Read matching skill file(s) before starting:
 - **Communicate, automate, wrap up:**
   - Autonomy & plain escalations: `../decisions-in-plain-words/SKILL.md`
   - Plain bottom-line rewrite: `../wat/SKILL.md`
-  - Immediate course-correction on repeated reminders: `../bap/SKILL.md`
+  - Course-correction on repeated reminders: `../bap/SKILL.md`
   - Docs impact audit & verified docs: `../technical-writing/SKILL.md`
   - Script/watcher automation: `../automate-this/SKILL.md`
-  - Create, run, or manage TaskEx scripts, watchers, and schedules (`taskex`): `../taskex/SKILL.md`
-  - Create, run, or manage concise Orchestral DAG workflows (`orchestral`): `../orchestral/SKILL.md`
-  - Create, run, or manage modular Werkflow workflows (`werkflow` + `werkflow-modules`): `../werkflow/SKILL.md`
+  - TaskEx scripts/watchers/schedules: `../taskex/SKILL.md`
+  - Orchestral DAG workflows: `../orchestral/SKILL.md`
+  - Modular Werkflow workflows: `../werkflow/SKILL.md`
   - Durable checkpoints: `../checkpoint/SKILL.md`
   - Pause runs cleanly: `../suspend/SKILL.md`
   - Resume/recover runs: `../resume/SKILL.md`
   - Post-review/debug cleanup: `../cleanup/SKILL.md`
-  - Deep forensic review of past chats/tickets/deploys into `~/.astack/<project>/lessons/<lesson>/LESSON.md`: `../lookback/SKILL.md`
+  - Forensic lessons into `~/.astack/<project>/lessons/`: `../lookback/SKILL.md`
   - Session lessons & structural guards: `../make-it-stick/SKILL.md`
+  - Mine `~/.astack` into personal skills: `../skill-up/SKILL.md`
 
 ## Principles and coding-rules index
 
@@ -201,12 +204,14 @@ Every skill has an owner: **required** = load in full before starting; **when it
 | `$plan-it` | when it applies | – | – | when it applies |
 | `$play-with-me` | when it applies | when it applies | – | – |
 | `$prove-it` | when it applies | when it applies | required | when it applies |
+| `$quickcheck` | when it applies | – | when it applies | – |
 | `$rearchitect` | when it applies | – | – | when it applies |
 | `$redteam` | when it applies | – | – | – |
 | `$research-this` | when it applies | when it applies | when it applies | required |
 | `$resume` | when it applies | when it applies | – | – |
 | `$astack-review` | when it applies | – | when it applies | – |
 | `$rightsize-contracts` | when it applies | when it applies | when it applies | when it applies |
+| `$risk-modeling` | when it applies | – | when it applies | when it applies |
 | `$rtfm` | required | required | required | required |
 | `$run-it-back` | required | required | when it applies | required |
 | `$safe-iac` | when it applies | when it applies | when it applies | when it applies |
@@ -215,6 +220,7 @@ Every skill has an owner: **required** = load in full before starting; **when it
 | `$astack-setup` | when it applies | – | – | – |
 | `$show-the-states` | when it applies | when it applies | when it applies | when it applies |
 | `$simplify-me` | when it applies | when it applies | when it applies | – |
+| `$skill-up` | when it applies | when it applies | when it applies | when it applies |
 | `$slates` | when it applies | when it applies | when it applies | – |
 | `$sprint` | when it applies | – | – | – |
 | `$squish` | when it applies | – | – | – |

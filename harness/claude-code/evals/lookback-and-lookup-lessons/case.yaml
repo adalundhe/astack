@@ -1,4 +1,7 @@
-schema_version: "1.1"
+schema_version: "1.2"
 name: lookback-and-lookup-lessons
+tier: smoke
+kind: atomic
+skills: [lookback, lookup]
 context:
   scaffold_script: setup.sh

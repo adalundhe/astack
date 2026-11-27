@@ -8,10 +8,10 @@ import sys
 import time
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
-from .adapters import build_adapter, run_adapter_search
-from .brief import build_ticket_brief, dispatch_ticket_lead
-from .http_client import RateLimitGovernor
-from .models import (
+from astack_tickets.adapters import build_adapter, run_adapter_search
+from astack_tickets.brief import build_ticket_brief, dispatch_ticket_lead
+from astack_tickets.http_client import RateLimitGovernor
+from astack_tickets.models import (
     BadInputError,
     EXIT_API_OR_TIMEOUT,
     EXIT_BAD_INPUT,
@@ -29,7 +29,7 @@ from .models import (
     sanitize_text,
     utc_iso,
 )
-from .state import (
+from astack_tickets.state import (
     DurableSprintState,
     WatchLock,
     default_cache_root,

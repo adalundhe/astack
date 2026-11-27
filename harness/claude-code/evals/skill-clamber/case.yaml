@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-clamber
+tier: deep
+kind: atomic
+skills: [clamber]
+context:
+  scaffold_script: setup.sh

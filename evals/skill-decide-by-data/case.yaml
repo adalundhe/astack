@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-decide-by-data
+tier: deep
+kind: atomic
+skills: [decide-by-data]
+context:
+  scaffold_script: setup.sh

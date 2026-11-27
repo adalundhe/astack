@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-make-it-stick
+tier: core
+kind: atomic
+skills: [make-it-stick]
+context:
+  scaffold_script: setup.sh

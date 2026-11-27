@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: capstone-perf-accuracy-trap
+tier: core
+kind: capstone
+skills: [benchmarking, ab-test, clamber, never-trade-functionality, no-picked-constants]
+context:
+  scaffold_script: setup.sh

@@ -1,4 +1,7 @@
-schema_version: "1.1"
+schema_version: "1.2"
 name: bugbash-investigates-and-proves-fix
+tier: core
+kind: atomic
+skills: [bugbash, find-it, fix-it, prove-it]
 context:
   scaffold_script: setup.sh

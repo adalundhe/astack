@@ -8,7 +8,7 @@ from pathlib import Path
 import shutil
 from typing import Any, Dict, Optional, Tuple
 
-from .models import (
+from astack_tickets.models import (
     BadInputError,
     DEFAULT_AUTONOMY_ALLOW,
     DEFAULT_AUTONOMY_DENY,

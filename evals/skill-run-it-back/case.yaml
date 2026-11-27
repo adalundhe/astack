@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-run-it-back
+tier: deep
+kind: atomic
+skills: [run-it-back]
+context:
+  scaffold_script: setup.sh

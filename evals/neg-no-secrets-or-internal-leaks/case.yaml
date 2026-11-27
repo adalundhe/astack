@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: neg-no-secrets-or-internal-leaks
+tier: core
+kind: negative
+skills: [no-leaked-secrets, wat]
+context:
+  scaffold_script: setup.sh

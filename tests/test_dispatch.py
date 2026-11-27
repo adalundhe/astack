@@ -45,6 +45,7 @@ class DispatchTest(unittest.TestCase):
             "PATH": f"{path_dir or self.stub_bin}{os.pathsep}/usr/bin{os.pathsep}/bin",
             "ASTACK_DISPATCH_STRICT_PATH": "1",
             "ASTACK_DISPATCH_STATE_DIR": str(self.dir / "dispatch-state"),
+            "ASTACK_HOME": str(self.dir / "sandbox-astack"),
         }
         return subprocess.run(
             [sys.executable, "-B", str(BIN / "astack-dispatch"), *args],
@@ -146,6 +147,9 @@ class DispatchTest(unittest.TestCase):
             self.assertEqual(res.returncode, 0, f"{harness}: {res.stderr}")
             preview = json.loads(res.stdout)
             self.assertEqual(preview["harness"], harness)
+            self.assertEqual(preview["astack_home"], str(self.dir / "sandbox-astack"))
+            if harness in ("agy", "cursor", "devin", "gemini"):
+                self.assertIn(f"ASTACK_HOME: {self.dir / 'sandbox-astack'}", " ".join(preview["argv"]))
             for token in must_have:
                 self.assertIn(token, preview["argv"], f"{harness} missing {token!r} in {preview['argv']}")
             if harness == "devin":

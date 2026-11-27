@@ -25,6 +25,7 @@ Usage:
   astack-tools install-agents --harness HARNESS [--settings PATH] [--target DIR] [--dry-run]
   astack-tools enable-claude-skills [--settings PATH] [--dry-run]
   astack-tools skills-dir
+  astack-tools home
   astack-tools skills list --role lead|worker|reviewer|researcher
   astack-tools skills get SKILL
   astack-tools python [--venv DIR] [ARGS...]
@@ -2431,6 +2432,10 @@ def cmd_skills_list(args) -> int:
     if first_run and "analyze-environment" in marks:
         marks["analyze-environment"] = REQUIRED
     print(f"astack skills for the {args.role}. Load one with `astack-tools skills get <name>`, one skill per call, read in full.")
+    print(
+        f"ASTACK_HOME: {astack_home_dir()} — resolve store paths via `astack-tools <bucket> path` or `$ASTACK_HOME`; "
+        "never expand `~` to `/Users/<user>` or `/home/<user>` from memory."
+    )
     if first_run and "analyze-environment" in marks:
         print(
             f"First astack run detected for project '{slug}' ({pdir} does not exist yet): "
@@ -2470,6 +2475,11 @@ def cmd_skills_dir() -> int:
         print("error: could not locate bundled astack skills/ directory", file=sys.stderr)
         return 1
     print(skills_dir)
+    return 0
+
+
+def cmd_home() -> int:
+    print(astack_home_dir())
     return 0
 
 
@@ -2750,6 +2760,7 @@ def main(argv=None) -> int:
     p_enable_cs.add_argument("--dry-run", action="store_true", help="print actions without modifying settings.json")
 
     sub.add_parser("skills-dir", help="print the absolute path to the installed astack skills/ directory")
+    sub.add_parser("home", help="print the resolved ASTACK_HOME store directory (honoring ASTACK_HOME or $HOME/.astack)")
     p_skills = sub.add_parser("skills", help="list the skills that are a role's, or print one in full")
     skills_sub = p_skills.add_subparsers(dest="skills_command", required=True)
     p_skills_list = skills_sub.add_parser("list", help="a role's skills: required ones, and ones to load when the work calls for them")
@@ -2798,6 +2809,8 @@ def main(argv=None) -> int:
         return cmd_enable_claude_skills(args)
     if args.command == "skills-dir":
         return cmd_skills_dir()
+    if args.command == "home":
+        return cmd_home()
     if args.command == "skills":
         return cmd_skills_list(args) if args.skills_command == "list" else cmd_skills_get(args)
     if args.command == "env":

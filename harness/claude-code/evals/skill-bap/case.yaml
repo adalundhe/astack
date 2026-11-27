@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-bap
+tier: core
+kind: atomic
+skills: [bap]
+context:
+  scaffold_script: setup.sh

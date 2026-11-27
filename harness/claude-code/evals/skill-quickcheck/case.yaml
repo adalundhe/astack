@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-quickcheck
+tier: core
+kind: atomic
+skills: [quickcheck]
+context:
+  scaffold_script: setup.sh

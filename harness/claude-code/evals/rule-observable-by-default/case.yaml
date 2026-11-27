@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: rule-observable-by-default
+tier: deep
+kind: atomic
+skills: [observable-by-default]
+context:
+  scaffold_script: setup.sh

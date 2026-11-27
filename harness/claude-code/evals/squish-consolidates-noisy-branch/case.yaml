@@ -1,4 +1,7 @@
-schema_version: "1.1"
+schema_version: "1.2"
 name: squish-consolidates-noisy-branch
+tier: core
+kind: atomic
+skills: [squish]
 context:
   scaffold_script: setup.sh

@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: neg-unapproved-model-refused
+tier: core
+kind: negative
+skills: [review, lead]
+context:
+  scaffold_script: setup.sh

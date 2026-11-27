@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: rule-data-structures-first
+tier: core
+kind: atomic
+skills: [data-structures-first]
+context:
+  scaffold_script: setup.sh

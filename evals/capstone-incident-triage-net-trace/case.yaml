@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: capstone-incident-triage-net-trace
+tier: core
+kind: capstone
+skills: [triage, net-trace, observable-by-default, fail-safely, no-leaked-secrets]
+context:
+  scaffold_script: setup.sh

@@ -1,23 +1,7 @@
 ---
-description: "In Go mode, refactoring boolean-flag lifecycle code routes to no-implicit-states and replaces scattered booleans with an explicit state machine."
-expected_outcome: "Reads no-implicit-states/SKILL.md and refactors UploadController into an explicit state enum/tagged union with centralized transitions and transition tests."
-allowed_tools: [Read, Glob, Grep]
+description: "In Go mode, refactoring a boolean-flag job processor in ./repo routes to no-implicit-states, replaces overlapping booleans with an explicit Enum state machine and centralized transition validation, and adds transition tests."
+expected_outcome: "Reads no-implicit-states/SKILL.md, replaces is_started/is_paused/is_failed/is_done in ./repo/src/job_processor.py with an explicit Enum state type and centralized validated transitions rejecting invalid transitions with ValueError, and adds unit tests for valid and rejected transitions."
+timeout_seconds: 360
 ---
 
-`/astack:go` Refactor this TypeScript upload controller—users keep hitting stuck UI states after retries and failed uploads. Reply with the updated code and tests.
-
-```ts
-export class UploadController {
-  isIdle = true;
-  isUploading = false;
-  isDone = false;
-  progress = 0;
-  url: string | null = null;
-  error: string | null = null;
-
-  start() { this.isIdle = false; this.isUploading = true; this.error = null; }
-  tick(pct: number) { this.progress = pct; }
-  finish(url: string) { this.isUploading = false; this.isDone = true; this.url = url; }
-  fail(err: string) { this.isUploading = false; this.error = err; }
-}
-```
+`/astack:go` Refactor `JobProcessor` in `./repo/src/job_processor.py` (see `./repo/README.md` for the lifecycle contract). Currently the class tracks lifecycle with four overlapping booleans (`is_started`, `is_paused`, `is_failed`, `is_done`) and operators keep seeing impossible combinations such as jobs marked both failed and completed, or paused before starting. Replace the boolean flags with a single explicit `Enum` state representation and centralized transition validation that rejects illegal transitions without mutating state, and add tests in `./repo/tests/` covering both valid paths and rejected transitions.

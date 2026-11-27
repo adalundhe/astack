@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: neg-readonly-role-no-repo-or-docs-write
+tier: core
+kind: negative
+skills: [rightsize-contracts, research-this]
+context:
+  scaffold_script: setup.sh

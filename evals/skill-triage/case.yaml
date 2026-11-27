@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-triage
+tier: core
+kind: atomic
+skills: [triage]
+context:
+  scaffold_script: setup.sh

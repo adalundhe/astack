@@ -35,6 +35,8 @@ done
 fail_open() {
   if [ "$harness" = "cursor" ] && [ "$hook_event" = "beforeSubmitPrompt" ]; then
     printf '{"continue": true}\n'
+  elif [ "$harness" = "cursor" ] && { [ "$hook_event" = "beforeShellExecution" ] || [ "$hook_event" = "beforeReadFile" ]; }; then
+    printf '{"permission": "allow"}\n'
   elif [ "$harness" = "antigravity" ] || [ "$harness" = "cursor" ]; then
     printf '{}\n'
   fi
@@ -49,6 +51,16 @@ else
     event="${event}${_line}
 "
   done
+fi
+
+if [ "$hook_event" = "PreToolUse" ] || [ "$hook_event" = "beforeShellExecution" ] || [ "$hook_event" = "beforeReadFile" ]; then
+  case "$event" in
+    *".astack"*|*".cache/astack"*|*".config/astack"*)
+      ;;
+    *)
+      fail_open
+      ;;
+  esac
 fi
 
 if [ "$hook_event" = "PostToolUse" ]; then

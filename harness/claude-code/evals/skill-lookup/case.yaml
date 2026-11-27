@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-lookup
+tier: core
+kind: atomic
+skills: [lookup]
+context:
+  scaffold_script: setup.sh

@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: capstone-dagify-parallel-merge
+tier: core
+kind: capstone
+skills: [dagify, lead, review, squish, lookback]
+context:
+  scaffold_script: setup.sh

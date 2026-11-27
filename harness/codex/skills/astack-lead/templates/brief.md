@@ -1,4 +1,5 @@
 Skills directory: <resolved absolute path from `astack-tools skills-dir`, never `..`>
+Astack home: <resolved absolute path from `astack-tools home` — always use this path or `astack-tools <bucket> path`; never expand `~` to `/Users/<user>` or `/home/<user>` from memory>
 
 # <lane>: <the deliverable in a few words>
 

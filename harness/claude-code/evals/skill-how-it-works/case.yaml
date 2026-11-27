@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-how-it-works
+tier: core
+kind: atomic
+skills: [how-it-works]
+context:
+  scaffold_script: setup.sh

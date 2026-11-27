@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-talk-to-me
+tier: deep
+kind: atomic
+skills: [talk-to-me]
+context:
+  scaffold_script: setup.sh

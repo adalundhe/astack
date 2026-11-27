@@ -1,4 +1,7 @@
-schema_version: "1.1"
+schema_version: "1.2"
 name: review-checks-context-and-rules
+tier: core
+kind: atomic
+skills: [adversarial-review, rtfm]
 context:
   scaffold_script: setup.sh

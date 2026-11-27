@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-werkflow
+tier: core
+kind: atomic
+skills: [werkflow]
+context:
+  scaffold_script: setup.sh

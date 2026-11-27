@@ -8,12 +8,12 @@ import shlex
 import time
 from typing import Any, Dict, List, Optional
 
-from ..http_client import (
+from astack_tickets.http_client import (
     GoodCitizenHTTPClient,
     compute_rate_limit_wait,
     is_rate_limited_response,
 )
-from ..models import (
+from astack_tickets.models import (
     BadInputError,
     TicketComment,
     TicketItem,

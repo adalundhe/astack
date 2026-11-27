@@ -14,6 +14,18 @@
     ]
   },
   "astack-go-mode": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command|read_file|view_file|write_file|edit_file|replace_file_content|multi_replace_file_content",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./bin/astack-go-hook --harness antigravity --event PreToolUse",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "read_file|view_file|run_command",

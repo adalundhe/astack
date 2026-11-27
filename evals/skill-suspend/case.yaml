@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-suspend
+tier: deep
+kind: atomic
+skills: [suspend]
+context:
+  scaffold_script: setup.sh

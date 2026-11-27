@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-net-trace
+tier: core
+kind: atomic
+skills: [net-trace]
+context:
+  scaffold_script: setup.sh

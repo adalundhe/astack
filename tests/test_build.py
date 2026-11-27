@@ -413,6 +413,15 @@ class BuildTest(unittest.TestCase):
             ):
                 self.assertTrue((HARNESS / tool / "bin" / script).stat().st_mode & 0o111, f"{tool}/{script}")
             for mod in (
+                "astack_ledger/__init__.py",
+                "astack_ledger/risk.py",
+                "astack_ledger/capture.py",
+                "astack_ledger/engine.py",
+                "astack_ledger/format.py",
+                "astack_statechart/__init__.py",
+                "astack_statechart/tla_state.py",
+                "astack_statechart/tlc_installer.py",
+                "astack_statechart/view.py",
                 "astack_tickets/__init__.py",
                 "astack_tickets/__main__.py",
                 "astack_tickets/models.py",
@@ -426,11 +435,12 @@ class BuildTest(unittest.TestCase):
                 "astack_tickets/adapters/linear.py",
             ):
                 self.assertTrue((HARNESS / tool / "lib" / mod).is_file(), f"{tool}/lib/{mod} missing")
-            help_res = subprocess.run(
-                [sys.executable, "-B", str(HARNESS / tool / "bin" / "astack-watch-tickets"), "--help"],
-                capture_output=True, text=True,
-            )
-            self.assertEqual(help_res.returncode, 0, f"{tool} astack-watch-tickets --help: {help_res.stderr}")
+            for thin_cli in ("astack-review-ledger", "astack-watch-tickets", "astack-statechart"):
+                help_res = subprocess.run(
+                    [sys.executable, "-B", str(HARNESS / tool / "bin" / thin_cli), "--help"],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(help_res.returncode, 0, f"{tool} {thin_cli} --help: {help_res.stderr}")
 
     def test_readme_lists_every_skill_and_notice_attributions_hold(self):
         skills = {p.name for p in (ROOT / "skills").iterdir() if (p / "SKILL.md").is_file()}
@@ -444,15 +454,65 @@ class BuildTest(unittest.TestCase):
             self.assertIn("See NOTICE.md.", (ROOT / rel).read_text(), rel)
 
     def test_evals_are_well_formed_and_rule_evals_check_rule_reads_without_giving_away_the_name(self):
-        cases = sorted(p for p in (ROOT / "evals").iterdir() if p.is_dir())
-        self.assertGreaterEqual(len(cases), 9)
+        import importlib.util
+        kit_spec = importlib.util.spec_from_file_location("astack_eval_kit_test", ROOT / "evals" / "_eval_kit.py")
+        assert kit_spec and kit_spec.loader
+        eval_kit = importlib.util.module_from_spec(kit_spec)
+        kit_spec.loader.exec_module(eval_kit)
+
+        all_skills = {p.name for p in (ROOT / "skills").iterdir() if (p / "SKILL.md").is_file()}
+        go_text = (ROOT / "skills/go/SKILL.md").read_text()
+        rules_section = go_text[go_text.find("## Principles and coding-rules index"):go_text.find("## Skills by role")]
+        all_rules = set(re.findall(r"\.\./([a-z0-9-]+)/SKILL\.md", rules_section))
+        oracles = {
+            p.stem
+            for p in (ROOT / "tests" / "fixtures" / "eval_oracles").glob("*.py")
+            if not p.name.startswith("_")
+        }
+        cases = sorted(p for p in (ROOT / "evals").iterdir() if p.is_dir() and p.name != "__pycache__")
+        self.assertGreaterEqual(len(cases), 115)
+        atomic_covered: set[str] = set()
+        capstones: list[str] = []
+        negatives: list[str] = []
         for case in cases:
-            yaml_text = (case / "case.yaml").read_text()
-            self.assertIn("schema_version:", yaml_text, f"{case.name} case.yaml missing schema_version")
-            self.assertIn(f"name: {case.name}", yaml_text)
+            yaml_path = case / "case.yaml"
+            yaml_text = yaml_path.read_text()
+            meta = eval_kit.parse_case_yaml(yaml_path)
+            self.assertEqual(meta["schema_version"], "1.2", f"{case.name} case.yaml schema_version must be 1.2")
+            self.assertEqual(meta["name"], case.name, f"{case.name} case.yaml name mismatch")
+            self.assertIn(meta["tier"], {"smoke", "core", "deep"}, f"{case.name} invalid tier {meta['tier']!r}")
+            self.assertIn(meta["kind"], {"atomic", "capstone", "negative"}, f"{case.name} invalid kind {meta['kind']!r}")
+            self.assertTrue(
+                isinstance(meta["skills"], list) and len(meta["skills"]) > 0,
+                f"{case.name} must declare a non-empty skills list",
+            )
+            for skill in meta["skills"]:
+                self.assertIn(skill, all_skills, f"{case.name} references unknown skill {skill!r}")
+            if meta["kind"] == "atomic":
+                atomic_covered.update(meta["skills"])
+            elif meta["kind"] == "capstone":
+                capstones.append(case.name)
+                self.assertTrue((case / "setup.sh").is_file(), f"{case.name} capstone missing setup.sh")
+                self.assertTrue((case / "verify.py").is_file(), f"{case.name} capstone missing verify.py")
+                self.assertIn(case.name, oracles, f"{case.name} capstone missing separated oracle")
+            elif meta["kind"] == "negative":
+                negatives.append(case.name)
+                self.assertTrue((case / "setup.sh").is_file(), f"{case.name} negative control missing setup.sh")
+                self.assertTrue((case / "verify.py").is_file(), f"{case.name} negative control missing verify.py")
+                self.assertIn(case.name, oracles, f"{case.name} negative control missing separated oracle")
+                oracle_src = (ROOT / "tests" / "fixtures" / "eval_oracles" / f"{case.name}.py").read_text()
+                self.assertIn("def violate(", oracle_src, f"{case.name} negative oracle must define violate(ws)")
+                self.assertIn("def apply(", oracle_src, f"{case.name} negative oracle must define apply(ws)")
+            if (case / "verify.py").is_file():
+                self.assertIn(
+                    case.name,
+                    oracles,
+                    f"{case.name} has verify.py but is missing separated oracle tests/fixtures/eval_oracles/{case.name}.py",
+                )
             _, prompt_body = front_matter(case / "prompt.md")
             if (case / "setup.sh").is_file():
                 self.assertIn("context:\n  scaffold_script: setup.sh", yaml_text, f"{case.name} must nest scaffold_script under context:")
+                self.assertEqual(meta["scaffold_script"], "setup.sh", f"{case.name} parsed scaffold_script mismatch")
                 self.assertTrue((case / "setup.sh").stat().st_mode & 0o111, case.name)
             graders = sorted((case / "graders").glob("*.md"))
             self.assertTrue(graders, f"{case.name} has no graders")
@@ -464,6 +524,12 @@ class BuildTest(unittest.TestCase):
                 types.add(gtype)
                 if gtype == "regex":
                     re.compile(fields["pattern"].strip("'\""))
+                    if "negate" in fields:
+                        self.assertIn(
+                            fields["negate"].strip("'\""),
+                            {"true", "false"},
+                            f"{grader} negate must be 'true' or 'false'",
+                        )
                 elif gtype == "llm":
                     self.assertTrue(body.strip(), grader)
             if case.name.startswith("rule-"):
@@ -471,6 +537,16 @@ class BuildTest(unittest.TestCase):
                 self.assertNotIn(rule_name, prompt_body, f"{case.name} prompt gives away the rule name")
                 self.assertIn("tool_used", types, f"{case.name} must verify the hidden rule was read")
                 self.assertIn("llm", types, f"{case.name} must grade the output")
+                self.assertTrue((case / "setup.sh").is_file(), f"{case.name} rule eval must have executable setup.sh")
+                self.assertTrue((case / "verify.py").is_file(), f"{case.name} rule eval must have executable verify.py")
+                self.assertIn(case.name, oracles, f"{case.name} rule eval missing separated oracle")
+
+        # AD-1 structural coverage guards: 100% 1:1 skill coverage, 24/24 executable coding rules, >=8 capstones, >=12 negatives
+        self.assertEqual(atomic_covered, all_skills, f"Missing 1:1 atomic eval coverage for: {sorted(all_skills - atomic_covered)}")
+        for rule_name in sorted(all_rules):
+            self.assertTrue((ROOT / "evals" / f"rule-{rule_name}" / "verify.py").is_file(), f"Missing executable rule eval for {rule_name}")
+        self.assertGreaterEqual(len(capstones), 8, f"Expected >= 8 depth-first capstones, found {len(capstones)}")
+        self.assertGreaterEqual(len(negatives), 12, f"Expected >= 12 dedicated negative controls, found {len(negatives)}")
 
         # Verify vectored-review evals grade actual Agent tool spawns (binding astack:reviewer + model together & exact counts)
         conc_graders = {p.stem: front_matter(p)[0] for p in (ROOT / "evals/vectored-review-concurrency/graders").glob("*.md")}
@@ -736,6 +812,59 @@ class BuildTest(unittest.TestCase):
             hook_text = (HARNESS / hook_rel).read_text()
             json.loads(hook_text)
             self.assertIn("astack-go-hook", hook_text, f"{hook_rel} missing astack-go-hook")
+
+        # Regression guard for Claude Code 2.1+ exec-form hooks: when "args" is present, "command" MUST be
+        # a single executable path with zero embedded arguments/spaces (never "... --harness ..." + "args": []),
+        # and every hook entry must actually execute cleanly via execve without ENOENT!
+        cc_root = HARNESS / "claude-code"
+        cc_hooks_cfg = json.loads((cc_root / "hooks/hooks.json").read_text())
+        self.assertEqual(
+            (ROOT / "packaging/claude-code/hooks/hooks.json").read_text(),
+            (cc_root / "hooks/hooks.json").read_text(),
+        )
+        with tempfile.TemporaryDirectory(prefix="astack-cc-hook-test-") as td:
+            hook_env = {**os.environ, "ASTACK_STATE_DIR": td}
+            executed_events: set[str] = set()
+            for ev_name, groups in cc_hooks_cfg["hooks"].items():
+                for grp in groups:
+                    for h in grp["hooks"]:
+                        self.assertEqual(h.get("type"), "command")
+                        cmd_raw = h["command"]
+                        args_list = h.get("args")
+                        self.assertIsInstance(args_list, list, f"Claude Code hook {ev_name} missing list args")
+                        self.assertNotRegex(
+                            cmd_raw,
+                            r"\s",
+                            f"Claude Code hook {ev_name} jams arguments into command {cmd_raw!r} with args={args_list!r} (causes ENOENT)",
+                        )
+                        resolved = Path(cmd_raw.replace("${CLAUDE_PLUGIN_ROOT}", str(cc_root)))
+                        self.assertTrue(resolved.is_file(), f"hook command does not exist: {resolved}")
+                        self.assertTrue(os.access(resolved, os.X_OK), f"hook command not executable: {resolved}")
+                        payload_in = json.dumps({"session_id": "cc-test-1", "prompt": "/astack:go test", "cwd": str(ROOT)})
+                        proc = subprocess.run(
+                            [str(resolved), *[str(a) for a in args_list]],
+                            input=payload_in,
+                            env=hook_env,
+                            capture_output=True,
+                            text=True,
+                        )
+                        self.assertEqual(proc.returncode, 0, f"hook {ev_name} failed: {proc.stderr}")
+                        executed_events.add(ev_name)
+            self.assertEqual(executed_events, {"PreToolUse", "PostToolUse", "UserPromptSubmit", "SessionStart"})
+            # Confirm sticky Go mode actually persisted and re-injects on the next Claude Code prompt!
+            ups_hook = cc_hooks_cfg["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+            ups_bin = ups_hook["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(cc_root))
+            follow = subprocess.run(
+                [ups_bin, *ups_hook["args"]],
+                input=json.dumps({"session_id": "cc-test-1", "prompt": "follow up task", "cwd": str(ROOT)}),
+                env=hook_env,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            follow_json = json.loads(follow.stdout)
+            self.assertEqual(follow_json["hookSpecificOutput"]["hookEventName"], "UserPromptSubmit")
+            self.assertIn("astack Go mode — ACTIVE", follow_json["hookSpecificOutput"]["additionalContext"])
 
         tech_writing = (ROOT / "skills/technical-writing/SKILL.md").read_text()
         self.assertIn("Discover and audit impacted docs on every change", tech_writing)
@@ -1012,6 +1141,18 @@ class BuildTest(unittest.TestCase):
         self.assertIn("safety and correctness", jack_text.lower())
         self.assertIn("rightsize-contracts", (ROOT / "agents/reviewer.md").read_text())
         self.assertIn("next-step", (ROOT / "agents/researcher.md").read_text())
+
+        # Quickcheck: explicit user-invoked single-reviewer blocker check (pre-ship or any code/changes)
+        qc_text = (ROOT / "skills/quickcheck/SKILL.md").read_text()
+        self.assertIn("single focused read-only reviewer", qc_text)
+        self.assertIn("do not perform vectored review", qc_text)
+        self.assertIn("Pre-ship worker check", qc_text)
+        self.assertIn("Direct check on any changes or code", qc_text)
+        self.assertIn("Never self-select `quickcheck`", qc_text)
+        self.assertIn("already clarified", qc_text)
+        self.assertIn("| `/astack:quickcheck` | when it applies | – | when it applies | – |", go_table)
+        self.assertIn("**quickcheck**", lead_src)
+        self.assertIn("quickcheck/SKILL.md", reviewer_md)
 
         # Structural drift guards: hardcoded skill counts in manifests/go/README and A-F grade bands in researcher.md
         total_skills = len([p for p in (ROOT / "skills").iterdir() if (p / "SKILL.md").is_file()])

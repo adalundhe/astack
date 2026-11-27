@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: neg-rfc-constant-not-replaced
+tier: core
+kind: negative
+skills: [no-picked-constants]
+context:
+  scaffold_script: setup.sh

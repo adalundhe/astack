@@ -39,6 +39,11 @@ SKIP_DIR_NAMES = frozenset({
     "venv",
 })
 
+SKIP_REPRO_DIRS = frozenset({
+    "seam-runs",
+    "seam-adapters",
+})
+
 SKIP_FILENAMES = frozenset({
     "setup.sh",
     "verify.py",
@@ -88,7 +93,7 @@ def discover_repro_scripts(ws: Path) -> list[Path]:
         # Prune repo/, program/base/, hidden dirs, caches, and any nested git worktrees
         pruned: list[str] = []
         for d in sorted(dirs):
-            if d in SKIP_DIR_NAMES or d.startswith("."):
+            if d in SKIP_DIR_NAMES or d in SKIP_REPRO_DIRS or d.startswith("."):
                 continue
             cand = (root_p / d).resolve()
             if cand == repo_dir or cand == base_dir or _is_git_checkout(cand):
@@ -100,7 +105,7 @@ def discover_repro_scripts(ws: Path) -> list[Path]:
             if fname in SKIP_FILENAMES or fname.startswith("."):
                 continue
             fpath = root_p / fname
-            if fpath.suffix in (".py", ".sh"):
+            if fpath.suffix in (".py", ".sh", ".mjs", ".js", ".ts", ".mts"):
                 found.append(fpath)
             elif not fpath.suffix and os.access(fpath, os.X_OK):
                 try:
@@ -162,6 +167,8 @@ def _rewrite_script_paths(script_copy: Path, orig_ws: Path, tmp_ws: Path) -> Non
 def _build_script_command(script_copy: Path) -> list[str]:
     if script_copy.suffix == ".sh":
         return ["bash", str(script_copy)]
+    if script_copy.suffix in (".mjs", ".js", ".ts", ".mts"):
+        return ["node", str(script_copy)]
     if script_copy.suffix == ".py":
         try:
             src = script_copy.read_text(encoding="utf-8")
@@ -242,7 +249,7 @@ def _run_script_on_variant(
     last_out = ""
     for _ in range(max(1, attempts)):
         try:
-            proc = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout)
+            proc = subprocess.run(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
             last_out = (proc.stderr.strip() or proc.stdout.strip())[:240]
             if proc.returncode != 0:
                 return False, last_out or f"exit {proc.returncode}"

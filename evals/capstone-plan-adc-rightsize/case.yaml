@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: capstone-plan-adc-rightsize
+tier: core
+kind: capstone
+skills: [plan-it, create-adc, rightsize-contracts, stepped-complexity, next-step, delight-users]
+context:
+  scaffold_script: setup.sh

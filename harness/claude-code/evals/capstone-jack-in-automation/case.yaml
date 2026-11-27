@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: capstone-jack-in-automation
+tier: core
+kind: capstone
+skills: [analyze-environment, jack-in, taskex, technical-writing, least-privilege]
+context:
+  scaffold_script: setup.sh

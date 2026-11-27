@@ -496,6 +496,257 @@ class StatechartUnitTest(unittest.TestCase):
                 self.assertIn(f"x = {st}", data["mermaid"], f"trial {trial}: missing pinned state {st}")
             _assert_valid_mermaid(self, data["mermaid"], expected_states=min(n_states, cap), label=f"fuzz_{trial}")
 
+    def test_view_module_nested_states_rule_marking_violation_splitting_and_totality(self):
+        # Checked graph: clean and rule-violating concrete states share phase="paid" (different charge_count)
+        dot = self.dir / "checkout.dot"
+        dot.write_text(
+            "strict digraph DiskGraph {\n"
+            '  1 [label="/\\\\ phase = \\"idle\\"\\n/\\\\ retries = 0\\n/\\\\ charges = 0", style=filled];\n'
+            '  2 [label="/\\\\ phase = \\"auth\\"\\n/\\\\ retries = 0\\n/\\\\ charges = 0"];\n'
+            '  3 [label="/\\\\ phase = \\"auth\\"\\n/\\\\ retries = 1\\n/\\\\ charges = 0"];\n'
+            '  4 [label="/\\\\ phase = \\"paid\\"\\n/\\\\ retries = 1\\n/\\\\ charges = 1"];\n'
+            '  5 [label="/\\\\ phase = \\"paid\\"\\n/\\\\ retries = 1\\n/\\\\ charges = 2", color=red, invariant="InvNoDoubleCharge"];\n'
+            '  6 [label="/\\\\ phase = \\"done\\"\\n/\\\\ retries = 0\\n/\\\\ charges = 1"];\n'
+            '  1 -> 2 [label="BeginCheckout"];\n'
+            '  2 -> 3 [label="RetryAuth"];\n'
+            '  3 -> 4 [label="CaptureOk"];\n'
+            '  4 -> 5 [label="DupCapture"];\n'
+            '  4 -> 6 [label="Complete"];\n'
+            "}\n"
+        )
+        view_py = self.dir / "checkout_view.py"
+        view_py.write_text(
+            'title = "Checkout Lifecycle"\n'
+            'rule_labels = {"InvNoDoubleCharge": "Never charge twice"}\n'
+            'def state(s):\n'
+            '    p = s["phase"]\n'
+            '    if p == "idle":\n'
+            '        return "Cart open"\n'
+            '    if p == "auth":\n'
+            '        return ("Checkout", "Retrying" if s["retries"] > 0 else "Authorizing")\n'
+            '    if p == "paid":\n'
+            '        return ("Checkout", "Paid")\n'
+            '    if p == "done":\n'
+            '        return {"label": "Closed", "end": True}\n'
+            'def transition(src, action, dst):\n'
+            '    if action == "BeginCheckout":\n'
+            '        return "submit cart"\n'
+            '    if action == "RetryAuth":\n'
+            '        return f"retry [attempt {dst[\'retries\']}]"\n'
+            '    if action == "CaptureOk":\n'
+            '        return "payment captured"\n'
+            '    if action == "DupCapture":\n'
+            '        return "duplicate capture"\n'
+            '    if action == "Complete":\n'
+            '        return "close order"\n'
+            '    return action\n'
+        )
+        res = run_sc("render", str(dot), "--view", str(view_py), "--json")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        data = json.loads(res.stdout)
+        mmd = data["mermaid"]
+        # Nested composite block emitted in reader words
+        self.assertIn('state "Checkout" as g0 {', mmd)
+        self.assertIn('state "Cart open"', mmd)
+        self.assertIn('state "Authorizing"', mmd)
+        self.assertIn('state "Retrying"', mmd)
+        self.assertIn("retry [attempt 1]", mmd)
+        # End arrow for terminal state
+        self.assertIn(" --> [*]", mmd)
+        # Clean "Paid" and violating "Paid [VIOLATION: Never charge twice]" MUST be split, never merged!
+        self.assertIn('state "Paid" as ', mmd)
+        self.assertIn('state "Paid [VIOLATION: Never charge twice]" as ', mmd)
+        self.assertIn("classDef violation", mmd)
+        self.assertEqual(len(data["view"]["violation_splits"]), 1)
+        self.assertEqual(data["view"]["violation_splits"][0]["state"], "Checkout / Paid")
+        # Violation trace steps translated into reader words
+        tv = data["view"]["translated_violations"][0]
+        self.assertEqual(tv["name"], "Never charge twice")
+        self.assertEqual(tv["steps"][-1]["state_label"], "Checkout / Paid [VIOLATION: Never charge twice]")
+        self.assertEqual(tv["steps"][-1]["action"], "duplicate capture")
+
+        # Totality check: view returning None on a reachable state MUST fail with exit 2
+        bad_view = self.dir / "partial_view.py"
+        bad_view.write_text('def state(s):\n    return "Idle" if s["phase"] == "idle" else None\n')
+        res_bad = run_sc("render", str(dot), "--view", str(bad_view))
+        self.assertEqual(res_bad.returncode, 2)
+        self.assertIn("returned None", res_bad.stderr)
+
+    def test_view_module_parallel_regions_sync_tags_and_cross_region_violations(self):
+        # Product graph: Idle -> Active(Payment x Inventory) -> Closed,
+        # with synchronized Cancel transition AND a cross-region violation (Refunded + Reserved)
+        dot = self.dir / "parallel.dot"
+        dot.write_text(
+            "strict digraph DiskGraph {\n"
+            '  1 [label="/\\\\ mode = \\"idle\\"\\n/\\\\ pay = \\"none\\"\\n/\\\\ inv = \\"free\\"", style=filled];\n'
+            '  2 [label="/\\\\ mode = \\"active\\"\\n/\\\\ pay = \\"pending\\"\\n/\\\\ inv = \\"free\\""];\n'
+            '  3 [label="/\\\\ mode = \\"active\\"\\n/\\\\ pay = \\"pending\\"\\n/\\\\ inv = \\"reserved\\""];\n'
+            '  4 [label="/\\\\ mode = \\"active\\"\\n/\\\\ pay = \\"charged\\"\\n/\\\\ inv = \\"reserved\\""];\n'
+            '  5 [label="/\\\\ mode = \\"active\\"\\n/\\\\ pay = \\"refunded\\"\\n/\\\\ inv = \\"free\\""];\n'
+            '  6 [label="/\\\\ mode = \\"active\\"\\n/\\\\ pay = \\"refunded\\"\\n/\\\\ inv = \\"reserved\\"", color=red, invariant="NoOrphanReserve"];\n'
+            '  7 [label="/\\\\ mode = \\"closed\\"\\n/\\\\ pay = \\"charged\\"\\n/\\\\ inv = \\"reserved\\""];\n'
+            '  1 -> 2 [label="Start"];\n'
+            '  2 -> 3 [label="Reserve"];\n'
+            '  3 -> 4 [label="Charge"];\n'
+            '  4 -> 5 [label="AtomicCancel"];\n'
+            '  4 -> 6 [label="BuggyRefund"];\n'
+            '  4 -> 7 [label="Ship"];\n'
+            "}\n"
+        )
+        view_py = self.dir / "parallel_view.py"
+        view_py.write_text(
+            'rule_labels = {"NoOrphanReserve": "No inventory held after refund"}\n'
+            'action_labels = {"AtomicCancel": "cancel order", "BuggyRefund": "refund without release"}\n'
+            'def state(s):\n'
+            '    if s["mode"] == "idle":\n'
+            '        return "Draft"\n'
+            '    if s["mode"] == "closed":\n'
+            '        return {"label": "Shipped", "end": True}\n'
+            '    return {\n'
+            '        "parent": "Active",\n'
+            '        "parallel": {\n'
+            '            "Payment": s["pay"].title(),\n'
+            '            "Inventory": s["inv"].title(),\n'
+            '        },\n'
+            '    }\n'
+        )
+        res = run_sc("render", str(dot), "--view", str(view_py), "--json")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        data = json.loads(res.stdout)
+        mmd = data["mermaid"]
+        # Orthogonal parallel regions separated by `--`
+        self.assertIn('state "Active" as ', mmd)
+        self.assertIn('state "Payment" as ', mmd)
+        self.assertIn('state "Inventory" as ', mmd)
+        self.assertIn("\n        --\n", mmd)
+        # Synchronized multi-region transition tagged explicitly
+        self.assertIn("[sync Payment+Inventory]", mmd)
+        self.assertEqual(len(data["view"]["synchronized_transitions"]), 1)
+        # Cross-region violation surfaced as explicit red state so it's never masked!
+        self.assertEqual(len(data["view"]["cross_region_violations"]), 1)
+        self.assertIn("Payment=Refunded + Inventory=Reserved [VIOLATION: No inventory held after refund]", mmd)
+        self.assertIn("classDef violation", mmd)
+
+        # Declarative JSON view spec works cleanly too (no executable code needed for simple views)
+        view_json = self.dir / "simple_view.json"
+        view_json.write_text(json.dumps({
+            "state_var": "mode",
+            "state_labels": {"idle": "Draft", "active": ["Order", "Active"], "closed": "Shipped"},
+            "end_states": ["Shipped"],
+            "rule_labels": {"NoOrphanReserve": "No orphan stock"},
+        }))
+        res_j = run_sc("render", str(dot), "--view", str(view_json), "--json")
+        self.assertEqual(res_j.returncode, 0, res_j.stderr)
+        jdata = json.loads(res_j.stdout)
+        self.assertIn('state "Order" as ', jdata["mermaid"])
+        self.assertIn("No orphan stock", jdata["mermaid"])
+
+    def test_tla_state_parser_records_sets_sequences_and_functions(self):
+        sys.path.insert(0, str(BIN.parent / "lib"))
+        from astack_statechart import parse_tla_state
+
+        raw = (
+            '/\\ phase = "paying"\n'
+            '/\\ retries = 2\n'
+            '/\\ ok = TRUE\n'
+            '/\\ tags = {"a", "b"}\n'
+            '/\\ queue = <<1, 2, 3>>\n'
+            '/\\ meta = [owner |-> "w1", count |-> 4]\n'
+            '/\\ map = ("k1" :> 10 @@ "k2" :> 20)\n'
+        )
+        parsed = parse_tla_state(raw)
+        self.assertEqual(parsed["phase"], "paying")
+        self.assertEqual(parsed["retries"], 2)
+        self.assertIs(parsed["ok"], True)
+        self.assertEqual(parsed["tags"], {"a", "b"})
+        self.assertEqual(parsed["queue"], [1, 2, 3])
+        self.assertEqual(parsed["meta"], {"owner": "w1", "count": 4})
+        self.assertEqual(parsed["map"], {"k1": 10, "k2": 20})
+
+    def test_tlc_installer_sha256_verification_idempotency_and_auto_install(self):
+        import hashlib
+        import zipfile
+
+        # Build a valid synthetic tla2tools.jar containing tlc2/TLC.class
+        jar_src = self.dir / "server_tla2tools.jar"
+        with zipfile.ZipFile(jar_src, "w") as zf:
+            zf.writestr("tlc2/TLC.class", b"\xca\xfe\xba\xbeFAKECLASS")
+        good_sha = hashlib.sha256(jar_src.read_bytes()).hexdigest()
+        dest_jar = self.dir / "installed" / "tla2tools.jar"
+
+        # 1. Wrong SHA-256 MUST fail with exit 2 and leave NO file behind
+        bad_sha = run_sc(
+            "install-tlc", "--dest", str(dest_jar), "--url", jar_src.as_uri(),
+            "--sha256", "0" * 64,
+        )
+        self.assertEqual(bad_sha.returncode, 2)
+        self.assertIn("SHA-256 mismatch", bad_sha.stderr)
+        self.assertFalse(dest_jar.exists())
+
+        # 2. Archive missing tlc2/TLC.class MUST fail with exit 2
+        bad_zip = self.dir / "not_tlc.jar"
+        with zipfile.ZipFile(bad_zip, "w") as zf:
+            zf.writestr("other/Foo.class", b"nope")
+        bad_zip_sha = hashlib.sha256(bad_zip.read_bytes()).hexdigest()
+        bad_cls = run_sc("install-tlc", "--dest", str(dest_jar), "--url", bad_zip.as_uri(), "--sha256", bad_zip_sha)
+        self.assertEqual(bad_cls.returncode, 2)
+        self.assertIn("tlc2/TLC.class", bad_cls.stderr)
+        self.assertFalse(dest_jar.exists())
+
+        # 3. Valid install succeeds and second run is idempotent (`already_installed: True`)
+        ok1 = run_sc("install-tlc", "--dest", str(dest_jar), "--url", jar_src.as_uri(), "--sha256", good_sha, "--json")
+        self.assertEqual(ok1.returncode, 0, ok1.stderr)
+        d1 = json.loads(ok1.stdout)
+        self.assertTrue(d1["installed"])
+        self.assertFalse(d1["already_installed"])
+        self.assertEqual(d1["sha256"], good_sha)
+        self.assertTrue(dest_jar.is_file())
+
+        ok2 = run_sc("install-tlc", "--dest", str(dest_jar), "--url", jar_src.as_uri(), "--sha256", good_sha, "--json")
+        self.assertEqual(ok2.returncode, 0, ok2.stderr)
+        d2 = json.loads(ok2.stdout)
+        self.assertTrue(d2["already_installed"])
+
+        # 4. Auto-install inside `astack-statechart check` when TLC is missing but fake `java` is runnable
+        fake_bin = self.dir / "fake-bin"
+        fake_bin.mkdir()
+        fake_java = fake_bin / "java"
+        fake_java.write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = "-version" ]; then echo "openjdk version 21" >&2; exit 0; fi\n'
+            'dot_file=""; prev=""\n'
+            'for a in "$@"; do\n'
+            '  if [ "$prev" = "dot,actionlabels" ]; then dot_file="$a"; fi\n'
+            '  prev="$a"\n'
+            'done\n'
+            'if [ -n "$dot_file" ]; then\n'
+            '  printf \'strict digraph DiskGraph { -1 [label="x = 0", style = filled]; 2 [label="x = 1"]; -1 -> 2 [label="Inc"]; }\\n\' > "$dot_file"\n'
+            'fi\n'
+            "printf '%s\\n' '@!@!@STARTMSG 2199:0 @!@!@' '2 states generated, 2 distinct states found, 0 states left on queue.' '@!@!@ENDMSG 2199 @!@!@'\n"
+            "exit 0\n"
+        )
+        fake_java.chmod(0o755)
+        model = self.dir / "Auto.tla"
+        model.write_text("---- MODULE Auto ----\n====\n")
+        auto_jar = self.dir / "auto_home" / "tla2tools.jar"
+        auto_env = {
+            "HOME": str(self.dir / "auto_home"),
+            "PATH": f"{fake_bin}:/usr/bin:/bin",
+            "ASTACK_TLC_JAR": str(auto_jar),
+        }
+        # With --no-install -> fails cleanly with exit 2 and does NOT download
+        r_no = run_sc("check", str(model), "--no-install", "--tlc-url", jar_src.as_uri(), "--tlc-sha256", good_sha, env=auto_env)
+        self.assertEqual(r_no.returncode, 2)
+        self.assertFalse(auto_jar.exists())
+
+        # Without --no-install -> auto-installs jar and completes check with exit 0!
+        r_auto = run_sc("check", str(model), "--tlc-url", jar_src.as_uri(), "--tlc-sha256", good_sha, "--json", env=auto_env)
+        self.assertEqual(r_auto.returncode, 0, r_auto.stderr)
+        adata = json.loads(r_auto.stdout)
+        self.assertTrue(auto_jar.is_file())
+        self.assertEqual(adata["auto_installed_jar"], str(auto_jar.resolve()))
+        self.assertEqual(adata["states"], 2)
+
 
 @unittest.skipUnless(_has_real_tlc(), "TLC / tla2tools.jar with runnable Java not installed")
 class LiveTlcTest(unittest.TestCase):

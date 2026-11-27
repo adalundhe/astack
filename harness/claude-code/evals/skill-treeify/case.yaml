@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-treeify
+tier: deep
+kind: atomic
+skills: [treeify]
+context:
+  scaffold_script: setup.sh

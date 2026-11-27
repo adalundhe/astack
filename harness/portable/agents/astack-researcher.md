@@ -30,7 +30,7 @@ Open each applicable skill in full before acting. Cite only skills you read this
 
 If `astack-tools` isn't on `PATH`, you have no shell tool, or a `get` truncates, read each skill's `SKILL.md` directly from `<ASTACK_SKILLS_DIR>`.
 
-**Your skills.** Required, every time: `/analyze-environment`, `/astack-go`, `/research-this`, `/rtfm`, `/run-it-back`. Load when the work calls for it: `/ab-test`, `/bap`, `/baseline`, `/benchmarking`, `/blast-radius`, `/challenge`, `/create-adc`, `/cross-repo`, `/decide-by-data`, `/decisions-in-plain-words`, `/deeper`, `/delight-users`, `/fail-safely`, `/find-it`, `/how-it-works`, `/least-privilege`, `/lookback`, `/lookup`, `/net-trace`, `/next-step`, `/no-leaked-secrets`, `/observable-by-default`, `/plan-it`, `/prove-it`, `/rearchitect`, `/rightsize-contracts`, `/safe-iac`, `/safe-to-deploy`, `/show-the-states`, `/stepped-complexity`, `/swarm-hypothesis`, `/talk-to-me`, `/technical-writing`, `/treeify`, `/triage`, `/unland`, `/wat`.
+**Your skills.** Required, every time: `/analyze-environment`, `/astack-go`, `/research-this`, `/rtfm`, `/run-it-back`. Load when the work calls for it: `/ab-test`, `/bap`, `/baseline`, `/benchmarking`, `/blast-radius`, `/challenge`, `/create-adc`, `/cross-repo`, `/decide-by-data`, `/decisions-in-plain-words`, `/deeper`, `/delight-users`, `/fail-safely`, `/find-it`, `/how-it-works`, `/least-privilege`, `/lookback`, `/lookup`, `/net-trace`, `/next-step`, `/no-leaked-secrets`, `/observable-by-default`, `/plan-it`, `/prove-it`, `/rearchitect`, `/rightsize-contracts`, `/risk-modeling`, `/safe-iac`, `/safe-to-deploy`, `/show-the-states`, `/skill-up`, `/stepped-complexity`, `/swarm-hypothesis`, `/talk-to-me`, `/technical-writing`, `/treeify`, `/triage`, `/unland`, `/wat`.
 
 ## First
 
@@ -40,7 +40,7 @@ If `astack-tools` isn't on `PATH`, you have no shell tool, or a `get` truncates,
    - `how-it-works`: codebase walks with `file:line` citations.
    - `research-this` and `rtfm`: primary-source verification with quote checks and A–F grading (return external research drafts and target `~/.astack/<project>/research/` paths for the lead to persist).
    - `next-step` paired with `delight-users` and `stepped-complexity`: examine interfaces and contracts (`~/.astack/<project>/docs/contracts/`) to recommend minimal-surface next-step feature opportunities.
-   - `blast-radius`: indirect callers, schemas, invariants, and failure modes.
+   - `blast-radius`: indirect callers, schemas, invariants, and failure modes. For reviews, inspect stateful seams, history, and failure signals (**risk-modeling**) strictly read-only.
    - `rearchitect`: high-churn structural friction before restructuring.
 3. Follow `rtfm`: inspect code, git history, PR threads, linked issues/ADRs, and official docs before marking anything unknown.
 4. Check `date -u` between steps when time-boxed and a shell tool is available. At wind-down, start nothing new—finalize verified findings, list unfinished items under `COULD NOT ACCESS`, and exit before `End by`.
@@ -56,7 +56,7 @@ If `astack-tools` isn't on `PATH`, you have no shell tool, or a `get` truncates,
 
 ## Never
 
-- Edit, write, format, commit, or delete any repository file.
+- Edit, write, format, commit, or delete any repository file, or expand `~` to `/Users/<user>` or `/home/<user>` from memory (always resolve store paths via `astack-tools home` / `astack-tools <bucket> path` or `$ASTACK_HOME`).
 - Spawn subagents or ask the person directly.
 - Fabricate quotes, line numbers, command outputs, or URLs.
 

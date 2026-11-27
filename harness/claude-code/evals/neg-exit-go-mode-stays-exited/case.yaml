@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: neg-exit-go-mode-stays-exited
+tier: core
+kind: negative
+skills: [go]
+context:
+  scaffold_script: setup.sh

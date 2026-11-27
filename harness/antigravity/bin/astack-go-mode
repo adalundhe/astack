@@ -29,6 +29,10 @@ import hashlib
 import json
 import os
 from pathlib import Path
+try:
+    import pwd
+except ImportError:  # Windows
+    pwd = None  # type: ignore[assignment]
 import re
 import sys
 import time
@@ -199,6 +203,106 @@ def _astack_home_dir() -> Path:
     if override := os.environ.get("ASTACK_HOME"):
         return Path(override).expanduser()
     return Path.home() / ".astack"
+
+
+def _host_account_home() -> Optional[Path]:
+    """Return the real OS account home directory from passwd (differs from $HOME in sandboxed runs)."""
+    if pwd is None or not hasattr(os, "getuid"):
+        return None
+    try:
+        pw_dir = pwd.getpwuid(os.getuid()).pw_dir
+        return Path(pw_dir) if pw_dir else None
+    except (KeyError, OSError):
+        return None
+
+
+def _collect_event_strings(obj: Any, out: List[str]) -> None:
+    if isinstance(obj, str):
+        if obj:
+            out.append(obj)
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            _collect_event_strings(v, out)
+    elif isinstance(obj, list):
+        for v in obj:
+            _collect_event_strings(v, out)
+
+
+def check_host_home_leak(event: Dict[str, Any], *, host_home: Optional[Path] = None) -> Optional[str]:
+    """Block accesses to real host ~/.astack (or ~/.cache|~/.config/astack) when HOME or ASTACK_HOME is sandboxed.
+
+    Runs for BOTH Lead and subagents on PreToolUse / beforeShellExecution / beforeReadFile.
+    Has zero effect on normal non-sandboxed runs where active ASTACK_HOME == <real_home>/.astack and HOME == <real_home>.
+    """
+    real_home = host_home if host_home is not None else _host_account_home()
+    if real_home is None:
+        return None
+    try:
+        real_resolved = real_home.resolve()
+        active_home = Path.home().resolve()
+        active_astack = _astack_home_dir().resolve()
+    except OSError:
+        return None
+
+    forbidden: List[Tuple[str, str]] = []
+    real_astack_resolved = real_resolved / ".astack"
+    if active_astack != real_astack_resolved:
+        for base in dict.fromkeys((str(real_home), str(real_resolved))):
+            forbidden.append((f"{base}/.astack", str(active_astack)))
+    if active_home != real_resolved:
+        for sub in (".cache/astack", ".config/astack"):
+            active_sub = str(active_home / sub)
+            for base in dict.fromkeys((str(real_home), str(real_resolved))):
+                forbidden.append((f"{base}/{sub}", active_sub))
+
+    if not forbidden:
+        return None
+
+    texts: List[str] = []
+    tool_call = event.get("toolCall") if isinstance(event.get("toolCall"), dict) else {}
+    tool_input = (
+        event.get("tool_input")
+        if isinstance(event.get("tool_input"), dict)
+        else (tool_call.get("args") if isinstance(tool_call.get("args"), dict) else None)
+    )
+    if tool_input is not None:
+        _collect_event_strings(tool_input, texts)
+    for k in ("command", "CommandLine", "file_path", "path", "Path", "TargetFile", "AbsolutePath"):
+        v = event.get(k)
+        if isinstance(v, str) and v:
+            texts.append(v)
+
+    for text in texts:
+        for bad_prefix, expected_path in forbidden:
+            pattern = re.compile(re.escape(bad_prefix) + r"(?=$|[/\\:\s\"'`,;)\]}])")
+            if pattern.search(text):
+                # Never false-positive if active_astack itself happens to live inside bad_prefix
+                if expected_path.startswith(bad_prefix + "/") or expected_path == bad_prefix:
+                    continue
+                return (
+                    f"Blocked access to real host path `{bad_prefix}`: active ASTACK_HOME is `{active_astack}` "
+                    f"(HOME=`{active_home}`). Use `{expected_path}` or `astack-tools <bucket> path` instead of "
+                    f"expanding `~` to `{real_home}`."
+                )
+    return None
+
+
+def format_pre_tool_output(harness: str, event_name: str, deny_reason: Optional[str]) -> Dict[str, Any]:
+    if harness == "antigravity":
+        return {"decision": "deny", "reason": deny_reason} if deny_reason else {}
+    if harness == "cursor":
+        if deny_reason:
+            return {"permission": "deny", "user_message": deny_reason, "agent_message": deny_reason}
+        return {"permission": "allow"}
+    if deny_reason:
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": event_name or "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": deny_reason,
+            }
+        }
+    return {}
 
 
 def _normalize_project_slug(path: Path) -> str:
@@ -537,6 +641,11 @@ def handle_hook(
     state_dir: Path,
     skills_dir: Path,
 ) -> Dict[str, Any]:
+    # 0. PreToolUse sandbox isolation guard: runs for BOTH Lead and subagents (even without session_id)
+    if event_name in ("PreToolUse", "beforeShellExecution", "beforeReadFile"):
+        deny_reason = check_host_home_leak(event)
+        return format_pre_tool_output(harness, event_name, deny_reason)
+
     session_id = extract_session_id(event)
     if not session_id:
         return format_output(harness, event_name, None)
@@ -766,7 +875,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             event_name = args.event or str(event.get("hook_event_name") or event.get("hookEventName") or "")
             out = handle_hook(event, harness=args.harness, event_name=event_name, state_dir=state_dir, skills_dir=skills_dir)
         except Exception:
-            out = format_output(args.harness, event_name, None)
+            out = (
+                format_pre_tool_output(args.harness, event_name, None)
+                if event_name in ("PreToolUse", "beforeShellExecution", "beforeReadFile")
+                else format_output(args.harness, event_name, None)
+            )
         if out or args.harness in ("antigravity", "cursor"):
             sys.stdout.write(json.dumps(out) + "\n")
         return 0

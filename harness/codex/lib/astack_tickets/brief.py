@@ -8,8 +8,8 @@ import subprocess
 import sys
 from typing import Any, Dict, List, Optional
 
-from .models import BadInputError, TicketItem, fence_untrusted, sanitize_text
-from .state import default_settings_path, find_astack_dispatch, load_lead_role_from_settings
+from astack_tickets.models import BadInputError, TicketItem, fence_untrusted, sanitize_text
+from astack_tickets.state import default_settings_path, find_astack_dispatch, load_lead_role_from_settings
 
 
 def build_ticket_brief(

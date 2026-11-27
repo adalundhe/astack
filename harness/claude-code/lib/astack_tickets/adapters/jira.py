@@ -7,8 +7,8 @@ import re
 from typing import Any, Dict, List
 from urllib import parse as urllib_parse
 
-from ..http_client import GoodCitizenHTTPClient
-from ..models import (
+from astack_tickets.http_client import GoodCitizenHTTPClient
+from astack_tickets.models import (
     BadInputError,
     TicketComment,
     TicketItem,

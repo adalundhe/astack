@@ -453,6 +453,12 @@ def _read_system_prompt_body(path: Path) -> str:
     return raw
 
 
+def _resolved_astack_home() -> Path:
+    if env_home := os.environ.get("ASTACK_HOME"):
+        return Path(env_home).expanduser()
+    return Path.home() / ".astack"
+
+
 def build_command(
     harness: str,
     binary: str,
@@ -465,6 +471,7 @@ def build_command(
     role: str = "reviewer",
     system_prompt_file: Path | None = None,
     skills_dir: Path | None = None,
+    astack_home: Path | None = None,
     custom_command: list[str] | None = None,
     out_file: Path | None = None,
     repro_dir: Path | None = None,
@@ -480,19 +487,28 @@ def build_command(
             )
         if repro_dir is not None and repro_dir != review_dir and str(repro_dir) not in effective_prompt:
             header_lines.append(
-                f"Writable standalone repro folder (e.g. ~/.astack/<project>/repros/<repro>/): {repro_dir}"
+                f"Writable standalone repro folder (outside repo/): {repro_dir}"
             )
         if len(header_lines) > 1:
             effective_prompt = "\n".join(header_lines) + "\n\n" + effective_prompt
+    preamble: list[str] = []
     if skills_dir is not None and str(skills_dir) not in prompt_text:
         go_name = "astack-go" if (skills_dir / "astack-go" / "SKILL.md").is_file() else "go"
-        effective_prompt = (
+        preamble.append(
             f"ASTACK_SKILLS_DIR: {skills_dir}\n"
             f"Astack hides leaf skills from your skill catalog; read `{skills_dir}/{go_name}/SKILL.md` "
             f"and every applicable `<skill>/SKILL.md` directly with your file-reading tool "
-            f"(never call the Skill tool for hidden skills).\n\n"
-            f"{effective_prompt}"
+            f"(never call the Skill tool for hidden skills)."
         )
+    resolved_home = astack_home if astack_home is not None else _resolved_astack_home()
+    if str(resolved_home) not in prompt_text and "ASTACK_HOME:" not in prompt_text:
+        preamble.append(
+            f"ASTACK_HOME: {resolved_home}\n"
+            f"Resolve all astack store paths under `{resolved_home}` or via `astack-tools <bucket> path`; "
+            f"never expand `~` to `/Users/<user>` or `/home/<user>` from memory."
+        )
+    if preamble:
+        effective_prompt = "\n".join(preamble) + "\n\n" + effective_prompt
 
     combined_prompt = effective_prompt
     if system_prompt_file is not None and harness != "claude":
@@ -1070,6 +1086,7 @@ def _prepare_invocation(
     else:
         sys_prompt_path = _bundled_agent_prompt_file(role)
     skills_dir = _bundled_skills_dir()
+    astack_home = _resolved_astack_home()
 
     detected = detect_harnesses()
     entry: dict[str, Any] = {"provider": prov, "model": mod}
@@ -1125,6 +1142,7 @@ def _prepare_invocation(
         role=role,
         system_prompt_file=sys_prompt_path,
         skills_dir=skills_dir,
+        astack_home=astack_home,
         custom_command=custom_command,
         out_file=out_path if resolved_harness == "codex" else None,
         repro_dir=repro_dir,
@@ -1165,6 +1183,7 @@ def _prepare_invocation(
         "log_file": str(log_path) if log_path else None,
         "system_prompt_file": str(sys_prompt_path) if sys_prompt_path else None,
         "skills_dir": str(skills_dir) if skills_dir else None,
+        "astack_home": str(astack_home),
     }
 
 
@@ -1183,6 +1202,8 @@ def _execute_prepared(job: dict[str, Any], state_dir: Path | None) -> tuple[dict
     started = time.monotonic()
     timestamp = _utc_iso()
     proc_env = dict(os.environ)
+    if job.get("astack_home"):
+        proc_env["ASTACK_HOME"] = str(job["astack_home"])
     primary_tmp_parent = review_dir or repro_dir
     if resolved_harness == "codex" and job["role"] == "reviewer" and primary_tmp_parent is not None:
         repro_tmp = primary_tmp_parent / ".tmp"

@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-orchestral
+tier: core
+kind: atomic
+skills: [orchestral]
+context:
+  scaffold_script: setup.sh

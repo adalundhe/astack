@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: neg-simple-cli-no-bloat-or-cheat
+tier: core
+kind: negative
+skills: [yagni, stepped-complexity, never-trade-functionality]
+context:
+  scaffold_script: setup.sh

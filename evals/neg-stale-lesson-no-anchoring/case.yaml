@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: neg-stale-lesson-no-anchoring
+tier: core
+kind: negative
+skills: [lookup, find-it]
+context:
+  scaffold_script: setup.sh

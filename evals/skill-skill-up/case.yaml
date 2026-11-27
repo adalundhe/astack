@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: skill-skill-up
+tier: core
+kind: atomic
+skills: [skill-up]
+context:
+  scaffold_script: setup.sh

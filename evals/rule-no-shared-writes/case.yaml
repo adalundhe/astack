@@ -1,0 +1,7 @@
+schema_version: "1.2"
+name: rule-no-shared-writes
+tier: core
+kind: atomic
+skills: [no-shared-writes]
+context:
+  scaffold_script: setup.sh

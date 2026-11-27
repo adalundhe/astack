@@ -19,13 +19,10 @@ Reviewers never edit code or apply candidate fixes themselves, because authors t
    - YES: `"README.md:42 says tools-useast1-prod is not bootstrapped, but commit 69a34f1 says it was. Update README.md or verify cluster state."`
 5. **Reproduce before the change.** Without the change, reproduce every bug it claims to fix from the user's side. If you cannot reproduce a failure, report it as unreproduced rather than fixed.
 6. **Verify the change.** With the change applied, rerun each reproduction and verify every acceptance criterion and test. For bug fixes, run **prove-it** on the real artifact using the original bug dossier and return concise before/after proof ready for the PR.
-7. **Attack it.** Stress-test the change across every applicable axis, seeding inputs and fault schedules per **full-spectrum-testing**:
-   - **Input:** invalid, empty, huge, malformed, oddly encoded, out of order.
-   - **Load:** concurrent callers, bursts, sustained overload.
-   - **Faults:** slow or failing dependencies, mid-operation restarts, lost or duplicated messages, full disk.
-   - **Concurrency:** races, deadlocks, and livelocks around locks, retries, or waits.
-   - **Misuse:** plausible mistakes by a user, scripted client, or agent.
-   - **Rollout & rollback (`safe-to-deploy`):** for migrations, auth/IAM, infra, or schema/API changes, verify pre-change workloads and rolled-back releases still work.
+7. **Verify stateful and concurrent seams with repo-native tools.** Never skip executable verification because a repo uses a compiled or unfamiliar toolchain. Build scratch harnesses strictly outside `repo/` under `~/.astack/<project>/repros/` (`astack-tools repros path`), or ask Lead for an `astack-worker` tool-builder if your sandbox blocks compiled builds:
+   - **Targeted fault classes:** probe unsigned wraparound, split-lock stale generations (ABA), non-atomic concurrent container checks, out-of-order async replies, stale closures, partial-write rollback drift, delimiter collisions, and multi-component interactions.
+   - **Native verification harnesses:** use the repository's own toolchain (`cargo test`/`loom`/`proptest`, `go test -race`, `fast-check`, `hypothesis`, fuzzers, differential checks, or TLA+ via `astack-statechart`). Stub only external boundaries, never code under review.
+   - **Mutation and stress checks** (**full-spectrum-testing**): check whether tests actually fail under diff-scoped mutations; stress invalid, huge, oddly encoded, or out-of-order inputs, concurrent load, failing dependencies, restarts, misuse, and rollout/rollback (**safe-to-deploy**).
 8. **Enforce astack coding rules.** Open and read the matching rule `SKILL.md` from `skills/` whenever its trigger appears, checking `Watch for`, `Showing it`, and `When it doesn't fit`:
    - Schemas, structs, state, algorithms -> `data-structures-first`
    - Lifecycle flags, order-dependent behavior -> `no-implicit-states`
@@ -54,14 +51,21 @@ Reviewers never edit code or apply candidate fixes themselves, because authors t
 
    Tag every rule finding with `[rule: <name>]` (internal-only for Lead). Departing from a rule without justification is a real finding even when tests pass.
 9. **Prove every finding.** Include runnable steps, actual output, and expected output. Blockers must be proven locally; unproven suspicions never block. Run each repro without the change too to state whether the change caused it, left it, or failed to fix it.
-10. **Rank by user impact.** Classify every finding strictly as **blocking**, **suggestion**, or **nit** (never print `P0–P5` labels):
-    - **Blocking:** outage, core breakage, broken primary feature, data/security bug, or violated invariant with local proof.
-    - **Suggestion:** secondary breakage, non-breaking defect in a primary feature, or meaningful design/clarity improvement.
-    - **Nit:** rare, isolated non-breaking polish item.
+10. **Rank findings by user impact (output classification only).** Assign every finding a `P0–P5` level as review output for workers and users—never as an input risk score or automated formula:
 
-**Reply (internal-only to Lead):** put `VECTOR`, `MODEL`, and `EVIDENCE BUNDLE` (`~/.astack/<project>/reviews/<date_time>/`) at the top, followed by blockers, suggestions, nits, and what held. For each finding, include:
-- what is wrong (both sides of any contradiction);
-- user impact and when it hits;
+    | Level | Definition | Report class |
+    |---|---|---|
+    | `P0` | Critical outage, or multiple or whole systems broken | Blocking |
+    | `P1` | Widespread breakage or severe degradation across common features or a core system | Blocking |
+    | `P2` | Primary feature broken, or inconsistent or limited widespread breakage | Blocking |
+    | `P3` | Isolated secondary feature broken, notable single-feature degradation, or notable non-breaking bug in a primary feature | Suggestion |
+    | `P4` | Isolated intermittent issue, moderate degradation, or minor non-breaking bug in a secondary feature | Suggestion or nit |
+    | `P5` | Rare, non-breaking nit | Nit |
+
+    Blockers (`P0–P2`) require local proof. Keep `P3–P5` findings under Suggestions or Nits so minor issues never block landing.
+
+**Reply (internal-only to Lead):** put `VECTOR`, `MODEL`, and `EVIDENCE BUNDLE` at the top, followed by `BLOCKING` (`P0–P2`), `SUGGESTIONS` (`P3–P4`), `NITS` (`P4–P5`), and what held. For each finding, include:
+- `[P0]`–`[P5]` tag, what is wrong (both sides of any contradiction), and user impact;
 - exact repro or citation plus saved evidence paths;
 - recommended fix, internal `[rule: <name>]` tag, and root-cause vector if outside yours.
 

@@ -1,6 +1,6 @@
 # astack
 
-`astack` is an opinionated toolkit for Claude Code, Codex, Cursor, Antigravity (agy), Pi, Devin, and other Agent Skills hosts. It pairs 95 on-demand skills (only one, go, sits in your context window until needed) with deterministic CLI tools for the parts you shouldn't leave to LLM vibes: merge verification, test-gate tripwires, capture-recapture review stopping math, rate-limit-aware PR and ticket watchers, pinned multi-repo release trains, TLC statechart diagrams, and durable local evidence and lessons. It's my personal toolkit for making sense of and executing on hard problems at scale, whether infrastructural, testing, or product.
+`astack` is an opinionated toolkit for Claude Code, Codex, Cursor, Antigravity (agy), Pi, Devin, and other Agent Skills hosts. It pairs 98 on-demand skills (only one, go, sits in your context window until needed) with deterministic CLI tools for the parts you shouldn't leave to LLM vibes: merge verification, test-gate tripwires, normalized review risk and capture-recapture ledgers, rate-limit-aware PR and ticket watchers, pinned multi-repo release trains, checked TLC statecharts with view modules, and durable local evidence and lessons. It's my personal toolkit for making sense of and executing on hard problems at scale, whether infrastructural, testing, or product.
 
 I based much of astack off of [pstack](https://github.com/cursor/plugins/tree/main/pstack) and [mattpocock/skills](https://github.com/mattpocock/skills), credit where due and thank you.
 
@@ -99,9 +99,13 @@ When a recurring job shouldn't be steered by an agent at all, you can turn a pro
 ├── research/<topic_or_repo>/        # External research, primary sources, and references
 ├── docs/[contracts/]<file>          # Project docs, contract catalogs, and connection guides
 ├── reviews/<date_time>/             # Review audit bundles and verifiable proof
-├── repros/<repro>/                  # Standalone reproduction scripts and shrunk test cases
-├── automations/<automation>/        # Saved Werkflow, Orchestral, and TaskEx automations
+├── repros/<repro>/                  # Standalone reproduction scripts, harnesses, and shrunk test cases
+├── automations/<automation>/        # Saved Werkflow, Orchestral, TaskEx, and repo-native helper scripts
 └── logging/{logs,traces,metrics}/   # Timestamped logs, traces, and metrics captures
+
+~/.astack/<username>/
+├── skills/<skill>/SKILL.md          # Personal skills authored via `skill-up`
+└── bin/                             # Personal helper scripts authored via `skill-up`
 ```
 
 Past research, docs, logs, reviews, repros, automations, decisions, and hard-won lessons stay searchable across repos without cluttering commit history. If a repository already keeps its own ADRs, `astack` reads those too.
@@ -114,15 +118,15 @@ Every bundled tool is stdlib-only Python and runs on macOS, Linux, and Windows.
 
 | Tool | What it does |
 |---|---|
-| `astack-tools` | Manages `~/.astack` (`init-home`, `lessons`, `arch`, `research`, `docs`, `reviews`, `repros`, `automations`, `logging` `path\|list`), installs native agents, links `bin/` onto `PATH`, and manages the optional `uv` venv. |
+| `astack-tools` | Manages `~/.astack` (`home`, `init-home`, `lessons`, `arch`, `research`, `docs`, `reviews`, `repros`, `automations`, `logging` `path\|list`), installs native agents, links `bin/` onto `PATH`, and manages the optional `uv` venv. |
 | `astack-dispatch` | Dispatches and supervises cross-harness agents (`claude`, `codex`, `agy`, `cursor`, `devin`, `pi`, `gemini`, custom CLI), enforces `reviewer_pool`, and writes JSON receipts. |
 | `astack-verify-merge` | Verifies claimed commits are actually on the target branch and audits merge ranges without trusting worker summaries. |
 | `astack-check-gates` | Scans git ranges for deleted/renamed tests, skips, lint/typecheck mutes, weakened assertions, loosened tolerances, and CI config edits. |
-| `astack-review-ledger` | Computes capture-recapture / jackknife stopping bounds over proven blocking bugs (with fix-equivalence checks and empirical calibration) and gates risky landings. |
+| `astack-review-ledger` | Thin CLI over lean `lib/astack_ledger/` (`risk`, `capture`, `engine`, `format`) evaluating structural review gates, capture-recapture saturation (`D > 0`), additive Bayesian `[0, 1)` vector risk & epistemic `gap_mass` scoring (`score`), detection-debiased dynamic gap allocation (`--outcomes`), sharp exchangeable residual brackets, and contrastive `gap_brief` routing (see [docs/review-approach.md](./docs/review-approach.md)). |
 | `astack-watch-pr` | Good-citizen PR/MR watcher for GitHub, GitLab, and Bitbucket (`ETag`/304, GraphQL-to-REST fallback, rate-limit pacing, stacked PRs, holds, `patch-id-check`, `diff-guard`, `authorship-check`, and evidence-checked `reply`). |
 | `astack-watch-tickets` | Rate-limit-safe ticket watcher and security-fenced ingester for GitHub Issues, Jira, and Linear (backed by `lib/astack_tickets/`). |
 | `astack-release` | Multi-repo PR merge and deploy train manager with DAG checks, pinned immutable outputs, floating-ref rejection, `autonomy` gates, rollback plans, and Mermaid runbooks. |
-| `astack-statechart` | Runs TLC on TLA+ specs (or parses DOT/traces offline) and renders shortest-path failure traces as Mermaid `stateDiagram-v2`. |
+| `astack-statechart` | Installs pinned SHA-256-verified TLC (`install-tlc`), runs TLC on TLA+ specs (or parses DOT/traces offline), and computes checked human-readable Mermaid `stateDiagram-v2` charts via `--view` modules (nested/parallel states, marked rule breaks, shortest counterexamples). |
 | `astack-status` & `astack-decisions` | Reads live worker/reviewer/researcher clocks and queries `decided:` / `person:` history from `LANES.md`. |
 | `astack-stamp` & `astack-go-mode` | Timestamps `LANES.md` entries and keeps Go mode sticky per session with prompt-matched `status: active` lesson recall (zero `Stop` hooks). |
 
@@ -130,10 +134,10 @@ Every bundled tool is stdlib-only Python and runs on macOS, Linux, and Windows.
 
 ## Skills
 
-95 skills total (`go` + 94 hidden). Only `go` sits in your model catalog; every other skill is loaded on demand by path. Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex (`go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex).
+98 skills total (`go` + 97 hidden). Only `go` sits in your model catalog; every other skill is loaded on demand by path. Direct invocation uses `/astack:<name>` in Claude Code, `/<name>` in Cursor, and `$<name>` in Codex (`go`, `lead`, `setup`, `status`, and `review` take an `astack-` prefix in Cursor and Codex).
 
 <details>
-<summary><strong>Browse all 95 skills</strong></summary>
+<summary><strong>Browse all 98 skills</strong></summary>
 
 ### Entry point, planning, and orchestration
 
@@ -155,8 +159,10 @@ Every bundled tool is stdlib-only Python and runs on macOS, Linux, and Windows.
 
 ### Code review and PRs
 
-- `review`: runs blind risk-scaled adversarial reviews from `reviewer_pool`, saves verifiable artifacts under `~/.astack/<project>/reviews/<date_time>/`, checks fix-equivalence, and stops via `astack-review-ledger`.
-- `adversarial-review`: single-reviewer playbook—research linked context first, enforce coding rules, state contradictions plainly, attack edge cases, and save verifiable artifacts.
+- `review`: runs repo-native verification harnesses paired with blind risk-scaled reviews from `reviewer_pool`, contrastive `gap_brief` reviewers, `P0–P5` impact reporting, fix-equivalence checks, and dynamic gap-hedged allocation via `astack-review-ledger` (see [docs/review-approach.md](./docs/review-approach.md)).
+- `quickcheck`: user-invoked single focused read-only reviewer for worker work or any changes/code—blocks push and PR creation only on proven blockers against known architectural choices/tradeoffs, known issues, or expected tooling/implementation behaviors, without vectored review or context-blind noise.
+- `risk-modeling`: teaches Lead, Researcher, and Reviewer how to cut behavioral vectors over atoms, add repo-native meaning/contract features, score additive Bayesian `[0, 1)` vector risk and epistemic `gap_mass`, and close the feedback loop with `--outcomes`.
+- `adversarial-review`: single-reviewer playbook—research linked context first, enforce coding rules, state contradictions plainly, attack edge cases, assign `P0–P5` output impact levels, and save verifiable artifacts.
 - `leave-feedback`: drafts, independently audits with saved verifiable evidence, and posts concise human-facing PR comments.
 - `challenge`: peer-to-peer adversarial interrogation of hypotheses, fixes, diagnoses, or designs.
 - `worrywart`: pushes back on wrong or unproven review points with runnable evidence.
@@ -240,6 +246,7 @@ Every bundled tool is stdlib-only Python and runs on macOS, Linux, and Windows.
 - `lookup`: consults `~/.astack` lessons, architecture decisions, and review evidence bundles—verifying them against live code—before acting.
 - `lookback`: mines transcripts, `LANES.md`, tickets, deploys, and review bundles into focused `~/.astack/<project>/lessons/<lesson>/LESSON.md` files and retires stale ones.
 - `make-it-stick`: turns wins and recurring failures into scoped `LESSON.md` entries and structural guards (architecture -> types -> lint -> test -> docs).
+- `skill-up`: agentic playbook dispatching `researcher`, `worker`, and `reviewer` subagents to turn `~/.astack` records into verified portable personal skills and `bin/` helper scripts under `~/.astack/<username>/` and install them cross-harness.
 - `analyze-environment`: discovers CLIs, APIs, MCP servers, services, and env vars via read-only probes and publishes a shared `TOOLS.md`.
 - `research-this`: investigates internal and external primary sources, verifies quotes in place, and grades findings A–F.
 - `decisions-in-plain-words`: resolves what it can, logs why, and escalates only real human calls with a plain choice and recommendation.
@@ -267,12 +274,12 @@ python3 scripts/build.py
 python3 -m unittest discover -s tests
 ```
 
-Run evals on any installed harness (`claude`, `codex`, `agy`, `cursor`, `devin`, `pi`):
+Run evals on any installed harness (`claude`, `codex`, `agy`, `cursor`, `devin`, `pi`) or verify all offline fixtures with zero LLM calls:
 
 ```bash
-python3 scripts/eval.py --harness codex --case "vectored-review-*"
-python3 scripts/eval.py --harness agy --case "vectored-review-*"
-python3 scripts/eval.py --harness claude --case "vectored-review-*"
+python3 scripts/eval.py --verify-offline
+python3 scripts/eval.py --harness codex --tier smoke --ablation with-without --parallel 4
+python3 scripts/eval.py --harness agy --case "capstone-*" --ablation with-without --runs 3 --markdown-out eval-scorecard.md
 ```
 
 CI runs unit tests on pushes to `main` and on pull requests ([.github/workflows/ci.yml](./.github/workflows/ci.yml)), and diff-selected live ablations via [.github/workflows/evals.yml](./.github/workflows/evals.yml) (see [evals/RESULTS.md](./evals/RESULTS.md)).
