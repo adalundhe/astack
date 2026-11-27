@@ -177,6 +177,20 @@ def _pid_alive(pid):
         return False
 
 
+def _pgid_alive(pgid):
+    if os.name == "nt" or not isinstance(pgid, int) or pgid <= 0:
+        return False
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
 def _resolve_session_id() -> str:
     for var in (
         "ASTACK_SESSION_ID",
@@ -246,7 +260,7 @@ def active_dispatches(*, repo_root="", session_id="", explicit_repo=False, all_d
             continue
         if not isinstance(rec, dict) or rec.get("state") != "running":
             continue
-        if not (_pid_alive(rec.get("pid")) or _pid_alive(rec.get("supervisor_pid"))):
+        if not (_pid_alive(rec.get("pid")) or _pgid_alive(rec.get("pgid")) or _pid_alive(rec.get("supervisor_pid"))):
             continue
         if not all_dispatches:
             rec_session = str(rec.get("session_id") or "")

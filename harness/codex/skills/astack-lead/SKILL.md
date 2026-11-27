@@ -50,7 +50,7 @@ Treat external-harness CLIs (`codex`, `claude`, `agy`, `cursor`, `devin`, `pi`, 
 
 - Launch external agents via `astack-dispatch spawn` (tracked `run_id`, PID, timeout, receipt) or `astack-dispatch batch` (parallel wave barrier). See `astack-dispatch --help`.
 - Never use raw shell `&` or `nohup`, because untracked background shells let your harness halt mid-wave.
-- Monitor live runs with `astack-dispatch status` and `astack-status`, and kill overdue ones with `astack-dispatch kill`.
+- Monitor live runs with `astack-dispatch status` and `astack-status`. Stop overdue or abandoned runs with `astack-dispatch kill --run-id <id>` or `astack-dispatch kill --all`.
 - Always join live external runs with `astack-dispatch wait --all --json` (pass `--run-id` or `--session` when sharing a repo, and a bounded `--timeout`) before advancing phases or ending your turn; by default `wait` and `status` scope to the current session or repository. Completing native agents never finishes a mixed-harness wave.
 
 ## Set up the program

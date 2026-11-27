@@ -11,15 +11,16 @@ Usage:
                       [--cwd DIR] [--repro-dir DIR] [--prompt TEXT | --prompt-file PATH]
                       [--system-prompt-file PATH] [--role lead|worker|reviewer|researcher]
                       [--vector NAME] [--settings PATH] [--out PATH] [--receipt PATH]
-                      [--run-id ID] [--session ID] [--state-dir DIR]
+                      [--run-id ID] [--session ID] [--owner-pid PID] [--state-dir DIR]
                       [--timeout SEC] [--dry-run] [--json]
   astack-dispatch spawn [same flags as run] [--log PATH] [--json]
-  astack-dispatch batch --jobs-file PATH [--settings PATH] [--session ID] [--state-dir DIR]
-                        [--timeout SEC] [--json]
+  astack-dispatch batch --jobs-file PATH [--settings PATH] [--session ID] [--owner-pid PID]
+                        [--state-dir DIR] [--timeout SEC] [--json]
   astack-dispatch status [--state-dir DIR] [--session ID] [--run-id ID ...] [--active-only] [--json]
   astack-dispatch wait [--state-dir DIR] [--session ID] [--run-id ID ...] [--all | --any]
                        [--timeout SEC] [--poll-interval SEC] [--json]
-  astack-dispatch kill --run-id ID [--state-dir DIR] [--json]
+  astack-dispatch kill [--run-id ID ... | --all | --session ID | --repo DIR] [--global]
+                       [--force] [--grace SEC] [--state-dir DIR] [--json]
 
 Exit codes:
   0   = success (or all pool entries reachable for check-pool / all waited runs exited 0)
@@ -38,6 +39,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass
@@ -817,31 +819,338 @@ def _pid_is_alive(pid: Any) -> bool:
         return False
 
 
-def _kill_pid(pid: Any) -> None:
-    if not isinstance(pid, int) or pid <= 0 or not _pid_is_alive(pid):
-        return
-    if os.name == "nt":
-        try:
-            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, timeout=5)
-        except (OSError, subprocess.SubprocessError):
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except OSError:
-                pass
-        return
+DEFAULT_KILL_GRACE_SECONDS = 0.8
+
+HOST_AGENT_NAMES = frozenset({
+    "claude",
+    "codex",
+    "agy",
+    "antigravity",
+    "cursor-agent",
+    "devin",
+    "pi",
+    "gemini",
+    "opencode",
+})
+
+HOST_AGENT_RUNTIME_NAMES = frozenset({
+    "node",
+    "nodejs",
+    "bun",
+    "deno",
+    "electron",
+})
+
+HOST_AGENT_ARG_MARKERS = (
+    "claude-code",
+    "@anthropic-ai/claude",
+    "@openai/codex",
+    "antigravity",
+    "cursor-agent",
+)
+
+
+def _pgid_is_alive(pgid: Any) -> bool:
+    if os.name == "nt" or not isinstance(pgid, int) or pgid <= 0:
+        return False
     try:
-        os.kill(pid, signal.SIGTERM)
+        os.killpg(pgid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
     except OSError:
-        return
-    deadline = time.monotonic() + 1.5
-    while time.monotonic() < deadline:
-        if not _pid_is_alive(pid):
-            return
-        time.sleep(0.05)
+        return False
+
+
+def _posix_process_table() -> dict[int, tuple[int, int, str, str]]:
+    """Best-effort {pid: (ppid, pgid, stat, command)} on POSIX; fails open to {} inside restricted sandboxes."""
+    if os.name == "nt":
+        return {}
+    table: dict[int, tuple[int, int, str, str]] = {}
+    proc_root = Path("/proc")
+    if proc_root.is_dir():
+        try:
+            for entry in proc_root.iterdir():
+                if not entry.name.isdigit():
+                    continue
+                pid = int(entry.name)
+                try:
+                    stat_txt = (entry / "stat").read_text(encoding="utf-8", errors="replace")
+                    rparen = stat_txt.rfind(")")
+                    if rparen == -1:
+                        continue
+                    fields = stat_txt[rparen + 2:].split()
+                    if len(fields) < 3:
+                        continue
+                    state = fields[0]
+                    ppid = int(fields[1])
+                    pgid = int(fields[2])
+                    cmd_raw = (entry / "cmdline").read_bytes().replace(b"\x00", b" ").decode("utf-8", errors="replace").strip()
+                    if not cmd_raw:
+                        lparen = stat_txt.find("(")
+                        cmd_raw = stat_txt[lparen + 1:rparen] if lparen != -1 else ""
+                    table[pid] = (ppid, pgid, state, cmd_raw)
+                except (OSError, ValueError):
+                    continue
+            if table:
+                return table
+        except OSError:
+            pass
     try:
-        os.kill(pid, signal.SIGKILL)
+        res = subprocess.run(
+            ["ps", "-eo", "pid=,ppid=,pgid=,stat=,command="],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if res.returncode != 0:
+            return {}
+        for line in res.stdout.splitlines():
+            parts = line.strip().split(None, 4)
+            if len(parts) < 4:
+                continue
+            try:
+                pid = int(parts[0])
+                ppid = int(parts[1])
+                pgid = int(parts[2])
+            except ValueError:
+                continue
+            state = parts[3]
+            cmd = parts[4] if len(parts) > 4 else ""
+            table[pid] = (ppid, pgid, state, cmd)
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    return table
+
+
+def _self_and_ancestor_pids(table: dict[int, tuple[int, int, str, str]]) -> set[int]:
+    protected: set[int] = {os.getpid()}
+    cur = os.getppid()
+    for _ in range(64):
+        if cur <= 1 or cur in protected:
+            break
+        protected.add(cur)
+        row = table.get(cur)
+        if row is None:
+            break
+        cur = row[0]
+    return protected
+
+
+def _collect_descendant_pids(root_pids: set[int], target_pgids: set[int]) -> set[int]:
+    if os.name == "nt":
+        return set()
+    table = _posix_process_table()
+    if not table:
+        return set()
+    protected = _self_and_ancestor_pids(table)
+    children_by_ppid: dict[int, list[int]] = {}
+    for pid, (ppid, _, _, _) in table.items():
+        children_by_ppid.setdefault(ppid, []).append(pid)
+
+    found: set[int] = set()
+    queue = [p for p in root_pids if isinstance(p, int) and p > 0]
+    seen: set[int] = set(queue)
+    while queue:
+        cur = queue.pop(0)
+        for child in children_by_ppid.get(cur, ()):
+            if child not in seen and child not in protected:
+                seen.add(child)
+                row = table.get(child)
+                if row is not None and not row[2].startswith("Z"):
+                    found.add(child)
+                queue.append(child)
+
+    self_pgid = os.getpgrp()
+    valid_pgids = {g for g in target_pgids if isinstance(g, int) and g > 0 and g != self_pgid}
+    for pid, (_, pgid, state, _) in table.items():
+        if pgid in valid_pgids and pid not in protected and not state.startswith("Z"):
+            found.add(pid)
+    return found
+
+
+def _looks_like_host_agent_command(cmd: str) -> bool:
+    low = cmd.strip().lower()
+    if not low or "astack-dispatch" in low or "test_dispatch" in low:
+        return False
+    tokens = cmd.strip().split()
+    if not tokens:
+        return False
+    exe_base = os.path.basename(tokens[0]).lower()
+    if exe_base in HOST_AGENT_NAMES:
+        return True
+    if exe_base in HOST_AGENT_RUNTIME_NAMES:
+        for tok in tokens[1:4]:
+            t_low = tok.lower()
+            t_base = os.path.basename(t_low)
+            if t_base in HOST_AGENT_NAMES or any(marker in t_low for marker in HOST_AGENT_ARG_MARKERS):
+                return True
+    return False
+
+
+def _detect_host_agent_pid() -> int | None:
+    """Best-effort nearest enclosing host agent harness PID (claude/codex/agy/etc.) for automatic orphan cleanup."""
+    if os.name == "nt":
+        return None
+    table = _posix_process_table()
+    if not table:
+        return None
+    cur = os.getppid()
+    seen: set[int] = {os.getpid()}
+    for _ in range(32):
+        if cur <= 1 or cur in seen:
+            break
+        seen.add(cur)
+        row = table.get(cur)
+        if row is None:
+            break
+        ppid, _, state, cmd = row
+        if not state.startswith("Z") and _looks_like_host_agent_command(cmd):
+            return cur
+        cur = ppid
+    return None
+
+
+def _resolve_owner_pid(explicit_owner_pid: int | None = None) -> int | None:
+    if explicit_owner_pid is not None:
+        return int(explicit_owner_pid) if int(explicit_owner_pid) > 0 else None
+    env_val = (os.environ.get("ASTACK_OWNER_PID") or "").strip()
+    if env_val:
+        try:
+            parsed = int(env_val)
+            return parsed if parsed > 0 else None
+        except ValueError:
+            pass
+    return _detect_host_agent_pid()
+
+
+def _send_signal_safe(target_id: Any, sig: int, *, is_pgid: bool = False) -> None:
+    if os.name == "nt" or not isinstance(target_id, int) or target_id <= 0:
+        return
+    if is_pgid:
+        if target_id == os.getpgrp():
+            return
+        try:
+            os.killpg(target_id, sig)
+        except OSError:
+            pass
+        return
+    if target_id == os.getpid():
+        return
+    try:
+        os.kill(target_id, sig)
     except OSError:
         pass
+
+
+def _targets_still_alive(
+    pids: set[int],
+    pgids: set[int],
+    proc: subprocess.Popen | None = None,
+) -> bool:
+    if proc is not None:
+        if proc.poll() is None:
+            return True
+    if os.name == "nt":
+        return any(_pid_is_alive(p) for p in pids)
+    self_pgid = os.getpgrp()
+    for g in pgids:
+        if g > 0 and g != self_pgid and _pgid_is_alive(g):
+            return True
+    proc_pid = proc.pid if (proc is not None and proc.poll() is not None) else None
+    for p in pids:
+        if p <= 0 or p == os.getpid() or p == proc_pid:
+            continue
+        if _pid_is_alive(p):
+            return True
+    return False
+
+
+def _terminate_process_tree(
+    pid: Any,
+    *,
+    pgid: Any = None,
+    proc: subprocess.Popen | None = None,
+    grace_s: float = DEFAULT_KILL_GRACE_SECONDS,
+    force: bool = False,
+) -> None:
+    """Reliably stop a child process and its entire process group/subtree (SIGTERM -> grace -> SIGKILL)."""
+    pids = {int(pid)} if isinstance(pid, int) and pid > 0 else set()
+    if os.name == "nt":
+        for p in pids:
+            if not _pid_is_alive(p):
+                continue
+            try:
+                subprocess.run(["taskkill", "/PID", str(p), "/T", "/F"], capture_output=True, timeout=5)
+            except (OSError, subprocess.SubprocessError):
+                try:
+                    os.kill(p, signal.SIGTERM)
+                except OSError:
+                    pass
+        if proc is not None:
+            try:
+                proc.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                pass
+        return
+
+    self_pgid = os.getpgrp()
+    pgids: set[int] = set()
+    if isinstance(pgid, int) and pgid > 0 and pgid != self_pgid:
+        pgids.add(pgid)
+    for p in list(pids):
+        try:
+            detected_pgid = os.getpgid(p)
+            if detected_pgid > 0 and detected_pgid != self_pgid:
+                pgids.add(detected_pgid)
+        except OSError:
+            pass
+
+    if not pids and not pgids:
+        return
+
+    extra = _collect_descendant_pids(pids, pgids)
+    all_pids = pids | extra
+    if not _targets_still_alive(all_pids, pgids, proc=proc):
+        return
+
+    if not force:
+        for g in pgids:
+            _send_signal_safe(g, signal.SIGTERM, is_pgid=True)
+        for p in all_pids:
+            _send_signal_safe(p, signal.SIGTERM)
+        deadline = time.monotonic() + max(0.0, float(grace_s))
+        while time.monotonic() < deadline:
+            if not _targets_still_alive(all_pids, pgids, proc=proc):
+                return
+            time.sleep(0.04)
+
+    # Escalate to unblockable SIGKILL across the full process group and any surviving/new descendants
+    all_pids |= _collect_descendant_pids(all_pids, pgids)
+    for g in pgids:
+        _send_signal_safe(g, signal.SIGKILL, is_pgid=True)
+    for p in all_pids:
+        _send_signal_safe(p, signal.SIGKILL)
+
+    kill_deadline = time.monotonic() + 1.0
+    swept = False
+    while time.monotonic() < kill_deadline:
+        if not _targets_still_alive(all_pids, pgids, proc=proc):
+            return
+        if not swept and time.monotonic() >= kill_deadline - 0.7:
+            swept = True
+            all_pids |= _collect_descendant_pids(all_pids, pgids)
+            for g in pgids:
+                _send_signal_safe(g, signal.SIGKILL, is_pgid=True)
+            for p in all_pids:
+                _send_signal_safe(p, signal.SIGKILL)
+        time.sleep(0.03)
+
+
+def _kill_pid(pid: Any) -> None:
+    _terminate_process_tree(pid)
 
 
 def _write_json_atomic(path: Path, payload: dict[str, Any], *, private: bool = False, fail_open: bool = False) -> None:
@@ -892,8 +1201,9 @@ def _load_and_reconcile_run(state_file: Path) -> dict[str, Any] | None:
         return None
     if data.get("state") == "running":
         child_alive = _pid_is_alive(data.get("pid"))
+        pgid_alive = _pgid_is_alive(data.get("pgid"))
         sup_alive = _pid_is_alive(data.get("supervisor_pid"))
-        if not child_alive and not sup_alive:
+        if not child_alive and not pgid_alive and not sup_alive:
             # Re-read once in case the supervisor finished writing right between our read and PID check
             try:
                 reread = json.loads(state_file.read_text(encoding="utf-8"))
@@ -1007,6 +1317,7 @@ def _prepare_invocation(
     harness: str = "",
     role: str = "reviewer",
     vector: str = "",
+    brief_mode: str = "",
     cwd_raw: str | None = None,
     repro_dir_raw: str | None = None,
     review_dir_raw: str | None = None,
@@ -1020,6 +1331,7 @@ def _prepare_invocation(
     timeout_s: float | None = None,
     run_id_raw: str | None = None,
     session_id: str = "",
+    owner_pid: int | None = None,
     dry_run: bool = False,
     allow_stdin: bool = True,
 ) -> dict[str, Any]:
@@ -1157,12 +1469,14 @@ def _prepare_invocation(
     )
     log_path = Path(log_raw).expanduser().resolve() if log_raw else None
     effective_session = _resolve_session_id(session_id)
+    resolved_owner_pid = _resolve_owner_pid(owner_pid)
     repo_root = _resolve_repo_root(cwd)
     origin_repo_root = _resolve_repo_root(Path.cwd())
 
     return {
         "run_id": run_id,
         "session_id": effective_session,
+        "owner_pid": resolved_owner_pid,
         "repo_root": repo_root,
         "origin_repo_root": origin_repo_root,
         "harness": resolved_harness,
@@ -1171,6 +1485,7 @@ def _prepare_invocation(
         "effort": eff or None,
         "role": role,
         "vector": vector or None,
+        "brief_mode": (brief_mode or "").strip() or None,
         "cwd": str(cwd),
         "repro_dir": str(repro_dir) if repro_dir else None,
         "review_dir": str(review_dir) if review_dir else None,
@@ -1187,6 +1502,29 @@ def _prepare_invocation(
     }
 
 
+def _extract_failure_note(stderr: str, stdout: str = "", *, max_lines: int = 8, max_chars: int = 800) -> str | None:
+    """Capture the trailing non-empty error lines from child stderr (falling back to stdout) for receipt diagnostics."""
+    for text in (stderr, stdout):
+        lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+        if not lines:
+            continue
+        snippet = "\n".join(lines[-max_lines:])
+        if len(snippet) > max_chars:
+            snippet = "..." + snippet[-(max_chars - 3):]
+        return snippet
+    return None
+
+
+def _is_marked_killed(state_file: Path | None) -> bool:
+    if state_file is None or not state_file.is_file():
+        return False
+    try:
+        cur = json.loads(state_file.read_text(encoding="utf-8"))
+        return isinstance(cur, dict) and cur.get("state") == "killed"
+    except (OSError, ValueError):
+        return False
+
+
 def _execute_prepared(job: dict[str, Any], state_dir: Path | None) -> tuple[dict[str, Any], str, str]:
     run_id = job["run_id"]
     resolved_harness = job["harness"]
@@ -1197,7 +1535,9 @@ def _execute_prepared(job: dict[str, Any], state_dir: Path | None) -> tuple[dict
     log_path = Path(job["log_file"]) if job.get("log_file") else None
     receipt_path = Path(job["receipt_file"]) if job.get("receipt_file") else None
     timeout_s = job.get("timeout_s")
+    owner_pid = job.get("owner_pid")
     state_file = _state_file_for(state_dir, run_id) if state_dir is not None else None
+    sup_pgid = os.getpgrp() if os.name != "nt" else None
 
     started = time.monotonic()
     timestamp = _utc_iso()
@@ -1210,11 +1550,20 @@ def _execute_prepared(job: dict[str, Any], state_dir: Path | None) -> tuple[dict
         repro_tmp.mkdir(parents=True, exist_ok=True)
         proc_env["TMPDIR"] = str(repro_tmp)
 
-    def _save_state(state_name: str, *, pid: int | None = None, exit_code: int | None = None,
-                    timed_out: bool = False, duration_s: float | None = None, finished_at: str | None = None) -> None:
+    def _save_state(
+        state_name: str,
+        *,
+        pid: int | None = None,
+        pgid: int | None = None,
+        exit_code: int | None = None,
+        timed_out: bool = False,
+        duration_s: float | None = None,
+        finished_at: str | None = None,
+        note: str | None = None,
+    ) -> None:
         if state_file is None:
             return
-        record = {
+        record: dict[str, Any] = {
             "run_id": run_id,
             "session_id": job.get("session_id") or "",
             "repo_root": job.get("repo_root") or _resolve_repo_root(cwd),
@@ -1226,13 +1575,17 @@ def _execute_prepared(job: dict[str, Any], state_dir: Path | None) -> tuple[dict
             "effort": job.get("effort"),
             "role": job["role"],
             "vector": job.get("vector"),
+            "brief_mode": job.get("brief_mode"),
             "cwd": job["cwd"],
             "repro_dir": job.get("repro_dir"),
             "out_file": job.get("out_file"),
             "log_file": job.get("log_file"),
             "receipt_file": job.get("receipt_file"),
             "pid": pid,
+            "pgid": pgid,
             "supervisor_pid": os.getpid(),
+            "supervisor_pgid": sup_pgid,
+            "owner_pid": owner_pid,
             "started_at": timestamp,
             "timeout_s": timeout_s,
             "finished_at": finished_at,
@@ -1240,32 +1593,155 @@ def _execute_prepared(job: dict[str, Any], state_dir: Path | None) -> tuple[dict
             "timed_out": timed_out,
             "duration_s": duration_s,
         }
+        if note:
+            record["note"] = note
         _write_json_atomic(state_file, record, fail_open=True)
 
-    proc = subprocess.Popen(
-        job["argv"],
-        stdin=subprocess.PIPE if job.get("stdin_text") is not None else subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd=cwd,
-        env=proc_env,
-        text=True,
-    )
-    _save_state("running", pid=proc.pid)
+    # Guard against kill-before-launch race: if already marked killed or owner already dead, never spawn child!
+    early_cancel_note: str | None = None
+    if _is_marked_killed(state_file):
+        early_cancel_note = "killed before launch"
+    elif isinstance(owner_pid, int) and owner_pid > 0 and not _pid_is_alive(owner_pid):
+        early_cancel_note = f"owner process {owner_pid} exited before launch"
+    if early_cancel_note is not None:
+        finished_at = _utc_iso()
+        _save_state("killed", exit_code=143, duration_s=0.0, finished_at=finished_at, note=early_cancel_note)
+        receipt = {
+            "run_id": run_id, "timestamp": timestamp, "finished_at": finished_at, "state": "killed",
+            "harness": resolved_harness, "provider": job["provider"], "model": job["model"],
+            "effort": job.get("effort"), "role": job["role"], "vector": job.get("vector"),
+            "brief_mode": job.get("brief_mode"), "cwd": job["cwd"],
+            "repro_dir": job.get("repro_dir"), "review_dir": job.get("review_dir"),
+            "binary": job["binary"], "argv": job["argv"], "exit_code": 143, "timed_out": False,
+            "timeout_s": timeout_s, "duration_s": 0.0, "stdout_len": 0,
+            "out_file": str(out_path) if out_path else None,
+            "log_file": str(log_path) if log_path else None, "note": early_cancel_note,
+        }
+        if receipt_path is not None:
+            _write_json_atomic(receipt_path, receipt, fail_open=True)
+        if review_dir is not None and (receipt_path is None or receipt_path.parent.resolve() != review_dir.resolve()):
+            _write_json_atomic(review_dir / f"{run_id}.receipt.json", receipt, fail_open=True)
+        return receipt, "", early_cancel_note
+
+    cancel_signal: list[int | None] = [None]
+    prev_handlers: dict[int, Any] = {}
+    handled_sigs = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGHUP"):
+        handled_sigs.append(signal.SIGHUP)
+
+    def _on_cancel_signal(signum: int, _frame: Any) -> None:
+        if cancel_signal[0] is None:
+            cancel_signal[0] = signum
+
+    for sig in handled_sigs:
+        try:
+            prev_handlers[sig] = signal.signal(sig, _on_cancel_signal)
+        except (OSError, ValueError):
+            pass
+
+    stdin_fh = None
+    stdout_fh = tempfile.TemporaryFile(mode="w+b")
+    stderr_fh = tempfile.TemporaryFile(mode="w+b")
+    proc: subprocess.Popen | None = None
+    child_pgid: int | None = None
+    timed_out = False
+    killed = False
+    cancel_note: str | None = None
+    exit_code = 1
+    stdout = ""
+    stderr = ""
 
     try:
-        stdout, stderr = proc.communicate(input=job.get("stdin_text"), timeout=timeout_s)
-        timed_out = False
-        exit_code = proc.returncode
-    except subprocess.TimeoutExpired:
-        _kill_pid(proc.pid)
-        try:
-            stdout, stderr = proc.communicate(timeout=5)
-        except subprocess.TimeoutExpired:
-            stdout, stderr = "", ""
-        timed_out = True
-        exit_code = 124
-        stderr = (stderr or "") + f"\ntimed out after {timeout_s}s"
+        if job.get("stdin_text") is not None:
+            stdin_fh = tempfile.TemporaryFile(mode="w+b")
+            stdin_fh.write(str(job["stdin_text"]).encode("utf-8"))
+            stdin_fh.flush()
+            stdin_fh.seek(0)
+
+        popen_kwargs: dict[str, Any] = {
+            "stdin": stdin_fh if stdin_fh is not None else subprocess.DEVNULL,
+            "stdout": stdout_fh,
+            "stderr": stderr_fh,
+            "cwd": cwd,
+            "env": proc_env,
+        }
+        if os.name == "nt":
+            popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        else:
+            popen_kwargs["start_new_session"] = True
+
+        proc = subprocess.Popen(job["argv"], **popen_kwargs)
+        child_pgid = proc.pid if os.name != "nt" else None
+        _save_state("running", pid=proc.pid, pgid=child_pgid)
+
+        deadline = (started + float(timeout_s)) if (timeout_s is not None and float(timeout_s) > 0) else None
+        last_watch_check = started
+
+        while True:
+            rc = proc.poll()
+            if rc is not None:
+                exit_code = rc
+                # Sweep any lingering background grandchildren left behind in child_pgid
+                if child_pgid is not None and _pgid_is_alive(child_pgid):
+                    _terminate_process_tree(None, pgid=child_pgid, grace_s=0.3)
+                break
+
+            now = time.monotonic()
+            if cancel_signal[0] is not None:
+                killed = True
+                sig_num = cancel_signal[0]
+                cancel_note = f"terminated by signal {sig_num}"
+                _terminate_process_tree(proc.pid, pgid=child_pgid, proc=proc)
+                exit_code = 128 + sig_num
+                break
+
+            if deadline is not None and now >= deadline:
+                timed_out = True
+                _terminate_process_tree(proc.pid, pgid=child_pgid, proc=proc)
+                exit_code = 124
+                break
+
+            if now - last_watch_check >= 0.2:
+                last_watch_check = now
+                if isinstance(owner_pid, int) and owner_pid > 0 and not _pid_is_alive(owner_pid):
+                    killed = True
+                    cancel_note = f"owner process {owner_pid} exited"
+                    _terminate_process_tree(proc.pid, pgid=child_pgid, proc=proc)
+                    exit_code = 143
+                    break
+                if _is_marked_killed(state_file):
+                    killed = True
+                    cancel_note = "killed via astack-dispatch kill"
+                    _terminate_process_tree(proc.pid, pgid=child_pgid, proc=proc)
+                    exit_code = 143
+                    break
+
+            time.sleep(0.05)
+
+        stdout_fh.seek(0)
+        stderr_fh.seek(0)
+        stdout = stdout_fh.read().decode("utf-8", errors="replace")
+        stderr = stderr_fh.read().decode("utf-8", errors="replace")
+        if timed_out:
+            stderr = (stderr or "") + f"\ntimed out after {timeout_s}s"
+        elif cancel_note:
+            stderr = (stderr or "") + f"\n{cancel_note}"
+    except BaseException:
+        if proc is not None and proc.poll() is None:
+            _terminate_process_tree(proc.pid, pgid=child_pgid, proc=proc)
+        raise
+    finally:
+        for sig, prev in prev_handlers.items():
+            try:
+                signal.signal(sig, prev)
+            except (OSError, ValueError):
+                pass
+        for fh in (stdin_fh, stdout_fh, stderr_fh):
+            if fh is not None:
+                try:
+                    fh.close()
+                except OSError:
+                    pass
 
     duration_s = round(time.monotonic() - started, 3)
     finished_at = _utc_iso()
@@ -1289,7 +1765,8 @@ def _execute_prepared(job: dict[str, Any], state_dir: Path | None) -> tuple[dict
         else:
             out_path.write_text(stdout, encoding="utf-8")
 
-    final_state = "timed_out" if timed_out else ("finished" if exit_code == 0 else "failed")
+    final_state = "killed" if killed else ("timed_out" if timed_out else ("finished" if exit_code == 0 else "failed"))
+    effective_note = cancel_note or (_extract_failure_note(stderr, output_text) if final_state != "finished" else None)
     receipt = {
         "run_id": run_id,
         "timestamp": timestamp,
@@ -1301,8 +1778,10 @@ def _execute_prepared(job: dict[str, Any], state_dir: Path | None) -> tuple[dict
         "effort": job.get("effort"),
         "role": job["role"],
         "vector": job.get("vector"),
+        "brief_mode": job.get("brief_mode"),
         "cwd": job["cwd"],
         "repro_dir": job.get("repro_dir"),
+        "review_dir": job.get("review_dir"),
         "binary": job["binary"],
         "argv": job["argv"],
         "exit_code": exit_code,
@@ -1312,11 +1791,14 @@ def _execute_prepared(job: dict[str, Any], state_dir: Path | None) -> tuple[dict
         "stdout_len": len(output_text),
         "out_file": str(out_path) if out_path else None,
         "log_file": str(log_path) if log_path else None,
+        "note": effective_note,
     }
 
     receipt_paths: list[Path] = []
     if receipt_path is not None:
         receipt_paths.append(receipt_path)
+    if review_dir is not None and (receipt_path is None or receipt_path.parent.resolve() != review_dir.resolve()):
+        receipt_paths.append(review_dir / f"{run_id}.receipt.json")
     if env_receipt_dir := os.environ.get("ASTACK_DISPATCH_RECEIPT_DIR"):
         rdir = Path(env_receipt_dir).expanduser().resolve()
         slug = re.sub(r"[^a-z0-9]+", "-", f"{resolved_harness}-{job['provider']}-{job['model']}".lower()).strip("-") or "dispatch"
@@ -1326,20 +1808,17 @@ def _execute_prepared(job: dict[str, Any], state_dir: Path | None) -> tuple[dict
         _write_json_atomic(rpath, receipt)
 
     # Preserve "killed" if terminated externally via `astack-dispatch kill`
-    if state_file is not None and state_file.is_file():
-        try:
-            cur = json.loads(state_file.read_text(encoding="utf-8"))
-            if isinstance(cur, dict) and cur.get("state") == "killed":
-                final_state = "killed"
-        except (OSError, ValueError):
-            pass
+    if _is_marked_killed(state_file):
+        final_state = "killed"
     _save_state(
         final_state,
-        pid=proc.pid,
+        pid=proc.pid if proc is not None else None,
+        pgid=child_pgid,
         exit_code=exit_code,
         timed_out=timed_out,
         duration_s=duration_s,
         finished_at=finished_at,
+        note=effective_note,
     )
     if state_dir is not None:
         _prune_old_runs(state_dir)
@@ -1355,6 +1834,7 @@ def cmd_run(args) -> int:
             harness=args.harness,
             role=args.role,
             vector=args.vector,
+            brief_mode=getattr(args, "brief_mode", "") or "",
             cwd_raw=args.cwd,
             repro_dir_raw=args.repro_dir,
             review_dir_raw=args.review_dir,
@@ -1368,6 +1848,7 @@ def cmd_run(args) -> int:
             timeout_s=args.timeout,
             run_id_raw=getattr(args, "run_id", None),
             session_id=getattr(args, "session", "") or "",
+            owner_pid=getattr(args, "owner_pid", None),
             dry_run=args.dry_run,
         )
     except DispatchError as exc:
@@ -1425,13 +1906,17 @@ def _spawn_prepared(job: dict[str, Any], state_dir: Path) -> dict[str, Any]:
         "effort": job.get("effort"),
         "role": job["role"],
         "vector": job.get("vector"),
+        "brief_mode": job.get("brief_mode"),
         "cwd": job["cwd"],
         "repro_dir": job.get("repro_dir"),
         "out_file": job["out_file"],
         "log_file": job["log_file"],
         "receipt_file": job["receipt_file"],
         "pid": None,
+        "pgid": None,
         "supervisor_pid": None,
+        "supervisor_pgid": None,
+        "owner_pid": job.get("owner_pid"),
         "started_at": _utc_iso(),
         "timeout_s": job.get("timeout_s"),
     }
@@ -1452,12 +1937,14 @@ def _spawn_prepared(job: dict[str, Any], state_dir: Path) -> dict[str, Any]:
     else:
         popen_kwargs["start_new_session"] = True
     sup = subprocess.Popen(sup_argv, **popen_kwargs)
+    sup_pgid = sup.pid if os.name != "nt" else None
 
     # Record supervisor_pid only if _supervise hasn't already written a newer terminal state
     try:
         cur = json.loads(state_file.read_text(encoding="utf-8"))
         if isinstance(cur, dict) and cur.get("state") == "running" and not cur.get("supervisor_pid"):
             cur["supervisor_pid"] = sup.pid
+            cur["supervisor_pgid"] = sup_pgid
             _write_json_atomic(state_file, cur)
     except (OSError, ValueError):
         pass
@@ -1467,6 +1954,7 @@ def _spawn_prepared(job: dict[str, Any], state_dir: Path) -> dict[str, Any]:
         "session_id": job.get("session_id") or "",
         "state": "running",
         "supervisor_pid": sup.pid,
+        "owner_pid": job.get("owner_pid"),
         "harness": job["harness"],
         "provider": job["provider"],
         "model": job["model"],
@@ -1490,6 +1978,7 @@ def cmd_spawn(args) -> int:
             harness=args.harness,
             role=args.role,
             vector=args.vector,
+            brief_mode=getattr(args, "brief_mode", "") or "",
             cwd_raw=args.cwd,
             repro_dir_raw=args.repro_dir,
             review_dir_raw=args.review_dir,
@@ -1503,6 +1992,7 @@ def cmd_spawn(args) -> int:
             timeout_s=args.timeout,
             run_id_raw=args.run_id,
             session_id=args.session or "",
+            owner_pid=getattr(args, "owner_pid", None),
             dry_run=args.dry_run,
         )
     except DispatchError as exc:
@@ -1605,6 +2095,7 @@ def _wait_for_runs(
     wait_any: bool = False,
     timeout_s: float | None = None,
     poll_interval: float = 0.5,
+    cancel_check: Any = None,
 ) -> tuple[bool, list[dict[str, Any]]]:
     """Wait until all (or any) tracked runs reach terminal state. Returns (completed, runs)."""
     interval = max(0.05, float(poll_interval))
@@ -1623,6 +2114,10 @@ def _wait_for_runs(
         return True, []
 
     while True:
+        if cancel_check is not None and cancel_check():
+            current = list_runs(state_dir, run_ids=target_ids)
+            by_id = {r["run_id"]: r for r in current}
+            return False, [by_id[rid] for rid in target_ids if rid in by_id]
         current = list_runs(state_dir, run_ids=target_ids)
         by_id = {r["run_id"]: r for r in current}
         ordered = [by_id[rid] for rid in target_ids if rid in by_id]
@@ -1689,27 +2184,202 @@ def cmd_wait(args) -> int:
     return 0 if all_ok else 1
 
 
+def _gather_run_kill_targets(
+    state_dir: Path,
+    recs: list[dict[str, Any]],
+) -> tuple[set[int], set[int], set[int], set[int]]:
+    """Collect (child_pids, child_pgids, sup_pids, sup_pgids) across runs, re-reading fresh state files."""
+    child_pids: set[int] = set()
+    child_pgids: set[int] = set()
+    sup_pids: set[int] = set()
+    sup_pgids: set[int] = set()
+    self_pid = os.getpid()
+    self_pgid = os.getpgrp() if os.name != "nt" else None
+
+    for rec in recs:
+        sources = [rec]
+        sf = _state_file_for(state_dir, str(rec.get("run_id") or ""))
+        if sf.is_file():
+            try:
+                fresh = json.loads(sf.read_text(encoding="utf-8"))
+                if isinstance(fresh, dict):
+                    sources.append(fresh)
+            except (OSError, ValueError):
+                pass
+        for src in sources:
+            cpid = src.get("pid")
+            cpgid = src.get("pgid")
+            spid = src.get("supervisor_pid")
+            spgid = src.get("supervisor_pgid")
+            if isinstance(cpid, int) and cpid > 0 and cpid != self_pid:
+                child_pids.add(cpid)
+                if os.name != "nt":
+                    try:
+                        g = os.getpgid(cpid)
+                        if g > 0 and g != self_pgid:
+                            child_pgids.add(g)
+                    except OSError:
+                        pass
+            if isinstance(cpgid, int) and cpgid > 0 and cpgid != self_pgid:
+                child_pgids.add(cpgid)
+            if isinstance(spid, int) and spid > 0 and spid != self_pid:
+                sup_pids.add(spid)
+                if os.name != "nt":
+                    try:
+                        g = os.getpgid(spid)
+                        if g > 0 and g != self_pgid:
+                            sup_pgids.add(g)
+                    except OSError:
+                        pass
+            if isinstance(spgid, int) and spgid > 0 and spgid != self_pgid:
+                sup_pgids.add(spgid)
+    return child_pids, child_pgids, sup_pids, sup_pgids
+
+
+def _kill_runs(
+    state_dir: Path,
+    recs: list[dict[str, Any]],
+    *,
+    grace_s: float = DEFAULT_KILL_GRACE_SECONDS,
+    force: bool = False,
+) -> list[dict[str, Any]]:
+    """Kill one or many runs in parallel: mark killed -> SIGTERM all trees -> single grace -> SIGKILL survivors."""
+    if not recs:
+        return []
+    now_iso = _utc_iso()
+    updated: list[dict[str, Any]] = []
+    for rec in recs:
+        item = dict(rec)
+        item["state"] = "killed"
+        item["finished_at"] = now_iso
+        _write_json_atomic(_state_file_for(state_dir, item["run_id"]), item, fail_open=True)
+        updated.append(item)
+
+    if os.name == "nt":
+        child_pids, _, sup_pids, _ = _gather_run_kill_targets(state_dir, updated)
+        for p in child_pids | sup_pids:
+            _terminate_process_tree(p, grace_s=0.0, force=True)
+        return updated
+
+    child_pids, child_pgids, sup_pids, sup_pgids = _gather_run_kill_targets(state_dir, updated)
+    extra = _collect_descendant_pids(child_pids | sup_pids, child_pgids | sup_pgids)
+    all_pids = child_pids | sup_pids | extra
+    all_pgids = child_pgids | sup_pgids
+
+    if not force and _targets_still_alive(all_pids, all_pgids):
+        for g in child_pgids:
+            _send_signal_safe(g, signal.SIGTERM, is_pgid=True)
+        for p in child_pids | extra:
+            _send_signal_safe(p, signal.SIGTERM)
+        for p in sup_pids:
+            _send_signal_safe(p, signal.SIGTERM)
+        deadline = time.monotonic() + max(0.0, float(grace_s))
+        while time.monotonic() < deadline:
+            if not _targets_still_alive(all_pids, all_pgids):
+                break
+            time.sleep(0.04)
+
+    # Re-read state files in case any supervisor spawned a child during the SIGTERM window, then SIGKILL all survivors
+    c2, cg2, s2, sg2 = _gather_run_kill_targets(state_dir, updated)
+    child_pids |= c2
+    child_pgids |= cg2
+    sup_pids |= s2
+    sup_pgids |= sg2
+    extra2 = _collect_descendant_pids(child_pids | sup_pids, child_pgids | sup_pgids)
+    all_pids = child_pids | sup_pids | extra | extra2
+    all_pgids = child_pgids | sup_pgids
+
+    if _targets_still_alive(all_pids, all_pgids):
+        for g in all_pgids:
+            _send_signal_safe(g, signal.SIGKILL, is_pgid=True)
+        for p in all_pids:
+            _send_signal_safe(p, signal.SIGKILL)
+        kill_deadline = time.monotonic() + 1.0
+        swept = False
+        while time.monotonic() < kill_deadline:
+            if not _targets_still_alive(all_pids, all_pgids):
+                break
+            if not swept and time.monotonic() >= kill_deadline - 0.7:
+                swept = True
+                all_pids |= _collect_descendant_pids(all_pids, all_pgids)
+                for g in all_pgids:
+                    _send_signal_safe(g, signal.SIGKILL, is_pgid=True)
+                for p in all_pids:
+                    _send_signal_safe(p, signal.SIGKILL)
+            time.sleep(0.03)
+
+    # Re-stamp final killed state in case a dying supervisor raced to overwrite it
+    for item in updated:
+        _write_json_atomic(_state_file_for(state_dir, item["run_id"]), item, fail_open=True)
+    return updated
+
+
 def cmd_kill(args) -> int:
     state_dir = Path(args.state_dir).expanduser().resolve() if args.state_dir else default_dispatch_state_dir().resolve()
-    try:
-        run_id = _validate_run_id(args.run_id)
-    except DispatchError as exc:
-        print(f"error: {exc}", file=sys.stderr)
+    raw_ids = list(getattr(args, "run_id", None) or [])
+    bulk_requested = bool(
+        getattr(args, "all_runs", False)
+        or getattr(args, "session", "")
+        or getattr(args, "repo", None)
+        or getattr(args, "global_scope", False)
+    )
+    if not raw_ids and not bulk_requested:
+        print("error: provide --run-id <id> or --all / --session / --repo / --global", file=sys.stderr)
         return 2
-    state_file = _state_file_for(state_dir, run_id)
-    rec = _load_and_reconcile_run(state_file)
-    if rec is None:
-        print(f"error: run {run_id!r} not found in {state_dir}", file=sys.stderr)
-        return 2
-    rec["state"] = "killed"
-    rec["finished_at"] = _utc_iso()
-    _write_json_atomic(state_file, rec)
-    _kill_pid(rec.get("pid"))
-    _kill_pid(rec.get("supervisor_pid"))
+
+    grace_s = float(getattr(args, "grace", DEFAULT_KILL_GRACE_SECONDS))
+    force = bool(getattr(args, "force", False))
+
+    if raw_ids and not bulk_requested:
+        validated_ids: list[str] = []
+        try:
+            for rid in raw_ids:
+                validated_ids.append(_validate_run_id(rid))
+        except DispatchError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        recs: list[dict[str, Any]] = []
+        for rid in validated_ids:
+            rec = _load_and_reconcile_run(_state_file_for(state_dir, rid))
+            if rec is None:
+                print(f"error: run {rid!r} not found in {state_dir}", file=sys.stderr)
+                return 2
+            recs.append(rec)
+        killed = _kill_runs(state_dir, recs, grace_s=grace_s, force=force)
+        if args.as_json:
+            if len(killed) == 1:
+                print(json.dumps(killed[0], indent=2))
+            else:
+                print(json.dumps({"killed_count": len(killed), "state_dir": str(state_dir), "runs": killed}, indent=2))
+        else:
+            for r in killed:
+                print(f"killed {r['run_id']}")
+        return 0
+
+    session_filter, repo_filter, origin_filter = _resolve_scope_filters(args)
+    target_recs = list_runs(
+        state_dir,
+        run_ids=raw_ids or None,
+        session_id=session_filter,
+        repo_root=repo_filter,
+        origin_repo_root=origin_filter,
+        active_only=not bool(raw_ids),
+    )
+    killed = _kill_runs(state_dir, target_recs, grace_s=grace_s, force=force)
+    payload = {
+        "killed_count": len(killed),
+        "state_dir": str(state_dir),
+        "session_filter": session_filter or None,
+        "repo_filter": (repo_filter or origin_filter) or None,
+        "runs": killed,
+    }
     if args.as_json:
-        print(json.dumps(rec, indent=2))
+        print(json.dumps(payload, indent=2))
     else:
-        print(f"killed {run_id}")
+        if not killed:
+            print("No active cross-harness runs to kill.")
+        for r in killed:
+            print(f"killed {r['run_id']}")
     return 0
 
 
@@ -1725,11 +2395,14 @@ def cmd_batch(args) -> int:
         print("error: --jobs-file must contain a non-empty JSON list of job objects", file=sys.stderr)
         return 2
 
+    batch_pid = os.getpid()
+    batch_owner_pid = _resolve_owner_pid(getattr(args, "owner_pid", None))
     prepared_jobs: list[dict[str, Any]] = []
     try:
         for idx, spec in enumerate(job_specs):
             if not isinstance(spec, dict):
                 raise DispatchError(f"jobs[{idx}] must be a JSON object")
+            job_owner = spec.get("owner_pid")
             prepared_jobs.append(_prepare_invocation(
                 provider=str(spec.get("provider") or ""),
                 model=str(spec.get("model") or ""),
@@ -1737,6 +2410,7 @@ def cmd_batch(args) -> int:
                 harness=str(spec.get("harness") or ""),
                 role=str(spec.get("role") or "reviewer"),
                 vector=str(spec.get("vector") or ""),
+                brief_mode=str(spec.get("brief_mode") or ""),
                 cwd_raw=spec.get("cwd"),
                 repro_dir_raw=spec.get("repro_dir"),
                 review_dir_raw=spec.get("review_dir"),
@@ -1750,6 +2424,7 @@ def cmd_batch(args) -> int:
                 timeout_s=spec.get("timeout"),
                 run_id_raw=spec.get("run_id"),
                 session_id=str(spec.get("session") or args.session or ""),
+                owner_pid=int(job_owner) if job_owner is not None else batch_pid,
                 dry_run=bool(args.dry_run),
                 allow_stdin=False,
             ))
@@ -1766,15 +2441,64 @@ def cmd_batch(args) -> int:
                 print(f"dry-run batch {p['run_id']}: {' '.join(p['argv'])}")
         return 0
 
-    handles = [_spawn_prepared(job, state_dir) for job in prepared_jobs]
-    run_ids = [h["run_id"] for h in handles]
-    completed, runs = _wait_for_runs(
-        state_dir,
-        run_ids=run_ids,
-        wait_any=False,
-        timeout_s=args.timeout,
-        poll_interval=args.poll_interval,
-    )
+    cancel_signal: list[int | None] = [None]
+    owner_exited = [False]
+    prev_handlers: dict[int, Any] = {}
+    handled_sigs = [signal.SIGINT, signal.SIGTERM]
+    if hasattr(signal, "SIGHUP"):
+        handled_sigs.append(signal.SIGHUP)
+
+    def _on_batch_signal(signum: int, _frame: Any) -> None:
+        if cancel_signal[0] is None:
+            cancel_signal[0] = signum
+
+    for sig in handled_sigs:
+        try:
+            prev_handlers[sig] = signal.signal(sig, _on_batch_signal)
+        except (OSError, ValueError):
+            pass
+
+    handles: list[dict[str, Any]] = []
+    run_ids: list[str] = []
+    try:
+        for job in prepared_jobs:
+            if cancel_signal[0] is not None:
+                break
+            h = _spawn_prepared(job, state_dir)
+            handles.append(h)
+            run_ids.append(h["run_id"])
+
+        def _batch_cancelled() -> bool:
+            if cancel_signal[0] is not None:
+                return True
+            if isinstance(batch_owner_pid, int) and batch_owner_pid > 0 and not _pid_is_alive(batch_owner_pid):
+                owner_exited[0] = True
+                return True
+            return False
+
+        completed, runs = _wait_for_runs(
+            state_dir,
+            run_ids=run_ids,
+            wait_any=False,
+            timeout_s=args.timeout,
+            poll_interval=args.poll_interval,
+            cancel_check=_batch_cancelled,
+        )
+        if cancel_signal[0] is not None or owner_exited[0]:
+            active_recs = list_runs(state_dir, run_ids=run_ids)
+            _kill_runs(state_dir, active_recs)
+            return (128 + cancel_signal[0]) if cancel_signal[0] is not None else 143
+    except BaseException:
+        if run_ids:
+            _kill_runs(state_dir, list_runs(state_dir, run_ids=run_ids))
+        raise
+    finally:
+        for sig, prev in prev_handlers.items():
+            try:
+                signal.signal(sig, prev)
+            except (OSError, ValueError):
+                pass
+
     enriched = _attach_output_preview(runs)
     all_ok = completed and all(r.get("state") == "finished" and r.get("exit_code") == 0 for r in runs)
     payload = {
@@ -1803,6 +2527,7 @@ def _add_dispatch_target_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--harness", default="", help="target harness CLI (claude|codex|agy|cursor|devin|pi|gemini|custom)")
     p.add_argument("--role", choices=("lead", "worker", "reviewer", "researcher"), default="reviewer")
     p.add_argument("--vector", default="", help="assigned review vector (recorded in receipt)")
+    p.add_argument("--brief-mode", default="", help="assigned review brief mode (standard|gap_brief|standard_with_gap_focus; recorded in receipt)")
     p.add_argument("--cwd", help="working directory / isolated worktree path")
     p.add_argument(
         "--repro-dir",
@@ -1821,6 +2546,12 @@ def _add_dispatch_target_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--log", help="write combined stdout/stderr log to this file")
     p.add_argument("--run-id", help="explicit run ID for cross-harness registry tracking")
     p.add_argument("--session", default="", help="host session ID owning this cross-harness run")
+    p.add_argument(
+        "--owner-pid",
+        type=int,
+        default=None,
+        help="PID of the owning Lead/parent process; when it exits, the child process tree is killed (0 disables)",
+    )
     p.add_argument("--state-dir", help="override cross-harness run registry directory")
     p.add_argument("--timeout", type=float, help="optional timeout in seconds")
     p.add_argument("--dry-run", action="store_true", help="print resolved command without executing")
@@ -1852,6 +2583,7 @@ def main(argv: list[str] | None = None) -> int:
     p_batch.add_argument("--jobs-file", required=True, help="JSON file containing a list of job objects (or {\"jobs\": [...]})")
     p_batch.add_argument("--settings", help="default settings.json path for pool approval and role timeouts")
     p_batch.add_argument("--session", default="", help="host session ID owning this wave")
+    p_batch.add_argument("--owner-pid", type=int, default=None, help="owning Lead PID (auto-detected if omitted; 0 disables)")
     p_batch.add_argument("--state-dir", help="override cross-harness run registry directory")
     p_batch.add_argument("--timeout", type=float, help="optional overall wait timeout in seconds")
     p_batch.add_argument("--poll-interval", type=float, default=0.5, help="status poll interval in seconds (default: 0.5)")
@@ -1880,8 +2612,14 @@ def main(argv: list[str] | None = None) -> int:
     p_wait.add_argument("--poll-interval", type=float, default=0.5, help="poll interval in seconds (default: 0.5)")
     p_wait.add_argument("--json", action="store_true", dest="as_json")
 
-    p_kill = sub.add_parser("kill", help="terminate a running cross-harness agent by run_id")
-    p_kill.add_argument("--run-id", required=True, help="run_id to terminate")
+    p_kill = sub.add_parser("kill", help="terminate one or all running cross-harness agent trees (SIGTERM -> SIGKILL)")
+    p_kill.add_argument("--run-id", action="append", default=[], help="specific run_id(s) to terminate (repeatable)")
+    p_kill.add_argument("--all", dest="all_runs", action="store_true", help="terminate all active runs in current session or repo scope")
+    p_kill.add_argument("--session", default="", help="terminate active runs belonging to this host session ID")
+    p_kill.add_argument("--repo", help="terminate active runs belonging to this repository/worktree root")
+    p_kill.add_argument("--global", dest="global_scope", action="store_true", help="include runs across all sessions and repositories")
+    p_kill.add_argument("--force", action="store_true", help="send SIGKILL immediately across the process tree without waiting for SIGTERM")
+    p_kill.add_argument("--grace", type=float, default=DEFAULT_KILL_GRACE_SECONDS, help="seconds between SIGTERM and SIGKILL escalation (default: 0.8)")
     p_kill.add_argument("--state-dir", help="override cross-harness run registry directory")
     p_kill.add_argument("--json", action="store_true", dest="as_json")
 

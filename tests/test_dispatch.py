@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 import unittest
 from pathlib import Path
@@ -294,13 +295,14 @@ class DispatchTest(unittest.TestCase):
         repro_codex = self.dir / "repros-codex"
         ok_codex = self.run_dispatch(
             "run", "--settings", str(settings), "--provider", "openai", "--model", "gpt-5.4",
-            "--vector", "auth", "--cwd", str(self.work), "--repro-dir", str(repro_codex),
+            "--vector", "auth", "--brief-mode", "gap_brief", "--cwd", str(self.work), "--repro-dir", str(repro_codex),
             "--prompt", "Review auth.py", "--out", str(out_codex), "--json",
         )
         self.assertEqual(ok_codex.returncode, 0, ok_codex.stderr)
         payload = json.loads(ok_codex.stdout)
         self.assertEqual(payload["harness"], "codex")
         self.assertEqual(payload["vector"], "auth")
+        self.assertEqual(payload["brief_mode"], "gap_brief")
         self.assertIn("BLOCKED: token replay", out_codex.read_text())
         self.assertIn(f"TMPDIR={(repro_codex / '.tmp').resolve()}", out_codex.read_text())
         self.assertTrue((repro_codex / ".tmp").is_dir())
@@ -309,6 +311,7 @@ class DispatchTest(unittest.TestCase):
         rec = json.loads(receipt_path.read_text())
         self.assertEqual(rec["provider"], "openai")
         self.assertEqual(rec["model"], "gpt-5.4")
+        self.assertEqual(rec["brief_mode"], "gap_brief")
         self.assertEqual(rec["exit_code"], 0)
 
         # Approved Pi model -> runs cleanly, AND ASTACK_DISPATCH_RECEIPT_DIR persists a receipt even without --out!
@@ -351,6 +354,65 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(to.returncode, 1)
         to_data = json.loads(to.stdout)
         self.assertTrue(to_data["timed_out"])
+
+        # Real dispatch with --review-dir (WITHOUT --out pointing into review_dir) writes receipt directly into review_dir
+        # AND captures child stderr error text in receipt.note so astack-review-ledger --receipts <review_dir> detects
+        # content-filter blocks globally across ALL vectors!
+        _make_stub(
+            self.stub_bin,
+            "codex",
+            'echo "OpenAI API error: request blocked by content filter (invalid_prompt)" >&2\nexit 1\n',
+        )
+        review_bundle = self.dir / "review-bundle"
+        state_dir = self.dir / "dispatch-state"
+        blocked_run = self.run_dispatch(
+            "run", "--settings", str(settings), "--provider", "openai", "--model", "gpt-5.4",
+            "--vector", "planner-dialect", "--brief-mode", "gap_brief",
+            "--cwd", str(self.work), "--review-dir", str(review_bundle),
+            "--state-dir", str(state_dir), "--prompt", "Review planner", "--json",
+        )
+        self.assertEqual(blocked_run.returncode, 1)
+        review_receipts = list(review_bundle.glob("*.receipt.json"))
+        self.assertEqual(len(review_receipts), 1, f"expected receipt inside --review-dir, got {review_receipts}")
+        blk_rec = json.loads(review_receipts[0].read_text())
+        self.assertEqual(blk_rec["state"], "failed")
+        self.assertEqual(blk_rec["exit_code"], 1)
+        self.assertEqual(blk_rec["brief_mode"], "gap_brief")
+        self.assertIn("content filter", (blk_rec.get("note") or "").lower())
+
+        # Feed --receipts <review_bundle> straight into astack-review-ledger (without listing failed_reviews!):
+        # gpt-5.4 must be blocked GLOBALLY (neither planner-dialect NOR wal-storage gets gpt-5.4) and gap_brief transfers!
+        ledger_in = {
+            "reviewer_pool": [
+                {"provider": "anthropic", "model": "claude-opus-4-6", "cost_minutes": 1.0},
+                {"provider": "google", "model": "gemini-2.5-pro", "cost_minutes": 1.0},
+                {"provider": "anthropic", "model": "claude-sonnet-4-6", "cost_minutes": 1.0},
+                {"provider": "openai", "model": "gpt-5.4", "cost_minutes": 1.0},
+            ],
+            "budget": {"budget_minutes": 6.0, "elapsed_minutes": 2.0},
+            "vectors": [
+                {"name": "planner-dialect", "risk": 0.55, "mass": 1.0, "gap_mass": 4.0},
+                {"name": "wal-storage", "risk": 0.85, "mass": 8.0, "gap_mass": 0.2},
+            ],
+            "reviews": [
+                {"vector": "planner-dialect", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "brief_mode": "standard"},
+                {"vector": "planner-dialect", "provider": "google", "model": "gemini-2.5-pro", "verified": [], "brief_mode": "standard"},
+            ],
+        }
+        led = subprocess.run(
+            [sys.executable, "-B", str(BIN / "astack-review-ledger"), "--receipts", str(review_bundle), "--json"],
+            input=json.dumps(ledger_in), capture_output=True, text=True,
+        )
+        self.assertEqual(led.returncode, 0, led.stderr)
+        led_out = json.loads(led.stdout)
+        by_vec = {v["name"]: v for v in led_out["vectors"]}
+        self.assertEqual(by_vec["planner-dialect"]["action"], "continue")
+        self.assertEqual(by_vec["planner-dialect"]["reason"], "gap_brief_transfer_after_model_failure")
+        self.assertEqual(by_vec["planner-dialect"]["next_models"][0]["model"], "claude-sonnet-4-6")
+        self.assertEqual(by_vec["planner-dialect"]["next_models"][0]["brief_mode"], "gap_brief")
+        # Critically: wal-storage MUST NOT receive gpt-5.4 either (content filter promoted globally)!
+        wal_models = {m["model"] for m in by_vec["wal-storage"]["next_models"]}
+        self.assertNotIn("gpt-5.4", wal_models)
 
     def test_spawn_status_wait_kill_and_batch_track_cross_harness_agents_as_tools(self):
         _make_stub(
@@ -1020,6 +1082,202 @@ class MultiHarnessEvalRunnerTest(unittest.TestCase):
         finally:
             if slow_id:
                 run_d(["kill", "--run-id", slow_id, "--state-dir", str(state_dir)], cwd=repo_b, env=clean_env())
+
+    def test_cancellation_kills_sigterm_ignoring_codex_subtrees_on_kill_batch_run_and_owner_exit(self):
+        """Stopping a Lead or killing runs MUST escalate SIGTERM -> SIGKILL across child + grandchild process trees."""
+        if os.name == "nt":
+            self.skipTest("POSIX process-group signal test")
+
+        import signal as _signal
+
+        state_dir = self.dir / "cancel-state"
+        fake_bin = self.dir / "cancel-bin"
+        fake_bin.mkdir()
+        marker_dir = self.dir / "markers"
+        marker_dir.mkdir()
+
+        # Stub `codex` that IGNORES SIGTERM AND spawns a grandchild that ALSO ignores SIGTERM,
+        # recording both PIDs in a marker file identified by MARKER_PATH=<path> inside the prompt!
+        stub = fake_bin / "codex"
+        stub.write_text(
+            f"#!{sys.executable}\n"
+            "import json, os, re, signal, subprocess, sys, time\n"
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            "prompt = sys.stdin.read()\n"
+            "m = re.search(r'MARKER_PATH=(\\S+)', prompt)\n"
+            "if not m:\n"
+            "    sys.exit(2)\n"
+            "marker = m.group(1)\n"
+            "gc = subprocess.Popen([\n"
+            "    sys.executable, '-c',\n"
+            "    'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)',\n"
+            "])\n"
+            "tmp = marker + '.tmp'\n"
+            "with open(tmp, 'w') as fh:\n"
+            "    json.dump({'pid': os.getpid(), 'pgid': os.getpgrp(), 'grandchild_pid': gc.pid}, fh)\n"
+            "os.replace(tmp, marker)\n"
+            "time.sleep(60)\n"
+        )
+        stub.chmod(0o755)
+
+        def clean_env(**extra):
+            env = {k: v for k, v in os.environ.items() if k not in (
+                "ASTACK_SESSION_ID", "CLAUDE_CODE_SESSION_ID", "CLAUDE_SESSION_ID",
+                "CODEX_THREAD_ID", "CODEX_SESSION_ID", "ANTIGRAVITY_CONVERSATION_ID", "ASTACK_OWNER_PID",
+            )}
+            env["PATH"] = f"{fake_bin}{os.pathsep}/usr/bin{os.pathsep}/bin"
+            env["ASTACK_DISPATCH_STRICT_PATH"] = "1"
+            env["ASTACK_DISPATCH_STATE_DIR"] = str(state_dir)
+            env.update(extra)
+            return env
+
+        def run_d(args, *, env=None):
+            return subprocess.run(
+                [sys.executable, "-B", str(BIN / "astack-dispatch"), *args],
+                cwd=self.dir, capture_output=True, text=True, env=env or clean_env(),
+            )
+
+        def wait_marker(path: Path, timeout: float = 5.0) -> dict:
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if path.is_file():
+                    return json.loads(path.read_text())
+                time.sleep(0.03)
+            self.fail(f"stub marker {path} did not appear within {timeout}s")
+
+        def is_alive(pid: int) -> bool:
+            try:
+                os.kill(pid, 0)
+                return True
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                return True
+
+        def wait_all_dead(pids: list[int], timeout: float = 3.0) -> None:
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if all(not is_alive(p) for p in pids):
+                    return
+                time.sleep(0.04)
+            still = [p for p in pids if is_alive(p)]
+            self.fail(f"expected all processes dead, still alive: {still}")
+
+        extra_cleanup_pids: list[int] = []
+        try:
+            # 1) `kill --session` kills 2 SIGTERM-ignoring codex subtrees in parallel and spares foreign session!
+            m1, m2, m_other = marker_dir / "k1.json", marker_dir / "k2.json", marker_dir / "other.json"
+            s1 = run_d(["spawn", "--harness", "codex", "--provider", "openai", "--model", "gpt-5.4",
+                        "--cwd", str(self.dir), "--prompt", f"MARKER_PATH={m1}", "--session", "sess-kill",
+                        "--owner-pid", "0", "--state-dir", str(state_dir), "--json"])
+            s2 = run_d(["spawn", "--harness", "codex", "--provider", "openai", "--model", "gpt-5.4",
+                        "--cwd", str(self.dir), "--prompt", f"MARKER_PATH={m2}", "--session", "sess-kill",
+                        "--owner-pid", "0", "--state-dir", str(state_dir), "--json"])
+            s_other = run_d(["spawn", "--harness", "codex", "--provider", "openai", "--model", "gpt-5.4",
+                             "--cwd", str(self.dir), "--prompt", f"MARKER_PATH={m_other}", "--session", "sess-keep",
+                             "--owner-pid", "0", "--state-dir", str(state_dir), "--json"])
+            self.assertEqual(s1.returncode, 0, s1.stderr)
+            self.assertEqual(s2.returncode, 0, s2.stderr)
+            self.assertEqual(s_other.returncode, 0, s_other.stderr)
+            d1, d2, d_other = wait_marker(m1), wait_marker(m2), wait_marker(m_other)
+            extra_cleanup_pids.extend([d1["pid"], d1["grandchild_pid"], d2["pid"], d2["grandchild_pid"], d_other["pid"], d_other["grandchild_pid"]])
+
+            kl_sess = run_d(["kill", "--session", "sess-kill", "--grace", "0.2", "--state-dir", str(state_dir), "--json"])
+            self.assertEqual(kl_sess.returncode, 0, kl_sess.stderr)
+            kl_data = json.loads(kl_sess.stdout)
+            self.assertEqual(kl_data["killed_count"], 2)
+            # BOTH SIGTERM-ignoring children AND BOTH grandchildren MUST be completely dead!
+            wait_all_dead([d1["pid"], d1["grandchild_pid"], d2["pid"], d2["grandchild_pid"]])
+            # Foreign session MUST still be alive!
+            self.assertTrue(is_alive(d_other["pid"]))
+            # Clean up foreign session via --force
+            kl_other = run_d(["kill", "--run-id", json.loads(s_other.stdout)["run_id"], "--force", "--state-dir", str(state_dir), "--json"])
+            self.assertEqual(kl_other.returncode, 0, kl_other.stderr)
+            self.assertEqual(json.loads(kl_other.stdout)["state"], "killed")
+            wait_all_dead([d_other["pid"], d_other["grandchild_pid"]])
+
+            # 2) Stopping a Lead (`--owner-pid` dies) automatically reaps SIGTERM-ignoring child + grandchild!
+            m_owner = marker_dir / "owner.json"
+            fake_lead = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+            try:
+                sp_own = run_d(["spawn", "--harness", "codex", "--provider", "openai", "--model", "gpt-5.4",
+                                "--cwd", str(self.dir), "--prompt", f"MARKER_PATH={m_owner}",
+                                "--owner-pid", str(fake_lead.pid), "--state-dir", str(state_dir), "--json"])
+                self.assertEqual(sp_own.returncode, 0, sp_own.stderr)
+                own_id = json.loads(sp_own.stdout)["run_id"]
+                d_own = wait_marker(m_owner)
+                extra_cleanup_pids.extend([d_own["pid"], d_own["grandchild_pid"]])
+                # Kill the fake Lead with SIGKILL (unblockable sudden Lead death!)
+                fake_lead.kill()
+                fake_lead.wait(timeout=3)
+                # Detached supervisor detects owner exit and SIGTERMs -> SIGKILLs entire Codex subtree!
+                wait_all_dead([d_own["pid"], d_own["grandchild_pid"]], timeout=4.0)
+                st_own = json.loads(run_d(["status", "--run-id", own_id, "--state-dir", str(state_dir), "--json"]).stdout)
+                self.assertEqual(st_own["runs"][0]["state"], "killed")
+            finally:
+                if fake_lead.poll() is None:
+                    fake_lead.kill()
+                    fake_lead.wait(timeout=3)
+
+            # 3) Stopping `astack-dispatch batch` with SIGTERM kills ALL spawned SIGTERM-ignoring subtrees!
+            mb1, mb2 = marker_dir / "b1.json", marker_dir / "b2.json"
+            jobs_file = self.dir / "cancel-batch.json"
+            jobs_file.write_text(json.dumps([
+                {"harness": "codex", "provider": "openai", "model": "gpt-5.4", "cwd": str(self.dir), "prompt": f"MARKER_PATH={mb1}"},
+                {"harness": "codex", "provider": "openai", "model": "gpt-5.4", "cwd": str(self.dir), "prompt": f"MARKER_PATH={mb2}"},
+            ]))
+            batch_proc = subprocess.Popen(
+                [sys.executable, "-B", str(BIN / "astack-dispatch"), "batch",
+                 "--jobs-file", str(jobs_file), "--owner-pid", "0", "--poll-interval", "0.05",
+                 "--state-dir", str(state_dir), "--json"],
+                cwd=self.dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=clean_env(),
+            )
+            try:
+                db1, db2 = wait_marker(mb1), wait_marker(mb2)
+                extra_cleanup_pids.extend([db1["pid"], db1["grandchild_pid"], db2["pid"], db2["grandchild_pid"]])
+                batch_proc.send_signal(_signal.SIGTERM)
+                batch_proc.wait(timeout=5)
+                self.assertNotEqual(batch_proc.returncode, 0)
+                wait_all_dead([db1["pid"], db1["grandchild_pid"], db2["pid"], db2["grandchild_pid"]], timeout=4.0)
+            finally:
+                if batch_proc.poll() is None:
+                    batch_proc.kill()
+                    batch_proc.wait(timeout=3)
+                if batch_proc.stdout:
+                    batch_proc.stdout.close()
+                if batch_proc.stderr:
+                    batch_proc.stderr.close()
+
+            # 4) Stopping synchronous `astack-dispatch run` with SIGTERM kills its SIGTERM-ignoring subtree too!
+            m_run = marker_dir / "sync-run.json"
+            run_proc = subprocess.Popen(
+                [sys.executable, "-B", str(BIN / "astack-dispatch"), "run",
+                 "--harness", "codex", "--provider", "openai", "--model", "gpt-5.4",
+                 "--cwd", str(self.dir), "--prompt", f"MARKER_PATH={m_run}", "--owner-pid", "0",
+                 "--state-dir", str(state_dir), "--json"],
+                cwd=self.dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=clean_env(),
+            )
+            try:
+                d_run = wait_marker(m_run)
+                extra_cleanup_pids.extend([d_run["pid"], d_run["grandchild_pid"]])
+                run_proc.send_signal(_signal.SIGTERM)
+                run_proc.wait(timeout=5)
+                self.assertNotEqual(run_proc.returncode, 0)
+                wait_all_dead([d_run["pid"], d_run["grandchild_pid"]], timeout=4.0)
+            finally:
+                if run_proc.poll() is None:
+                    run_proc.kill()
+                    run_proc.wait(timeout=3)
+                if run_proc.stdout:
+                    run_proc.stdout.close()
+                if run_proc.stderr:
+                    run_proc.stderr.close()
+        finally:
+            for p in extra_cleanup_pids:
+                try:
+                    os.kill(p, _signal.SIGKILL)
+                except OSError:
+                    pass
 
 
 if __name__ == "__main__":

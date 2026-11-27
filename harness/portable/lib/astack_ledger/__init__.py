@@ -8,6 +8,7 @@ from astack_ledger.engine import (
     ValidationError,
     evaluate_ledger,
     load_calibration_file,
+    load_dispatch_receipts,
     load_outcomes_file,
     parse_catch_rate_map,
 )
@@ -58,6 +59,7 @@ __all__ = [
     "invert_risk_to_mass",
     "jackknife_mh_estimate",
     "load_calibration_file",
+    "load_dispatch_receipts",
     "load_outcomes_file",
     "parse_catch_rate_map",
     "residual_risk_with_bracket",

@@ -365,34 +365,554 @@ class ReviewLedgerTest(unittest.TestCase):
                 payload["past_review_outcomes"] = outcomes
             return eval_json(payload)
 
-        # 1a) Cold start (T=0, unvalidated scorer): dynamic gap share starts at 0.50 -> hedges (3 / 2 / 1) instead of starving mid!
-        cold_1x = _wave1(1.0, 30.0)
-        cold_10x = _wave1(10.0, 30.0)
-        self.assertEqual({v["name"]: len(v["next_models"]) for v in cold_1x["vectors"]}, {"v_hot": 3, "v_mid": 2, "v_low": 1})
+        # 1a) Greedy risk-scaled Wave 1 on skewed vectors (17.6 / 4.0 / 1.0) with plenty budget (30m):
+        # Never capped at 2 AND never blasts all 12! Validated -> 4 / 1 / 1 (6 slots); cold start -> 4 / 2 / 2 (8 slots), both 100% level-invariant!
+        val_30 = _wave1(1.0, 30.0, validated_outcomes)
+        val_30_10x = _wave1(10.0, 30.0, validated_outcomes)
+        cold_30 = _wave1(1.0, 30.0)
+        cold_30_10x = _wave1(10.0, 30.0)
+        self.assertEqual({v["name"]: len(v["next_models"]) for v in val_30["vectors"]}, {"v_hot": 4, "v_mid": 1, "v_low": 1})
         self.assertEqual(
-            {v["name"]: len(v["next_models"]) for v in cold_1x["vectors"]},
-            {v["name"]: len(v["next_models"]) for v in cold_10x["vectors"]},
-        )  # level-invariant!
-        self.assertAlmostEqual(cold_1x["risk_allocation"]["dynamic_gap_share"], 0.5, places=4)
-        self.assertFalse(cold_1x["risk_allocation"]["budget_exceeded"])
-        self.assertEqual(cold_1x["risk_allocation"]["planned_cost"], 6.0)
-        self.assertLess(cold_10x["change_risk"], 1.0)  # never rounds up to 1.0!
-
-        # 1b) Validated scorer: dynamic gap share shrinks automatically -> sharpens to (4 / 1 / 1), still level-invariant!
-        val_1x = _wave1(1.0, 30.0, validated_outcomes)
-        val_10x = _wave1(10.0, 30.0, validated_outcomes)
-        self.assertEqual({v["name"]: len(v["next_models"]) for v in val_1x["vectors"]}, {"v_hot": 4, "v_mid": 1, "v_low": 1})
-        self.assertEqual(
-            {v["name"]: len(v["next_models"]) for v in val_1x["vectors"]},
-            {v["name"]: len(v["next_models"]) for v in val_10x["vectors"]},
+            {v["name"]: len(v["next_models"]) for v in val_30["vectors"]},
+            {v["name"]: len(v["next_models"]) for v in val_30_10x["vectors"]},
         )
-        self.assertLess(val_1x["risk_allocation"]["dynamic_gap_share"], 0.25)
-        self.assertFalse(val_1x["scorer_calibration"]["miscalibrated_on_gaps"])
+        self.assertEqual({v["name"]: len(v["next_models"]) for v in cold_30["vectors"]}, {"v_hot": 4, "v_mid": 2, "v_low": 2})
+        self.assertEqual(
+            {v["name"]: len(v["next_models"]) for v in cold_30["vectors"]},
+            {v["name"]: len(v["next_models"]) for v in cold_30_10x["vectors"]},
+        )
+        self.assertEqual(val_30["risk_allocation"]["wave_stop_reason"], "risk_scaled_wave_capacity")
+        self.assertEqual(val_30["risk_allocation"]["unused_budget"], 24.0)
+        self.assertLess(val_30["risk_allocation"]["dynamic_gap_share"], 0.25)
+        self.assertFalse(val_30["risk_allocation"]["budget_exceeded"])
+        self.assertLess(val_30_10x["change_risk"], 1.0)
 
-        # 2) Tight budget (6m): exact 6m spent, zero silent overspend!
-        tight = _wave1(1.0, 6.0, validated_outcomes)
-        self.assertEqual({v["name"]: len(v["next_models"]) for v in tight["vectors"]}, {"v_hot": 4, "v_mid": 1, "v_low": 1})
-        self.assertFalse(tight["risk_allocation"]["budget_exceeded"])
+        # 1b) User's 3-vector scenario (store=2.7, dialect=5.6, memory-budget=0.56+gap=3.0) at B=6, 8, 12, AND with wave_budget_minutes=30:
+        # Pure greedy reflects risk across all budgets; wave_budget_minutes=30 is a CEILING (never overrides risk_demand=9!);
+        # gap_brief strictly targets ONLY vectors lifted above their historical share (memory-budget ONLY, NOT dialect/store!)
+        u_vecs = [
+            {"name": "store", "risk": 0.70, "mass": 2.7},
+            {"name": "dialect", "risk": 0.85, "mass": 5.6},
+            {"name": "memory-budget", "risk": 0.43, "mass": 0.56, "gap_mass": 3.0},
+        ]
+        u6 = eval_json({"reviewer_pool": pool_1m, "budget": {"budget_minutes": 6.0, "elapsed_minutes": 0.0}, "vectors": u_vecs, "reviews": []})
+        u8 = eval_json({"reviewer_pool": pool_1m, "budget": {"budget_minutes": 8.0, "elapsed_minutes": 0.0}, "vectors": u_vecs, "reviews": []})
+        u12 = eval_json({"reviewer_pool": pool_1m, "budget": {"budget_minutes": 12.0, "elapsed_minutes": 0.0}, "vectors": u_vecs, "reviews": []})
+        u_wcap30 = eval_json({"reviewer_pool": pool_1m, "budget": {"budget_minutes": 30.0, "elapsed_minutes": 0.0, "wave_budget_minutes": 30.0}, "vectors": u_vecs, "reviews": []})
+        self.assertEqual(u6["risk_allocation"]["planned_reviewers"], 6)
+        self.assertEqual(u8["risk_allocation"]["planned_reviewers"], 8)  # uses ALL 8 slots!
+        self.assertEqual(max(len(v["next_models"]) for v in u8["vectors"]), 3)
+        self.assertEqual(u12["risk_allocation"]["planned_reviewers"], 9)  # risk-scaled 4 / 3 / 2, NOT flat 4/4/4!
+        self.assertEqual(u_wcap30["risk_allocation"]["planned_reviewers"], 9)  # Bug 1 regression: wave cap NEVER overrides risk scaling!
+        self.assertEqual(sorted(len(v["next_models"]) for v in u12["vectors"]), [2, 3, 4])
+        self.assertEqual(u12["risk_allocation"]["wave_stop_reason"], "risk_scaled_wave_capacity")
+        # Bug 3 + per-reviewer brief_mode regression: gap lift singles out memory-budget (NOT all vectors),
+        # and assigns gap_brief to ONLY ONE reviewer while the other runs standard!
+        self.assertEqual(
+            u12["risk_allocation"]["brief_modes_by_vector"],
+            {"store": "standard", "dialect": "standard", "memory-budget": "standard_plus_gap_brief"},
+        )
+        u12_by_v = {v["name"]: v for v in u12["vectors"]}
+        self.assertEqual([m["brief_mode"] for m in u12_by_v["store"]["next_models"]], ["standard"] * 2)
+        self.assertEqual([m["brief_mode"] for m in u12_by_v["dialect"]["next_models"]], ["standard"] * 3)
+        mb_u12_modes = [m["brief_mode"] for m in u12_by_v["memory-budget"]["next_models"]]
+        self.assertEqual(len(mb_u12_modes), 4)
+        self.assertEqual(mb_u12_modes.count("gap_brief"), 1)
+        self.assertEqual(mb_u12_modes.count("standard"), 3)
+
+        # 1-reviewer gap-lifted vector (e.g. gates-standards getting 1 reviewer) MUST NOT drop standard review:
+        # it gets standard_with_gap_focus in Wave 1, then gap_brief for its 2nd reviewer in Wave 2!
+        one_rev_gap = eval_json({
+            "reviewer_pool": pool_1m,
+            "budget": {"budget_minutes": 12.0, "elapsed_minutes": 0.0},
+            "vectors": [
+                {"name": "bench-gauntlet", "risk": 0.90, "mass": 12.0, "gap_mass": 0.2},
+                {"name": "store", "risk": 0.85, "mass": 10.0, "gap_mass": 0.2},
+                {"name": "wal", "risk": 0.80, "mass": 8.0, "gap_mass": 0.2},
+                {"name": "memory-budget", "risk": 0.45, "mass": 1.0, "gap_mass": 5.0},
+                {"name": "gates-standards", "risk": 0.10, "mass": 0.1, "gap_mass": 0.2},
+            ],
+            "reviews": [],
+        })
+        by_1r = {v["name"]: v for v in one_rev_gap["vectors"]}
+        self.assertEqual(len(by_1r["gates-standards"]["next_models"]), 1)
+        self.assertTrue(by_1r["gates-standards"]["gap_lifted"])
+        self.assertEqual(by_1r["gates-standards"]["brief_mode"], "standard_with_gap_focus")
+        self.assertEqual(by_1r["gates-standards"]["next_models"][0]["brief_mode"], "standard_with_gap_focus")
+        self.assertTrue(any("gates-standards" in a and "[standard_with_gap_focus]" in a for a in one_rev_gap["next_actions"]))
+        # Multi-reviewer gap-lifted memory-budget gets standard for primary reviewer(s) + 1 gap_brief infielder
+        mb_modes = [m["brief_mode"] for m in by_1r["memory-budget"]["next_models"]]
+        self.assertGreaterEqual(len(mb_modes), 2)
+        self.assertEqual(mb_modes.count("gap_brief"), 1)
+        self.assertEqual(mb_modes.count("standard"), len(mb_modes) - 1)
+        # Wave 2 on gates-standards (k=1 standard_with_gap_focus completed, 1 more reviewer needed): 2nd reviewer gets standard
+        # because standard_with_gap_focus already covered gap focus; if Wave 1 only ran standard, Wave 2 gets gap_brief!
+        wave2_gates_after_std = eval_json({
+            "reviewer_pool": pool_1m,
+            "budget": {"budget_minutes": 10.0, "elapsed_minutes": 1.0},
+            "vectors": [
+                {"name": "bench-gauntlet", "risk": 0.90, "mass": 12.0, "gap_mass": 0.2},
+                {"name": "gates-standards", "risk": 0.10, "mass": 0.1, "gap_mass": 0.4},
+            ],
+            "reviews": [
+                {"vector": "gates-standards", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "brief_mode": "standard"},
+            ],
+        })
+        gs_w2 = {v["name"]: v for v in wave2_gates_after_std["vectors"]}["gates-standards"]
+        self.assertEqual([m["brief_mode"] for m in gs_w2["next_models"]], ["gap_brief"])
+        self.assertEqual(gs_w2["brief_mode"], "gap_brief")
+        # If a dedicated gap_brief already ran in Wave 1, Wave 2 stays standard instead of repeating gap_brief
+        wave2_after_gap = eval_json({
+            "reviewer_pool": pool_1m,
+            "budget": {"budget_minutes": 10.0, "elapsed_minutes": 2.0},
+            "vectors": [
+                {"name": "bench-gauntlet", "risk": 0.90, "mass": 12.0, "gap_mass": 0.2},
+                {"name": "memory-budget", "risk": 0.45, "mass": 1.0, "gap_mass": 5.0},
+            ],
+            "reviews": [
+                {"vector": "memory-budget", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["b1"], "brief_mode": "standard"},
+                {"vector": "memory-budget", "provider": "openai", "model": "gpt-5.4", "verified": ["b2"], "brief_mode": "gap_brief"},
+            ],
+        })
+        mb_w2 = {v["name"]: v for v in wave2_after_gap["vectors"]}["memory-budget"]
+        self.assertEqual([m["brief_mode"] for m in mb_w2["next_models"]], ["standard", "standard"])
+        self.assertEqual(mb_w2["brief_mode"], "standard")
+        # Hard max_budget_minutes trimming a 2-reviewer gap vector down to 1 reviewer in Wave 1 converts it to standard_with_gap_focus
+        trimmed_gap = eval_json({
+            "reviewer_pool": pool_1m,
+            "budget": {"budget_minutes": 5.0, "elapsed_minutes": 0.0, "max_budget_minutes": 2.0},
+            "vectors": [
+                {"name": "store", "risk": 0.85, "mass": 10.0, "gap_mass": 0.1},
+                {"name": "memory-budget", "risk": 0.45, "mass": 1.0, "gap_mass": 5.0},
+            ],
+            "reviews": [],
+        })
+        mb_trim = {v["name"]: v for v in trimmed_gap["vectors"]}["memory-budget"]
+        self.assertEqual(len(mb_trim["next_models"]), 1)
+        self.assertEqual(mb_trim["next_models"][0]["brief_mode"], "standard_with_gap_focus")
+
+        # Model failover & provider rotation for gap_brief:
+        # 1) Multi-vector gap_brief rotates across different non-worker models (no single-vendor concentration!)
+        rot = eval_json({
+            "reviewer_pool": pool_1m,
+            "worker_model": {"provider": "anthropic", "model": "claude-sonnet-4-6"},
+            "budget": {"budget_minutes": 20.0, "elapsed_minutes": 0.0},
+            "vectors": [
+                {"name": "store", "risk": 0.90, "mass": 12.0, "gap_mass": 0.1},
+                {"name": "wal-storage", "risk": 0.50, "mass": 1.0, "gap_mass": 3.0},
+                {"name": "planner-dialect", "risk": 0.50, "mass": 1.0, "gap_mass": 3.0},
+            ],
+            "reviews": [],
+        })
+        rot_v = {v["name"]: v for v in rot["vectors"]}
+        wal_gap_models = [f"{m['provider']}/{m['model']}" for m in rot_v["wal-storage"]["next_models"] if m["brief_mode"] == "gap_brief"]
+        plan_gap_models = [f"{m['provider']}/{m['model']}" for m in rot_v["planner-dialect"]["next_models"] if m["brief_mode"] == "gap_brief"]
+        self.assertEqual(len(wal_gap_models), 1)
+        self.assertEqual(len(plan_gap_models), 1)
+        self.assertNotEqual(wal_gap_models[0], plan_gap_models[0])
+        self.assertNotEqual(wal_gap_models[0], "anthropic/claude-sonnet-4-6")
+        self.assertNotEqual(plan_gap_models[0], "anthropic/claude-sonnet-4-6")
+
+        # 2) Content-filter block on a gap_brief model (failed_reviews / status="blocked") transfers gap_brief
+        # to another reachable approved model AND recharges the replacement slot even when k=2 clean standard reviews finished!
+        transfer_fail = eval_json({
+            "reviewer_pool": pool_1m,
+            "budget": {"budget_minutes": 3.0, "elapsed_minutes": 3.0},
+            "vectors": [
+                {"name": "store", "risk": 0.90, "mass": 12.0, "gap_mass": 0.1},
+                {"name": "wal-storage", "risk": 0.50, "mass": 1.0, "gap_mass": 3.0},
+            ],
+            "reviews": [
+                {"vector": "store", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "brief_mode": "standard"},
+                {"vector": "store", "provider": "google", "model": "gemini-2.5-pro", "verified": [], "brief_mode": "standard"},
+                {"vector": "wal-storage", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "brief_mode": "standard"},
+                {"vector": "wal-storage", "provider": "google", "model": "gemini-2.5-pro", "verified": [], "brief_mode": "standard"},
+                {"vector": "wal-storage", "provider": "openai", "model": "gpt-5.4", "status": "blocked", "reason": "content_filter", "brief_mode": "gap_brief"},
+            ],
+        })
+        wal_tf = {v["name"]: v for v in transfer_fail["vectors"]}["wal-storage"]
+        self.assertEqual(wal_tf["action"], "continue")
+        self.assertEqual(wal_tf["reason"], "gap_brief_transfer_after_model_failure")
+        self.assertEqual(wal_tf["failed_reviews"], 1)
+        self.assertEqual(len(wal_tf["next_models"]), 1)
+        self.assertEqual(wal_tf["next_models"][0]["model"], "claude-sonnet-4-6")
+        self.assertEqual(wal_tf["next_models"][0]["brief_mode"], "gap_brief")
+        self.assertEqual(transfer_fail["risk_allocation"]["recharged_slots"], 1)
+        self.assertEqual(transfer_fail["risk_allocation"]["recharge_reason"], "model_failure_transfer")
+        self.assertTrue(any("content_filter" in c.get("reason", "") for c in transfer_fail["could_not_test"]))
+
+        # 3) Marking the blocked model in unreachable_models (with standard brief_mode logged on completed reviews)
+        # ALSO transfers gap_brief automatically even without explicit failed_reviews!
+        transfer_unreach = eval_json({
+            "reviewer_pool": pool_1m,
+            "unreachable_models": [{"provider": "openai", "model": "gpt-5.4", "reason": "content_filter"}],
+            "budget": {"budget_minutes": 4.0, "elapsed_minutes": 2.0},
+            "vectors": [
+                {"name": "store", "risk": 0.90, "mass": 12.0, "gap_mass": 0.1},
+                {"name": "wal-storage", "risk": 0.50, "mass": 1.0, "gap_mass": 3.0},
+            ],
+            "reviews": [
+                {"vector": "store", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "brief_mode": "standard"},
+                {"vector": "store", "provider": "google", "model": "gemini-2.5-pro", "verified": [], "brief_mode": "standard"},
+                {"vector": "wal-storage", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "brief_mode": "standard"},
+                {"vector": "wal-storage", "provider": "google", "model": "gemini-2.5-pro", "verified": [], "brief_mode": "standard"},
+            ],
+        })
+        wal_tu = {v["name"]: v for v in transfer_unreach["vectors"]}["wal-storage"]
+        self.assertEqual(wal_tu["action"], "continue")
+        self.assertEqual(wal_tu["reason"], "gap_brief_transfer_after_model_failure")
+        self.assertEqual(wal_tu["next_models"][0]["model"], "claude-sonnet-4-6")
+        self.assertEqual(wal_tu["next_models"][0]["brief_mode"], "gap_brief")
+
+        # 4) If NO unused reachable approved model remains when gap_brief fails, ledger flags honestly!
+        no_transfer = eval_json({
+            "reviewer_pool": pool_1m[:3],
+            "budget": {"budget_minutes": 3.0, "elapsed_minutes": 3.0},
+            "vectors": [
+                {"name": "store", "risk": 0.90, "mass": 12.0, "gap_mass": 0.1},
+                {"name": "wal-storage", "risk": 0.50, "mass": 1.0, "gap_mass": 3.0},
+            ],
+            "reviews": [
+                {"vector": "wal-storage", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "brief_mode": "standard"},
+                {"vector": "wal-storage", "provider": "google", "model": "gemini-2.5-pro", "verified": [], "brief_mode": "standard"},
+            ],
+            "failed_reviews": [
+                {"vector": "wal-storage", "provider": "openai", "model": "gpt-5.4", "reason": "content_filter", "brief_mode": "gap_brief"},
+            ],
+        })
+        wal_nt = {v["name"]: v for v in no_transfer["vectors"]}["wal-storage"]
+        self.assertEqual(wal_nt["action"], "flag")
+        self.assertEqual(wal_nt["reason"], "gap_brief_unrun_pool_exhausted")
+        self.assertTrue(wal_nt["landing_blocked"])
+        self.assertTrue(any("gap_brief could not transfer" in c.get("reason", "") for c in no_transfer["could_not_test"]))
+        # Conservation & failed-slot return on flagged vectors:
+        ra_nt = no_transfer["risk_allocation"]
+        self.assertEqual(ra_nt["failed_reviewers"], 1)
+        self.assertEqual(ra_nt["failed_slots_returned"], 1)
+        self.assertEqual(ra_nt["flagged_vectors"], 2)  # store (0 reviews, budget done) + wal-storage (gap_brief unrun)
+        self.assertEqual(ra_nt["closed_vectors"] + ra_nt["flagged_vectors"] + ra_nt["open_vectors"], 2)
+
+        # 5) Capacity tracking never suffers phantom slots, double-counted failures, or stale recharge after recovery:
+        # 5a) Duplicate failure logged in BOTH reviews(status=failed) and failed_reviews dedupes to 1;
+        #     per-vector available pool caps at 2 remaining models so extra slots flow to store instead of burning phantom slots!
+        #     (Non-blocked transient failure stays vector-scoped so store can still use gpt-5.4;
+        #      content-filter 'blocked' promotes globally to unreachable across ALL vectors!)
+        dedupe_cap = eval_json({
+            "reviewer_pool": pool_1m[:3],
+            "budget": {"budget_minutes": 5.0, "elapsed_minutes": 0.0},
+            "vectors": [
+                {"name": "wal-storage", "risk": 0.85, "mass": 8.0, "gap_mass": 4.0},
+                {"name": "store", "risk": 0.85, "mass": 8.0, "gap_mass": 4.0},
+            ],
+            "reviews": [
+                {"vector": "wal-storage", "provider": "openai", "model": "gpt-5.4", "status": "failed", "reason": "exit_1", "brief_mode": "gap_brief"},
+            ],
+            "failed_reviews": [
+                {"vector": "wal-storage", "provider": "openai", "model": "gpt-5.4", "status": "failed", "reason": "exit_1", "brief_mode": "gap_brief"},
+            ],
+        })
+        ra_dc = dedupe_cap["risk_allocation"]
+        self.assertEqual(ra_dc["failed_reviewers"], 1)  # deduped, NOT 2!
+        self.assertEqual(ra_dc["returned_slots"], 1)    # failed slot returned immediately!
+        dc_by_v = {v["name"]: v for v in dedupe_cap["vectors"]}
+        self.assertEqual(len(dc_by_v["wal-storage"]["next_models"]), 2)  # capped at 2 remaining non-failed models!
+        self.assertEqual(len(dc_by_v["store"]["next_models"]), 3)        # non-blocked vector failure still lets store use gpt-5.4!
+        self.assertEqual(ra_dc["wave_stop_reason"], "pool_saturated")
+
+        # Global content-filter block promotion: a 'blocked' failure on planner-dialect MUST exclude that model
+        # from EVERY OTHER vector (e.g. wal-storage) just like unreachable_models!
+        global_block = eval_json({
+            "reviewer_pool": pool_1m[:3],
+            "budget": {"budget_minutes": 6.0, "elapsed_minutes": 0.0},
+            "vectors": [
+                {"name": "planner-dialect", "risk": 0.85, "mass": 8.0, "gap_mass": 4.0},
+                {"name": "wal-storage", "risk": 0.85, "mass": 8.0, "gap_mass": 4.0},
+            ],
+            "failed_reviews": [
+                {"vector": "planner-dialect", "provider": "openai", "model": "gpt-5.4", "status": "blocked", "reason": "content filter", "brief_mode": "gap_brief"},
+            ],
+        })
+        for vo in global_block["vectors"]:
+            assigned = {m["model"] for m in vo["next_models"]}
+            self.assertNotIn("gpt-5.4", assigned, f"globally blocked model must not be dispatched to {vo['name']}")
+            self.assertEqual(len(vo["next_models"]), 2)
+
+        # 5b) Explicit contradictory input (same model BOTH completed AND failed on one vector) MUST raise exit 2 (R8 regression)!
+        contradictory = run_ledger({
+            "reviewer_pool": pool_1m[:3],
+            "budget": {"budget_minutes": 6.0, "elapsed_minutes": 2.0},
+            "vectors": [{"name": "wal-storage", "risk": 0.50, "mass": 2.0}],
+            "reviews": [
+                {"vector": "wal-storage", "provider": "anthropic", "model": "claude-opus-4-6", "verified": []},
+                {"vector": "wal-storage", "provider": "openai", "model": "gpt-5.4", "verified": []},
+            ],
+            "failed_reviews": [
+                {"vector": "wal-storage", "provider": "openai", "model": "gpt-5.4", "status": "blocked", "reason": "content_filter"},
+            ],
+        })
+        self.assertEqual(contradictory.returncode, 2)
+        self.assertIn("contradictory status", contradictory.stderr)
+
+        # 5c) Direct dispatch receipt ingestion (--receipts <dir>):
+        # - Unrecorded GPT failure receipt auto-ingests and transfers gap_brief to working model (R10 regression!)
+        # - Older failed receipt superseded by completed review on retry does NOT raise contradiction or stale failure!
+        rec_dir = Path(tempfile.mkdtemp(prefix="astack-receipts-"))
+        self.addCleanup(shutil.rmtree, rec_dir, ignore_errors=True)
+        (rec_dir / "wal-gpt.md.receipt.json").write_text(json.dumps({
+            "run_id": "r-wal-gpt", "state": "failed", "role": "reviewer", "vector": "wal-storage",
+            "provider": "openai", "model": "gpt-5.4", "brief_mode": "gap_brief",
+            "exit_code": 1, "timed_out": False, "note": "OpenAI content_filter stopped run",
+            "timestamp": "2026-11-27T20:00:00Z", "finished_at": "2026-11-27T20:01:00Z",
+        }), encoding="utf-8")
+        (rec_dir / "store-opus-fail.md.receipt.json").write_text(json.dumps({
+            "run_id": "r-store-opus-1", "state": "timed_out", "role": "reviewer", "vector": "store",
+            "provider": "anthropic", "model": "claude-opus-4-6", "brief_mode": "standard",
+            "exit_code": 124, "timed_out": True,
+            "timestamp": "2026-11-27T20:00:00Z", "finished_at": "2026-11-27T20:02:00Z",
+        }), encoding="utf-8")
+        r10_auto = eval_json({
+            "reviewer_pool": pool_1m,
+            "budget": {"budget_minutes": 4.0, "elapsed_minutes": 4.0},
+            "vectors": [
+                {"name": "store", "risk": 0.90, "mass": 12.0, "gap_mass": 0.1},
+                {"name": "wal-storage", "risk": 0.50, "mass": 1.0, "gap_mass": 3.0},
+            ],
+            "reviews": [
+                # Lead forgot to list wal-storage's GPT failure in failed_reviews, AND store's opus retry succeeded!
+                {"vector": "store", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "brief_mode": "standard"},
+                {"vector": "store", "provider": "google", "model": "gemini-2.5-pro", "verified": [], "brief_mode": "standard"},
+                {"vector": "wal-storage", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "brief_mode": "standard"},
+                {"vector": "wal-storage", "provider": "google", "model": "gemini-2.5-pro", "verified": [], "brief_mode": "standard"},
+            ],
+        }, "--receipts", str(rec_dir))
+        r10_v = {v["name"]: v for v in r10_auto["vectors"]}
+        self.assertEqual(r10_v["store"]["failed_reviews"], 0)
+        self.assertEqual(r10_v["store"]["action"], "stop")
+        self.assertEqual(r10_v["wal-storage"]["failed_reviews"], 1)
+        self.assertEqual(r10_v["wal-storage"]["action"], "continue")
+        self.assertEqual(r10_v["wal-storage"]["reason"], "gap_brief_transfer_after_model_failure")
+        self.assertEqual(r10_v["wal-storage"]["next_models"][0]["model"], "claude-sonnet-4-6")
+        self.assertEqual(r10_v["wal-storage"]["next_models"][0]["brief_mode"], "gap_brief")
+
+        # 5d) Label regression R5: k=1 (only 1 model completed, zero unused models left, budget done) ->
+        # MUST report gap_brief_unrun_pool_exhausted (NOT budget_exhausted)!
+        r5_only_one = eval_json({
+            "reviewer_pool": pool_1m[:2],
+            "budget": {"budget_minutes": 2.0, "elapsed_minutes": 2.0},
+            "vectors": [
+                {"name": "store", "risk": 0.90, "mass": 12.0, "gap_mass": 0.1},
+                {"name": "wal-storage", "risk": 0.50, "mass": 1.0, "gap_mass": 3.0},
+            ],
+            "reviews": [
+                {"vector": "wal-storage", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "brief_mode": "standard"},
+            ],
+            "failed_reviews": [
+                {"vector": "wal-storage", "provider": "openai", "model": "gpt-5.4", "status": "blocked", "reason": "content_filter", "brief_mode": "gap_brief"},
+            ],
+        })
+        wal_r5 = {v["name"]: v for v in r5_only_one["vectors"]}["wal-storage"]
+        self.assertEqual(wal_r5["action"], "flag")
+        self.assertEqual(wal_r5["verdict"], "pool_exhausted")
+        self.assertEqual(wal_r5["reason"], "gap_brief_unrun_pool_exhausted")
+        self.assertTrue(wal_r5["landing_blocked"])
+
+        # 5e) Label regression R7: when max_budget_minutes prevents recharging even 1 full slot (0 recharged slots),
+        # recharge_reason MUST read capped_by_max_budget (NEVER model_failure_transfer)!
+        pool_10m = [{**m, "cost_minutes": 10.0} for m in POOL_4]
+        r7_capped = eval_json({
+            "reviewer_pool": pool_10m,
+            "budget": {"budget_minutes": 40.0, "elapsed_minutes": 40.0, "max_budget_minutes": 42.0},
+            "vectors": [
+                {"name": "store", "risk": 0.90, "mass": 12.0, "gap_mass": 0.1},
+                {"name": "wal-storage", "risk": 0.50, "mass": 1.0, "gap_mass": 3.0},
+            ],
+            "reviews": [
+                {"vector": "store", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "brief_mode": "standard"},
+                {"vector": "store", "provider": "google", "model": "gemini-2.5-pro", "verified": [], "brief_mode": "standard"},
+                {"vector": "wal-storage", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "brief_mode": "standard"},
+                {"vector": "wal-storage", "provider": "google", "model": "gemini-2.5-pro", "verified": [], "brief_mode": "standard"},
+            ],
+            "failed_reviews": [
+                {"vector": "wal-storage", "provider": "openai", "model": "gpt-5.4", "status": "blocked", "reason": "content_filter", "brief_mode": "gap_brief"},
+            ],
+        })
+        self.assertEqual(r7_capped["risk_allocation"]["recharged_slots"], 0)
+        self.assertEqual(r7_capped["risk_allocation"]["recharge_reason"], "capped_by_max_budget")
+        self.assertTrue(r7_capped["risk_allocation"]["recharge_capped_by_max_budget"])
+
+        # 5f) Once a failed gap_brief has ALREADY been recovered by another model, keeping the historical failure
+        # in failed_reviews MUST NOT trigger stale recharge on later clean waves!
+        recovered = eval_json({
+            "reviewer_pool": pool_1m,
+            "residual_target": 0.01,
+            "budget": {"budget_minutes": 3.0, "elapsed_minutes": 3.0},
+            "vectors": [
+                {"name": "store", "risk": 0.90, "mass": 12.0, "gap_mass": 0.1},
+                {"name": "wal-storage", "risk": 0.50, "mass": 1.0, "gap_mass": 3.0},
+            ],
+            "reviews": [
+                {"vector": "store", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "brief_mode": "standard"},
+                {"vector": "store", "provider": "google", "model": "gemini-2.5-pro", "verified": [], "brief_mode": "standard"},
+                {"vector": "wal-storage", "provider": "anthropic", "model": "claude-opus-4-6", "verified": [], "brief_mode": "standard"},
+                {"vector": "wal-storage", "provider": "google", "model": "gemini-2.5-pro", "verified": [], "brief_mode": "standard"},
+                {"vector": "wal-storage", "provider": "anthropic", "model": "claude-sonnet-4-6", "verified": [], "brief_mode": "gap_brief"},
+            ],
+            "failed_reviews": [
+                {"vector": "wal-storage", "provider": "openai", "model": "gpt-5.4", "reason": "content_filter", "brief_mode": "gap_brief"},
+            ],
+        })
+        self.assertEqual(recovered["risk_allocation"]["recharged_slots"], 0)
+        self.assertEqual(recovered["risk_allocation"]["recharge_reason"], "none")
+        self.assertEqual({v["name"]: v["action"] for v in recovered["vectors"]}["wal-storage"], "stop")
+        md_u12 = run_ledger({"reviewer_pool": pool_1m, "budget": {"budget_minutes": 12.0, "elapsed_minutes": 0.0}, "vectors": u_vecs, "reviews": []}, "--markdown").stdout
+        self.assertIn("RISK-SCALED WAVE 1", md_u12)
+
+        # 1c) Evidence-driven post-wave parallel expansion + recharge + returned capacity:
+        # Wave 1 exhausts 6/6 budget; store & dialect close clean (returning 4 slots!), while memory-budget finds
+        # disjoint singletons (m=0 -> informative=False!) -> expands to ALL 2 remaining unused models in parallel,
+        # recharges +2 slots automatically, and refreshes gap weights inline!
+        recharged = eval_json({
+            "reviewer_pool": pool_1m,
+            "budget": {"budget_minutes": 6.0, "elapsed_minutes": 6.0},
+            "vectors": u_vecs,
+            "reviews": [
+                {"vector": "store", "provider": "anthropic", "model": "claude-opus-4-6", "verified": []},
+                {"vector": "store", "provider": "openai", "model": "gpt-5.4", "verified": []},
+                {"vector": "dialect", "provider": "anthropic", "model": "claude-opus-4-6", "verified": []},
+                {"vector": "dialect", "provider": "openai", "model": "gpt-5.4", "verified": []},
+                {"vector": "memory-budget", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["b1"]},
+                {"vector": "memory-budget", "provider": "openai", "model": "gpt-5.4", "verified": ["b2"]},
+            ],
+        })
+        ra_rc = recharged["risk_allocation"]
+        self.assertEqual(ra_rc["returned_slots"], 4)
+        self.assertEqual(ra_rc["closed_vectors"], 2)
+        self.assertEqual(ra_rc["open_vectors"], 1)
+        self.assertEqual(ra_rc["recharged_slots"], 2)
+        self.assertEqual(ra_rc["recharged_minutes"], 2.0)
+        self.assertEqual(ra_rc["effective_budget_minutes"], 8.0)
+        self.assertEqual(ra_rc["recharge_reason"], "active_blockers_unsaturated")
+        self.assertFalse(ra_rc["budget_exceeded"])
+        self.assertEqual({v["name"]: len(v["next_models"]) for v in recharged["vectors"]}, {"store": 0, "dialect": 0, "memory-budget": 2})
+        self.assertGreater(recharged["scorer_calibration"]["weights"]["gap"], recharged["scorer_calibration"]["weights"]["hist"])
+        md_rc = run_ledger({
+            "reviewer_pool": pool_1m,
+            "budget": {"budget_minutes": 6.0, "elapsed_minutes": 6.0},
+            "vectors": u_vecs,
+            "reviews": [
+                {"vector": "store", "provider": "anthropic", "model": "claude-opus-4-6", "verified": []},
+                {"vector": "store", "provider": "openai", "model": "gpt-5.4", "verified": []},
+                {"vector": "dialect", "provider": "anthropic", "model": "claude-opus-4-6", "verified": []},
+                {"vector": "dialect", "provider": "openai", "model": "gpt-5.4", "verified": []},
+                {"vector": "memory-budget", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["b1"]},
+                {"vector": "memory-budget", "provider": "openai", "model": "gpt-5.4", "verified": ["b2"]},
+            ],
+        }, "--markdown").stdout
+        self.assertIn("BUDGET RECHARGED", md_rc)
+        self.assertIn("4` slot(s) returned", md_rc)
+
+        # Unanimous small count (zero_singletons=True) vs bounded partial overlap (estimated_unfound=0.0):
+        # BOTH stay efficient and dispatch only 1 confirming model (NOT over-expanding to all remaining models!)
+        unanimous_1 = eval_json({
+            "reviewer_pool": pool_1m,
+            "budget": {"budget_minutes": 2.0, "elapsed_minutes": 2.0},
+            "vectors": [{"name": "mem", "risk": 0.6, "mass": 2.0}],
+            "reviews": [
+                {"vector": "mem", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["b1"]},
+                {"vector": "mem", "provider": "openai", "model": "gpt-5.4", "verified": ["b1"]},
+            ],
+        })
+        self.assertEqual(len(unanimous_1["vectors"][0]["next_models"]), 1)
+        self.assertEqual(unanimous_1["risk_allocation"]["recharged_slots"], 1)
+
+        bounded_1 = eval_json({
+            "reviewer_pool": pool_1m,
+            "budget": {"budget_minutes": 2.0, "elapsed_minutes": 2.0},
+            "vectors": [{"name": "mem", "risk": 0.6, "mass": 2.0}],
+            "reviews": [
+                {"vector": "mem", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["b1", "b2"]},
+                {"vector": "mem", "provider": "openai", "model": "gpt-5.4", "verified": ["b1"]},
+            ],
+        })
+        self.assertEqual(len(bounded_1["vectors"][0]["next_models"]), 1)
+        self.assertEqual(bounded_1["risk_allocation"]["recharged_slots"], 1)
+
+        # Bounded large unfound estimate (m=1, n1=4, n2=3 -> Chapman estimated_unfound=3.0): expands to both remaining models!
+        bounded_2 = eval_json({
+            "reviewer_pool": pool_1m,
+            "budget": {"budget_minutes": 2.0, "elapsed_minutes": 2.0},
+            "vectors": [{"name": "mem", "risk": 0.6, "mass": 2.0}],
+            "reviews": [
+                {"vector": "mem", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["b1", "b2", "b3", "b4"]},
+                {"vector": "mem", "provider": "openai", "model": "gpt-5.4", "verified": ["b1", "b5", "b6"]},
+            ],
+        })
+        self.assertEqual(len(bounded_2["vectors"][0]["next_models"]), 2)
+        self.assertEqual(bounded_2["risk_allocation"]["recharged_slots"], 2)
+
+        # Bug 2 regression: hard max_budget_minutes TRIMS next_models & next_actions strictly to fit eff_rem!
+        capped_rc = eval_json({
+            "reviewer_pool": pool_1m,
+            "budget": {"budget_minutes": 6.0, "elapsed_minutes": 6.0, "max_budget_minutes": 7.0},
+            "vectors": [
+                {"name": "store", "risk": 0.7, "mass": 4.0},
+                {"name": "wal", "risk": 0.6, "mass": 2.0},
+            ],
+            "reviews": [
+                {"vector": "store", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["s1"]},
+                {"vector": "store", "provider": "openai", "model": "gpt-5.4", "verified": ["s2"]},
+                {"vector": "wal", "provider": "anthropic", "model": "claude-opus-4-6", "verified": ["w1"]},
+                {"vector": "wal", "provider": "openai", "model": "gpt-5.4", "verified": ["w1"]},
+            ],
+        })
+        # store wanted 2 + wal wanted 1 = 3 slots, hard max_budget_minutes=7 allows only +1 recharge -> strictly 1 dispatch kept!
+        self.assertEqual(capped_rc["risk_allocation"]["recharged_slots"], 1)
+        self.assertEqual(capped_rc["risk_allocation"]["planned_reviewers"], 1)
+        self.assertEqual(len(capped_rc["next_actions"]), 1)
+        self.assertEqual(capped_rc["risk_allocation"]["trimmed_by_max_budget_slots"], 2)
+        self.assertTrue(capped_rc["risk_allocation"]["recharge_capped_by_max_budget"])
+        self.assertFalse(capped_rc["risk_allocation"]["budget_exceeded"])
+        self.assertTrue(any("max_budget_minutes" in c.get("reason", "") for c in capped_rc["could_not_test"]))
+
+        # Bug 4 regression: lead/test-proven known_blockers trigger recharge & inline gap learning even when reviewers found 0!
+        lead_proven = eval_json({
+            "reviewer_pool": pool_1m,
+            "budget": {"budget_minutes": 6.0, "elapsed_minutes": 6.0},
+            "vectors": [
+                {"name": "store", "risk": 0.70, "mass": 5.6},
+                {"name": "memory-budget", "risk": 0.43, "mass": 0.56, "gap_mass": 3.0, "known_blockers": ["deadline-before-room"]},
+            ],
+            "reviews": [
+                {"vector": "store", "provider": "anthropic", "model": "claude-opus-4-6", "verified": []},
+                {"vector": "store", "provider": "openai", "model": "gpt-5.4", "verified": []},
+                {"vector": "memory-budget", "provider": "anthropic", "model": "claude-opus-4-6", "verified": []},
+                {"vector": "memory-budget", "provider": "openai", "model": "gpt-5.4", "verified": []},
+            ],
+        })
+        by_lp = {v["name"]: v for v in lead_proven["vectors"]}
+        self.assertEqual(by_lp["memory-budget"]["action"], "continue")
+        self.assertEqual(by_lp["memory-budget"]["reason"], "known_blockers_need_deeper_review")
+        self.assertTrue(by_lp["memory-budget"]["landing_blocked"])
+        self.assertEqual(lead_proven["risk_allocation"]["recharged_slots"], 1)
+        self.assertEqual(lead_proven["risk_allocation"]["returned_slots"], 2)
+        self.assertGreater(lead_proven["scorer_calibration"]["weights"]["gap"], lead_proven["scorer_calibration"]["weights"]["hist"])
+
+        # 1d) Single risky vector (M=1): scales cleanly to full pool!
+        single_v = eval_json({
+            "reviewer_pool": pool_1m,
+            "budget": {"budget_minutes": 10.0, "elapsed_minutes": 0.0},
+            "vectors": [{"name": "solo", "risk": 0.95, "mass": 5.0}],
+            "reviews": [],
+        })
+        self.assertEqual(len(single_v["vectors"][0]["next_models"]), 4)
+        self.assertEqual(single_v["risk_allocation"]["wave_stop_reason"], "pool_saturated")
+
+        # 2) Tight budget (6m): cold start hedges (3 / 2 / 1), validated sharpens to (4 / 1 / 1), level-invariant!
+        cold_6 = _wave1(1.0, 6.0)
+        val_6 = _wave1(1.0, 6.0, validated_outcomes)
+        self.assertEqual({v["name"]: len(v["next_models"]) for v in cold_6["vectors"]}, {"v_hot": 3, "v_mid": 2, "v_low": 1})
+        self.assertEqual({v["name"]: len(v["next_models"]) for v in val_6["vectors"]}, {"v_hot": 4, "v_mid": 1, "v_low": 1})
+        self.assertFalse(val_6["risk_allocation"]["budget_exceeded"])
 
         # 3) Very tight budget (3m for 3 vectors): 1 per vector = 3m, zero overspend!
         three_m = _wave1(1.0, 3.0)
@@ -501,8 +1021,9 @@ class ReviewLedgerTest(unittest.TestCase):
         self.assertGreater(res_gap["risk_allocation"]["dynamic_gap_share"], 0.75)
         by_v = {v["name"]: v for v in res_gap["vectors"]}
         self.assertGreater(len(by_v["memory-budget"]["next_models"]), len(by_v["store"]["next_models"]))
-        self.assertEqual(by_v["memory-budget"]["brief_mode"], "gap_brief")
-        self.assertTrue(any("memory-budget" in a and "gap_brief" in a for a in res_gap["next_actions"]))
+        self.assertEqual(by_v["memory-budget"]["brief_mode"], "standard_plus_gap_brief")
+        self.assertEqual([m["brief_mode"] for m in by_v["memory-budget"]["next_models"]].count("gap_brief"), 1)
+        self.assertTrue(any("memory-budget" in a and "[gap_brief]" in a and "[standard]" in a for a in res_gap["next_actions"]))
         self.assertIn("outcome_record", res_gap)
         md_gap = run_ledger(payload, "--outcomes", str(outcomes_file), "--markdown").stdout
         self.assertIn("SCORER MISCALIBRATED ON GAPS", md_gap)

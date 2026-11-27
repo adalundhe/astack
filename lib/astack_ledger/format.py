@@ -24,10 +24,29 @@ def format_markdown(result: dict[str, Any]) -> str:
         lines.append("")
 
     ra = result.get("risk_allocation") or {}
+    if ra.get("recharged_minutes"):
+        ret_note = f"; `{ra['returned_slots']}` slot(s) returned by closed vectors" if ra.get("returned_slots") else ""
+        lines.append(
+            f"**BUDGET RECHARGED** — `+{ra['recharged_minutes']}` (`+{ra['recharged_slots']}` slot(s)) unlocked "
+            f"from verified findings (`{ra['recharge_reason']}`; effective budget `{ra['effective_budget_minutes']}`{ret_note})."
+        )
+        lines.append("")
+    if ra.get("trimmed_by_max_budget_slots"):
+        lines.append(
+            f"**MAX BUDGET CAP REACHED** — trimmed `{ra['trimmed_by_max_budget_slots']}` dispatch(es) to stay within "
+            f"hard `max_budget_minutes` (`{ra['max_budget_minutes']}`)."
+        )
+        lines.append("")
     if ra.get("budget_exceeded"):
         lines.append(
             f"**BUDGET OVERRUN** — planned wave cost `{ra['planned_cost']}` exceeds remaining budget "
-            f"`{ra['remaining_budget']}` by `{ra['budget_overrun']}`."
+            f"`{ra.get('effective_remaining_budget', ra['remaining_budget'])}` by `{ra['budget_overrun']}`."
+        )
+        lines.append("")
+    elif ra.get("wave_stop_reason") == "risk_scaled_wave_capacity" and ra.get("unused_budget"):
+        lines.append(
+            f"**RISK-SCALED WAVE 1** — `{ra['planned_reviewers']}` slot(s) matched risk concentration "
+            f"`{ra['risk_concentration']}` (holding `{ra['unused_budget']}` budget for Wave 2 / recharge)."
         )
         lines.append("")
 

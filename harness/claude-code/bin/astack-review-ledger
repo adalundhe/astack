@@ -2,7 +2,7 @@
 """Thin CLI entrypoint for `astack-review-ledger` (implementation lives in `lib/astack_ledger/`).
 
 Usage:
-  astack-review-ledger [INPUT.json | -] [--calibration FILE] [--outcomes FILE] [--json | --markdown | --lanes]
+  astack-review-ledger [INPUT.json | -] [--calibration FILE] [--outcomes FILE] [--receipts PATH ...] [--json | --markdown | --lanes]
   astack-review-ledger score [INPUT.json | -] [--repo DIR] [--base REF] [--head REF] [--pairs FILE] [--horizon N] [--max-commits N] [--json]
 
 Exit codes:
@@ -37,6 +37,7 @@ from astack_ledger import (  # noqa: E402
     extract_git_baseline,
     format_markdown,
     load_calibration_file,
+    load_dispatch_receipts,
     load_outcomes_file,
     score_vectors,
 )
@@ -131,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("input", nargs="?", default="-", help="Path to review ledger JSON file, or '-' for stdin (default: -)")
     parser.add_argument("--calibration", default=os.environ.get("ASTACK_CALIBRATION_FILE", ""), help="Optional calibration.json file")
     parser.add_argument("--outcomes", default=os.environ.get("ASTACK_OUTCOMES_FILE", ""), help="Optional scorer_outcomes.jsonl/.json file for dynamic gap-share learning")
+    parser.add_argument("--receipts", action="append", default=[], help="Optional dispatch receipt file or directory (repeatable) to auto-ingest failed/blocked reviewer receipts")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--json", action="store_true", dest="as_json", help="Emit structured JSON output")
     mode.add_argument("--markdown", action="store_true", help="Emit internal Markdown coverage map (default)")
@@ -154,9 +156,15 @@ def main(argv: list[str] | None = None) -> int:
             elif args.outcomes != os.environ.get("ASTACK_OUTCOMES_FILE", ""):
                 raise ValidationError(f"outcomes file not found: {out_path}")
 
+        external_receipts = load_dispatch_receipts(args.receipts) if args.receipts else []
         raw_text = sys.stdin.read() if args.input == "-" else Path(args.input).read_text(encoding="utf-8")
         payload = json.loads(raw_text)
-        result = evaluate_ledger(payload, external_catch_rates=external_cr, external_outcomes=external_outcomes)
+        result = evaluate_ledger(
+            payload,
+            external_catch_rates=external_cr,
+            external_outcomes=external_outcomes,
+            external_receipts=external_receipts,
+        )
     except (OSError, json.JSONDecodeError, ValidationError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
